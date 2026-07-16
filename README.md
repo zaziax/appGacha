@@ -19,6 +19,11 @@
 | 孵化器 | Agent SDK 封装 + 生成验收闭环 |
 | 模型接入层 | 用户自配 API（MVP）/ 托管计费（商业化） |
 
+## 文档
+
+- [设计总览与决策记录](docs/design.md)
+- [.egg 格式规范与 Bridge API v1](docs/egg-spec.md)
+
 ## 状态
 
-设计阶段。当前正在定稿 `.egg` 格式规范与 bridge API v1。
+设计阶段。`.egg` 规范与 bridge API v1 已定稿（草案），下一步：蛋运行时。
