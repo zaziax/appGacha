@@ -24,7 +24,8 @@
 - [设计总览与决策记录](docs/design.md)
 - [.egg 格式规范与 Bridge API v1](docs/egg-spec.md)
 - [蛋运行时技术方案](docs/runtime.md)
+- [孵化器设计（生成管线）](docs/incubator.md)
 
 ## 状态
 
-设计阶段。`.egg` 规范与运行时方案已定稿（草案），下一步：孵化器（生成管线）设计。
+设计阶段收官。四份设计文档已齐（design / egg-spec / runtime / incubator），下一步：进入实现，从蛋运行时 + 一颗手写样例蛋开始。
