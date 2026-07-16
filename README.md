@@ -23,7 +23,8 @@
 
 - [设计总览与决策记录](docs/design.md)
 - [.egg 格式规范与 Bridge API v1](docs/egg-spec.md)
+- [蛋运行时技术方案](docs/runtime.md)
 
 ## 状态
 
-设计阶段。`.egg` 规范与 bridge API v1 已定稿（草案），下一步：蛋运行时。
+设计阶段。`.egg` 规范与运行时方案已定稿（草案），下一步：孵化器（生成管线）设计。

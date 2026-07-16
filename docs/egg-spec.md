@@ -82,10 +82,10 @@ egg.fs.read(path) / write(path, content) / list(dir)
 
 ```js
 egg.notify.send(title, body)
-egg.schedule.register(cron, handlerName)   // 主应用代跑，蛋不自起进程
+egg.schedule.register(cron, { title, body })   // v1: 静态通知文案，Main 直接发，点击通知打开蛋
 ```
 
-`schedule` 由主应用调度执行蛋声明的受限 handler（决策 D1 的例外方案）。
+到点执行蛋代码的方案（隐藏窗口代跑）作为后续演进，见 docs/runtime.md 第 4 节。
 
 ### egg.ui — 统一交互
 
