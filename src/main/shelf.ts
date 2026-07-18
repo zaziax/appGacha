@@ -3,9 +3,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { allEggs, getEgg, loadManifest, registerEgg, removeEgg } from './eggs'
 import { openEgg, closeEggWindow } from './eggWindow'
-import { isShelfSender } from './shelfWindow'
+import { isShelfSender, sendToShelf } from './shelfWindow'
 import { cancelAllForEgg, initSchedules } from './schedule'
 import { getAiSettings, getAiSettingsMasked, setAiSettings } from './settings'
+import { runGacha, isGachaBusy } from './pipeline'
 
 export function eggsRoot(): string {
   return path.join(app.getAppPath(), 'eggs')
@@ -26,7 +27,7 @@ function handle(channel: string, fn: ShelfHandler): void {
 }
 
 function listEggs() {
-  return allEggs().map(e => ({
+  return allEggs().filter(e => !e.ephemeral).map(e => ({
     eggId: e.eggId,
     name: e.manifest.name,
     version: e.manifest.version,
@@ -89,6 +90,15 @@ export function registerShelfChannels(): void {
     cancelAllForEgg(egg.eggId) // 拆掉它的所有定时提醒
     await shell.trashItem(egg.dir) // 进回收站，可反悔
     removeEgg(egg.eggId)
+  })
+
+  handle('shelf:wish', async (wish) => {
+    if (isGachaBusy()) throw new Error('机芯正忙，请等上一颗蛋出来')
+    // 不 await：扭蛋过程通过 gacha:progress 事件流式上报，完成事件里带结果
+    void runGacha(String(wish ?? ''), p => sendToShelf('gacha:progress', p)).then(result => {
+      sendToShelf('gacha:done', result)
+    })
+    return { started: true }
   })
 
   handle('shelf:getAiSettings', () => getAiSettingsMasked())

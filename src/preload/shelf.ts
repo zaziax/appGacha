@@ -20,5 +20,12 @@ contextBridge.exposeInMainWorld('shelf', {
   trash: (eggId: string) => invoke('shelf:trash', eggId),
   getAiSettings: () => invoke('shelf:getAiSettings'),
   saveAiSettings: (s: { baseURL: string; model: string; apiKey: string }) => invoke('shelf:saveAiSettings', s),
-  testAi: () => invoke('shelf:testAi')
+  testAi: () => invoke('shelf:testAi'),
+  wish: (text: string) => invoke('shelf:wish', text),
+  onGachaProgress: (cb: (p: unknown) => void) => {
+    ipcRenderer.on('gacha:progress', (_e, p) => cb(p))
+  },
+  onGachaDone: (cb: (r: unknown) => void) => {
+    ipcRenderer.on('gacha:done', (_e, r) => cb(r))
+  }
 })

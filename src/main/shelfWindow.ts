@@ -33,3 +33,7 @@ export function createShelfWindow(opts?: { show?: boolean }): BrowserWindow {
 export function isShelfSender(webContentsId: number): boolean {
   return !!shelfWindow && !shelfWindow.isDestroyed() && shelfWindow.webContents.id === webContentsId
 }
+
+export function sendToShelf(channel: string, payload: unknown): void {
+  if (shelfWindow && !shelfWindow.isDestroyed()) shelfWindow.webContents.send(channel, payload)
+}

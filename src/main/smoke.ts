@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron'
 import { EggContext } from './eggs'
 import { createEggWindow } from './eggWindow'
 import { createShelfWindow } from './shelfWindow'
+import { validateEgg } from './validate'
 
 function waitForLoad(win: BrowserWindow, timeoutMs = 10_000): Promise<void> {
   return new Promise<void>((resolve, reject) => {
@@ -59,6 +60,13 @@ export async function runShelfSmoke(expectedEggs: number): Promise<boolean> {
 // test_egg 的雏形：离屏起蛋窗口，加载后经主世界探测 bridge 全链路
 export async function runSmoke(egg: EggContext): Promise<boolean> {
   console.log(`[smoke] ${egg.manifest.name} (${egg.eggId})`)
+
+  const issues = validateEgg(egg.dir)
+  if (issues.length > 0) {
+    console.error(`[smoke] validate FAIL:\n` + issues.map(i => `  [${i.file}] ${i.message}`).join('\n'))
+    return false
+  }
+
   const win = createEggWindow(egg, { show: false })
   const consoleErrors: string[] = []
   win.webContents.on('console-message', (_e, level, message) => {

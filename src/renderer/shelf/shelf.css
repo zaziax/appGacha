@@ -208,3 +208,36 @@ button.primary:hover { filter: brightness(1.06); }
 
 #aiStatus.ok { color: #3f9a5f; }
 #aiStatus.err { color: #c0574f; }
+
+#wishText {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ddd9d2;
+  border-radius: 10px;
+  font: 13px/1.6 inherit;
+  resize: vertical;
+  outline: none;
+  margin-bottom: 12px;
+}
+
+#wishText:focus { border-color: #e8843c; }
+
+.gacha-anim {
+  text-align: center;
+  font-size: 56px;
+  color: #e8843c;
+  margin: 18px 0 8px;
+}
+
+#gachaBall { display: inline-block; animation: shake 1.1s ease-in-out infinite; }
+
+@keyframes shake {
+  0%, 100% { transform: rotate(0deg); }
+  20% { transform: rotate(-18deg) translateY(-2px); }
+  40% { transform: rotate(14deg); }
+  60% { transform: rotate(-10deg) translateY(-1px); }
+  80% { transform: rotate(6deg); }
+}
+
+#wishProgress h2, #wishResult h2 { text-align: center; }
+#wishProgress .dialog-sub { text-align: center; min-height: 1.5em; }

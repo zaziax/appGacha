@@ -104,8 +104,76 @@ document.getElementById('importBtn').addEventListener('click', async () => {
 })
 
 document.getElementById('wishBtn').addEventListener('click', () => {
-  toast('扭蛋机芯还在建设中，很快就能许愿了 ✦')
+  showWishPane('form')
+  wishMask.hidden = false
+  document.getElementById('wishText').focus()
 })
+
+// ---- 许愿 / 扭蛋进度 ----
+
+const wishMask = document.getElementById('wishMask')
+const STAGE_TEXT = {
+  coin: '投币…',
+  crank: '旋钮转动…',
+  clack: '机芯咔咔…',
+  pop: '咔哒！',
+  fail: '这次没扭出好蛋'
+}
+let lastEggId = null
+
+function showWishPane(which) {
+  document.getElementById('wishForm').hidden = which !== 'form'
+  document.getElementById('wishProgress').hidden = which !== 'progress'
+  document.getElementById('wishResult').hidden = which !== 'result'
+}
+
+document.getElementById('closeWishBtn').addEventListener('click', () => { wishMask.hidden = true })
+
+document.getElementById('startWishBtn').addEventListener('click', async () => {
+  const text = document.getElementById('wishText').value.trim()
+  if (text.length < 2) return
+  try {
+    await shelf.wish(text)
+    showWishPane('progress')
+    document.getElementById('stageTitle').textContent = STAGE_TEXT.coin
+    document.getElementById('stageDetail').textContent = ''
+  } catch (err) {
+    toast(err.message)
+  }
+})
+
+shelf.onGachaProgress((p) => {
+  if (wishMask.hidden) return
+  document.getElementById('stageTitle').textContent = STAGE_TEXT[p.stage] || p.stage
+  document.getElementById('stageDetail').textContent = p.detail || ''
+})
+
+shelf.onGachaDone((r) => {
+  showWishPane('result')
+  const openBtn = document.getElementById('openNewEggBtn')
+  const retryBtn = document.getElementById('retryWishBtn')
+  if (r.ok) {
+    document.getElementById('resultTitle').textContent = `咔哒！「${r.name}」出蛋了 ◓`
+    document.getElementById('resultDetail').textContent = '已放进你的收藏柜'
+    lastEggId = r.eggId
+    openBtn.hidden = false
+    retryBtn.hidden = true
+    render()
+  } else {
+    document.getElementById('resultTitle').textContent = '这次没扭出好蛋…'
+    document.getElementById('resultDetail').textContent = r.error || ''
+    openBtn.hidden = true
+    retryBtn.hidden = false
+  }
+})
+
+document.getElementById('openNewEggBtn').addEventListener('click', () => {
+  if (lastEggId) shelf.open(lastEggId).catch(err => toast(err.message))
+  wishMask.hidden = true
+})
+
+document.getElementById('retryWishBtn').addEventListener('click', () => showWishPane('form'))
+document.getElementById('closeResultBtn').addEventListener('click', () => { wishMask.hidden = true })
 
 // ---- 模型设置弹窗 ----
 

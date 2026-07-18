@@ -8,6 +8,10 @@ export interface EggContext {
   dir: string
   manifest: EggManifest
   db?: Database.Database
+  /** 测试模式：egg.ai 返回 mock 数据，不发真实请求 */
+  aiMock?: boolean
+  /** 装配舱里的临时蛋，不在收藏柜陈列 */
+  ephemeral?: boolean
 }
 
 const byEggId = new Map<string, EggContext>()

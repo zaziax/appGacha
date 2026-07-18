@@ -82,12 +82,29 @@ async function completions(body: Record<string, unknown>): Promise<string> {
 
 export async function chat(ctx: EggContext, messages: unknown, opts?: ChatOpts): Promise<string> {
   validateMessages(messages)
+  if (ctx.aiMock) return '（测试模式：这是一条模拟的 AI 回复）'
   checkRate(ctx.eggId)
   return completions({
     messages,
     ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(opts?.maxTokens !== undefined ? { max_tokens: opts.maxTokens } : {})
   })
+}
+
+// 按 JSON Schema 生成假数据，测试模式下让 extract 不烧真 token
+function mockFromSchema(schema: Record<string, unknown>): unknown {
+  const type = schema.type
+  if (type === 'object') {
+    const out: Record<string, unknown> = {}
+    const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>
+    for (const [key, sub] of Object.entries(props)) out[key] = mockFromSchema(sub)
+    return out
+  }
+  if (type === 'array') return [mockFromSchema((schema.items ?? { type: 'string' }) as Record<string, unknown>)]
+  if (type === 'number' || type === 'integer') return 1
+  if (type === 'boolean') return true
+  if (Array.isArray(schema.enum) && schema.enum.length > 0) return schema.enum[0]
+  return '示例文本'
 }
 
 export async function extract(ctx: EggContext, text: unknown, schema: unknown): Promise<unknown> {
@@ -98,6 +115,7 @@ export async function extract(ctx: EggContext, text: unknown, schema: unknown): 
   if (typeof schema !== 'object' || schema === null) {
     throw new Error('AI_BAD_REQUEST: schema 必须是 JSON Schema 对象')
   }
+  if (ctx.aiMock) return mockFromSchema(schema as Record<string, unknown>)
   checkRate(ctx.eggId)
 
   const content = await completions({
