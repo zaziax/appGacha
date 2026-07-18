@@ -1,10 +1,10 @@
 import { app, protocol } from 'electron'
-import path from 'node:path'
 import { discoverEggs } from './eggs'
 import { registerCapabilities } from './capabilities'
 import { createShelfWindow } from './shelfWindow'
 import { registerShelfChannels } from './shelf'
 import { initSchedules } from './schedule'
+import { dataRoot } from './paths'
 import { runSmoke, runShelfSmoke, runPipelineFailSmoke } from './smoke'
 import { sweepStaging } from './pipeline'
 
@@ -19,7 +19,7 @@ app.whenReady().then(async () => {
   registerShelfChannels()
   sweepStaging()
 
-  const eggs = discoverEggs(path.join(app.getAppPath(), 'eggs'))
+  const eggs = discoverEggs(dataRoot('eggs'))
   console.log(`[appgacha] loaded ${eggs.length} egg(s): ${eggs.map(e => e.manifest.name).join(', ') || '(none)'}`)
   if (!isSmoke) initSchedules(eggs)
 
@@ -29,7 +29,7 @@ app.whenReady().then(async () => {
       if (!(await runSmoke(egg))) failed = true
     }
     if (!(await runShelfSmoke(eggs.length))) failed = true
-    if (!(await runPipelineFailSmoke(app.getAppPath()))) failed = true
+    if (!(await runPipelineFailSmoke())) failed = true
     app.exit(failed ? 1 : 0)
     return
   }

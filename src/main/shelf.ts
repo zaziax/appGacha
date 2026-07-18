@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, net, shell, IpcMainInvokeEvent, Notification } from 'electron'
+import { dialog, ipcMain, net, shell, IpcMainInvokeEvent, Notification } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { allEggs, getEgg, loadManifest, registerEgg, removeEgg } from './eggs'
@@ -6,10 +6,11 @@ import { openEgg, closeEggWindow } from './eggWindow'
 import { isShelfSender, sendToShelf } from './shelfWindow'
 import { cancelAllForEgg, initSchedules } from './schedule'
 import { getAiSettings, getAiSettingsMasked, setAiSettings } from './settings'
+import { dataRoot } from './paths'
 import { runGacha, isGachaBusy } from './pipeline'
 
 export function eggsRoot(): string {
-  return path.join(app.getAppPath(), 'eggs')
+  return dataRoot('eggs')
 }
 
 type ShelfHandler = (...args: unknown[]) => unknown

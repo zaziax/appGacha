@@ -1,9 +1,9 @@
-import { app } from 'electron'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { registerEgg } from './eggs'
 import { getAiSettings } from './settings'
+import { appRoot, dataRoot } from './paths'
 import { runFcDriver, DriverResult } from './fcDriver'
 
 export const PIPELINE_VERSION = '0.1'
@@ -29,15 +29,11 @@ export function isGachaBusy(): boolean {
 
 // 启动时调用：应用刚启动不可能有在途扭蛋，舱内一切（中断残留目录、自检截图）都是遗留物
 export function sweepStaging(): void {
-  const dir = root('staging')
+  const dir = dataRoot('staging')
   if (!fs.existsSync(dir)) return
   for (const entry of fs.readdirSync(dir)) {
     try { fs.rmSync(path.join(dir, entry), { recursive: true, force: true }) } catch { /* 占用时下次再扫 */ }
   }
-}
-
-function root(...p: string[]): string {
-  return path.join(app.getAppPath(), ...p)
 }
 
 // GachaDriver 接口位：目前唯一实现是 runFcDriver，日后可插拔替换
@@ -53,13 +49,13 @@ export async function runGacha(
   busy = true
 
   const eggId = randomUUID().toLowerCase()
-  const stagingDir = root('staging', eggId)
+  const stagingDir = dataRoot('staging', eggId)
 
   try {
     // ① 投币：备舱——模板落位，manifest 由管线写入（wish 不经智能体之手）
     onProgress({ stage: 'coin', detail: '投币，装配舱就位' })
     fs.mkdirSync(stagingDir, { recursive: true })
-    fs.cpSync(root('template'), stagingDir, { recursive: true })
+    fs.cpSync(appRoot('template'), stagingDir, { recursive: true })
     fs.rmSync(path.join(stagingDir, 'EGG_GUIDE.md'), { force: true })
     fs.rmSync(path.join(stagingDir, 'egg.d.ts'), { force: true })
     writeManifestFields(stagingDir, { eggId, wish: wish.trim() })
@@ -76,8 +72,8 @@ export async function runGacha(
 
     // ③ 咔哒：管线复写受保护字段（防智能体篡改），原子入柜
     const manifest = writeManifestFields(stagingDir, { eggId, wish: wish.trim() })
-    const dest = uniqueFolder(root('eggs'), manifest.name)
-    fs.mkdirSync(root('eggs'), { recursive: true })
+    const dest = uniqueFolder(dataRoot('eggs'), manifest.name)
+    fs.mkdirSync(dataRoot('eggs'), { recursive: true })
     fs.renameSync(stagingDir, dest)
     const ctx = registerEgg(dest)
     onProgress({ stage: 'pop', detail: `咔哒！「${manifest.name}」出蛋了` })
@@ -101,7 +97,7 @@ async function runDriverSafely(
   return driver({
     wish,
     stagingDir,
-    templateDir: root('template'),
+    templateDir: appRoot('template'),
     maxRounds: MAX_ROUNDS,
     onStage: (stage, detail) => {
       // 驱动的实况全部转发：crank 是工作动作，clack 是自检
@@ -130,7 +126,7 @@ function uniqueFolder(rootDir: string, baseName: string): string {
 
 function archiveFailure(stagingDir: string, eggId: string, wish: string, result: DriverResult): void {
   if (!fs.existsSync(stagingDir)) return
-  const failedRoot = root('failed')
+  const failedRoot = dataRoot('failed')
   fs.mkdirSync(failedRoot, { recursive: true })
   const dest = path.join(failedRoot, `${new Date().toISOString().replace(/[:.]/g, '-')}-${eggId.slice(0, 8)}`)
   fs.renameSync(stagingDir, dest)

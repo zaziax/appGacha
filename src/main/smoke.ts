@@ -5,12 +5,13 @@ import { EggContext } from './eggs'
 import { createEggWindow } from './eggWindow'
 import { createShelfWindow } from './shelfWindow'
 import { validateEgg } from './validate'
+import { dataRoot } from './paths'
 import { runGacha } from './pipeline'
 
 // 失败管线冒烟：假驱动必然失败，验证装配舱归档 failed/ + FAILURE.json 留档
-export async function runPipelineFailSmoke(appRoot: string): Promise<boolean> {
+export async function runPipelineFailSmoke(): Promise<boolean> {
   console.log('[smoke] pipeline-fail')
-  const failedRoot = path.join(appRoot, 'failed')
+  const failedRoot = dataRoot('failed')
   const before = new Set(fs.existsSync(failedRoot) ? fs.readdirSync(failedRoot) : [])
   const stages: string[] = []
 
@@ -25,8 +26,8 @@ export async function runPipelineFailSmoke(appRoot: string): Promise<boolean> {
   const record = archived.length === 1
     ? JSON.parse(fs.readFileSync(path.join(failedRoot, archived[0], 'FAILURE.json'), 'utf-8'))
     : null
-  const stagingClean = !fs.existsSync(path.join(appRoot, 'staging')) ||
-    fs.readdirSync(path.join(appRoot, 'staging')).length === 0
+  const stagingClean = !fs.existsSync(dataRoot('staging')) ||
+    fs.readdirSync(dataRoot('staging')).length === 0
 
   const pass =
     result.ok === false &&
