@@ -16,7 +16,7 @@
 | 蛋运行时 | webview + preload bridge，沙箱隔离 |
 | 能力层 | db / storage / fs / ui 等 bridge API |
 | 蛋管理器 | 安装、加载、备份、导入导出 |
-| 扭蛋机芯 | Agent SDK 封装 + 生成验收闭环 |
+| 扭蛋机芯 | 自研 function calling 循环 + 生成验收闭环 |
 | 模型接入层 | 用户自配 API（MVP）/ 托管计费（商业化） |
 
 ## 文档
@@ -42,4 +42,9 @@ npm run smoke      # 无头验收：起离屏蛋窗口探测 bridge 全链路
 
 ## 状态
 
-M1 完成：蛋运行时（egg:// 协议 + 沙箱窗口 + 权限拦截 + storage/db/ui 能力）与手写样例蛋"背单词"跑通，smoke 验收通过。下一步 M2：补齐能力层（egg.ai / notify / schedule / fs / window）。
+- **M1 完成**：蛋运行时——egg:// 协议、沙箱窗口、权限拦截，样例蛋"背单词"跑通
+- **M2 完成**：能力层补齐（egg.ai / notify / schedule / fs / window）+ 收藏柜素颜版（陈列/打开/导入/导出/删除）+ 模型设置（OpenAI 兼容接口，key 加密存储）
+- **M3 完成**：扭蛋机芯——自研 function calling 循环（fcDriver）+ validate/test 双重验收（最多 3 轮修复）+ 许愿进度实况与后台挂起。首颗机器造蛋「猜猜我是谁」已出柜
+- **下一步**：M3.5 许愿升级（备份 → 增量进化 → 迁移验收）、金标愿望集、M4 收藏柜化妆
+
+决策变更记录见 [design.md](docs/design.md) D2'（Agent SDK → 自研微型机芯）。

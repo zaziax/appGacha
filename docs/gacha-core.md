@@ -1,6 +1,8 @@
 # 扭蛋机芯设计（生成管线）
 
-> 本质：把 Agent SDK 关进一个"只能造蛋"的世界。工作目录是隔离的装配舱，工具面只有蛋文件读写 + 两个验收工具，验收通过才移入收藏柜。
+> 本质：把智能体关进一个"只能造蛋"的世界。工作目录是隔离的装配舱，工具面只有蛋文件读写 + 验收工具，验收通过才移入收藏柜。
+>
+> 驱动实现：**自研 function calling 循环**（`src/main/fcDriver.ts`，见 design.md D2'）。管线定义 `GachaDriver` 接口，驱动可插拔。
 
 ## 1. 管线全景
 
@@ -9,19 +11,19 @@
    │
    ▼
 ① 投币       从蛋模板复制脚手架到装配舱 staging/<eggId>/
-   │
+   │              管线写入 manifest 受保护字段（wish 不经智能体之手）
    ▼
-② 旋钮转动   Agent SDK 会话（子进程），智能体在舱内填空
-   │              工具: Read/Write/Edit/Glob(限舱内) + validate_egg + test_egg
+② 旋钮转动   fcDriver：主进程内 function calling 循环，智能体在舱内填空
+   │              工具: list_files / read_file / write_file / check_egg / finish
    ▼
-③ 机芯咔咔   validate_egg(静态) → test_egg(动态+截图) → 智能体看截图自查
-   │              不合格自动迭代，上限 3 轮
+③ 机芯咔咔   finish 触发验收：validate_egg(静态) → test_egg(离屏运行+截图)
+   │              不合格把问题清单喂回智能体修复，上限 3 轮
    ▼
-④ 咔哒！     通过 → 原子移入收藏柜 eggs/<name>.egg/
-               超限 → "这次没扭出好蛋，再来一发？"（保留失败日志）
+④ 咔哒！     通过 → 管线复写受保护字段 → 原子移入收藏柜 eggs/<name>.egg/
+               超限 → "这次没扭出好蛋，再来一发？"（装配舱归档 failed/）
 ```
 
-机芯运行在**独立子进程**（utilityProcess），通过 IPC 向主进程上报阶段事件：`投币 → 旋钮转动 → 机芯咔咔(第n轮) → 咔哒！`。收藏柜 UI 的扭蛋动画绑定真实进度。
+机芯运行在主进程内（无子进程，符合"一切能力自含"约束），通过 `onStage` 回调向收藏柜流式上报实况：`投币 → 旋钮转动（第n回合，模型思考中…/正在写 xx…）→ 机芯咔咔（自检第n轮）→ 咔哒！`。收藏柜支持后台挂起，完成时发系统通知。
 
 ## 2. 蛋模板（脚手架）
 
@@ -29,26 +31,27 @@
 
 ```
 template/
-├── manifest.json      ← eggId/hostApiVersion/createdBy 已预填，智能体只填 name/permissions
+├── manifest.json      ← eggId/hostApiVersion/createdBy 由管线写入，智能体只填 name/permissions
 ├── index.html         ← 骨架 + 引用 base.css
 ├── base.css           ← 统一的基础视觉（所有蛋有家族相似性）
-├── egg.d.ts           ← bridge API 完整类型声明（喂规范的最佳载体）
-└── EGG_GUIDE.md       ← 智能体必读：能力清单、免费赠品(Web Speech等)、禁令、范例
+├── style.css/app.js   ← 智能体的主要填空区
+├── egg.d.ts           ← bridge API 完整类型声明（喂规范的最佳载体，入舱前删除）
+└── EGG_GUIDE.md       ← 智能体必读：能力清单、免费赠品(Web Speech等)、禁令、范例（入舱前删除）
 ```
 
-`wish` 原文由管线写入 manifest，不经智能体之手（保证留档保真）。
+`wish` 原文由管线写入 manifest，不经智能体之手（保证留档保真）；出蛋前管线再次复写 `eggId`/`wish`/`hostApiVersion`/`createdBy`，篡改无效。
 
-## 3. Agent SDK 会话配置
+## 3. fcDriver 会话配置
 
 | 项 | 配置 |
 |---|---|
-| cwd | `staging/<eggId>/`，路径守卫拒绝一切舱外访问 |
-| 工具 | 仅 Read/Write/Edit/Glob + 自定义 MCP 工具 `validate_egg`/`test_egg`；禁用 Bash/WebSearch/网络 |
-| 系统提示 | 角色设定 + EGG_GUIDE 要点 + "只能使用 egg.* 与标准 Web API" |
-| 模型 | 用户自配（Anthropic 兼容 baseURL，如 DeepSeek）或托管通道 |
-| 预算 | 单次扭蛋 token 上限；自检迭代上限 3 轮 |
+| 作用域 | `staging/<eggId>/`，所有工具路径守卫拒绝舱外访问 |
+| 工具 | `list_files` / `read_file` / `write_file` / `check_egg` / `finish`，OpenAI tools 协议 |
+| 系统提示 | 角色设定 + 内嵌 EGG_GUIDE.md 全文 + egg.d.ts 全文 |
+| 模型 | 用户自配（OpenAI 兼容 baseURL，如 DeepSeek）或托管通道 |
+| 预算 | 60 回合 / 300k tokens / 15 分钟；自检迭代上限 3 轮 |
 
-`validate_egg`/`test_egg` 实现为进程内 MCP 工具：机芯子进程经 IPC 请求主进程执行，结果回传给智能体。
+`finish` 是唯一出口：触发 validate + test 双重验收，通过即出蛋，不通过把问题清单作为工具结果喂回，`请修复以上问题后再次 finish`。
 
 ## 4. 两个验收工具
 
@@ -64,11 +67,13 @@ template/
 - 主进程按正式运行时规则起**离屏 BrowserWindow**，`egg://` 指向装配舱
 - **bridge 测试模式**：`egg.ai` 返回符合 schema 的 mock 数据（不烧真 token）；db/storage 用舱内临时库
 - 收集：console 错误、未处理 rejection、被拦截的网络请求、被拒绝的 bridge 调用
-- 产出：截图（回传智能体做视觉自查）+ 问题清单
+- 产出：截图（存档为装配舱旁 `.test.png`，供人工/遥测复查）+ 问题清单
 
 ### 验收线
 
-零 console 错误、零越权调用、截图非空白、智能体视觉自查通过。
+零 console 错误、零越权调用、截图非空白（空白检测：无文本且节点数 < 3）。
+
+> 注：D2 原案的"智能体看截图视觉自查"依赖多模态模型，当前 fcDriver 面向纯文本 OpenAI 兼容接口，视觉自查降级为空白检测 + 截图存档；接入多模态模型后可恢复。
 
 ## 5. 许愿升级（同管线，三处不同）
 
@@ -88,4 +93,4 @@ template/
 
 - v1 不做愿望澄清对话（wish 直接进管线）；若失败率数据表明愿望太模糊是主因，再加"许愿时追问一轮"
 - v1 不做交互冒烟测试（仅加载+截图）；后续可让 test_egg 支持智能体声明的自测脚本
-- 扭蛋并发：v1 同时只扭一颗（子进程单例），排队即可
+- 扭蛋并发：v1 同时只扭一颗（管线 busy 单例），机芯正忙时许愿直接被拒
