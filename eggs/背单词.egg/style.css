@@ -157,3 +157,28 @@ button:hover { filter: brightness(1.06); }
 .actions .remove { background: transparent; color: #c0574f; }
 
 #empty { color: #a9a9b0; text-align: center; margin-top: 40px; }
+
+#reminderBar {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px;
+  background: rgba(246,245,242,.94);
+  border-top: 1px solid #eceae5;
+  font-size: 13px;
+  color: #55555c;
+}
+
+.reminder-label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+
+#reminderTime {
+  border: 1px solid #ddd9d2;
+  border-radius: 8px;
+  padding: 3px 8px;
+  font-size: 13px;
+  background: #fff;
+  color: #2b2b30;
+}

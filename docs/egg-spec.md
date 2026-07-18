@@ -76,16 +76,20 @@ egg.storage.get(key) / set(key, value) / delete(key)
 egg.fs.read(path) / write(path, content) / list(dir)
 ```
 
-路径严格限定在蛋的 `data/` 目录内。
+路径严格限定在蛋的 `data/` 目录内；content 仅支持 utf-8 字符串，单文件上限 10MB。
 
 ### egg.notify + egg.schedule — 提醒类刚需
 
 ```js
 egg.notify.send(title, body)
-egg.schedule.register(cron, { title, body })   // v1: 静态通知文案，Main 直接发，点击通知打开蛋
+egg.schedule.set(id, cron, { title, body })   // upsert；蛋关着也会触发，点击通知打开蛋
+egg.schedule.cancel(id)
+egg.schedule.list()
 ```
 
-到点执行蛋代码的方案（隐藏窗口代跑）作为后续演进，见 docs/runtime.md 第 4 节。
+- v1 为静态通知文案方案：注册时文案定死，Main 直接发系统通知（决策见 docs/runtime.md 第 4 节）
+- 登记持久化在蛋的 `data/schedule.json`——**提醒随蛋迁移**；主应用启动时扫描所有蛋装弹
+- 每蛋上限 20 条；蛋被删除时全部拆除
 
 ### egg.ui — 统一交互
 
@@ -94,7 +98,7 @@ egg.ui.toast(msg) / confirm(msg)
 egg.ui.pickFile(filters) / saveFile(content, defaultName)
 ```
 
-`pickFile`/`saveFile` 是用户手势触发的系统文件对话框——沙箱外数据进出的唯一安全逃生口（参照浏览器 File System Access 模式）。
+`pickFile`/`saveFile` 是用户手势触发的系统文件对话框——沙箱外数据进出的唯一安全逃生口（参照浏览器 File System Access 模式）。注意 `pickFile` 返回的是 `{ name, content }` 内容本体而非路径——蛋没有资格持有沙箱外的路径。
 
 ### egg.window — 窗口控制
 

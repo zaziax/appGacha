@@ -3,7 +3,7 @@
   "name": "背单词",
   "version": "1.0.0",
   "hostApiVersion": "1",
-  "permissions": ["db", "storage", "ai"],
+  "permissions": ["db", "storage", "ai", "notify", "schedule"],
   "wish": "我想要一个背单词软件，能记住我背过哪些",
   "createdBy": { "model": "handmade", "pipelineVersion": "0" }
 }

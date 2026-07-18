@@ -4,6 +4,7 @@ import path from 'node:path'
 import { allEggs, getEgg, loadManifest, registerEgg, removeEgg } from './eggs'
 import { openEgg, closeEggWindow } from './eggWindow'
 import { isShelfSender } from './shelfWindow'
+import { cancelAllForEgg, initSchedules } from './schedule'
 import { getAiSettings, getAiSettingsMasked, setAiSettings } from './settings'
 
 export function eggsRoot(): string {
@@ -62,7 +63,8 @@ export function registerShelfChannels(): void {
     if (getEgg(manifest.eggId)) throw new Error(`「${manifest.name}」已在收藏柜里（eggId 相同）`)
     const dest = uniqueFolder(eggsRoot(), manifest.name)
     fs.cpSync(src, dest, { recursive: true })
-    registerEgg(dest)
+    const ctx = registerEgg(dest)
+    initSchedules([ctx]) // 蛋若随身带着提醒，落地即生效
     return { imported: true, name: manifest.name }
   })
 
@@ -84,6 +86,7 @@ export function registerShelfChannels(): void {
     const egg = getEgg(eggId as string)
     if (!egg) throw new Error('egg not found')
     closeEggWindow(egg.eggId)
+    cancelAllForEgg(egg.eggId) // 拆掉它的所有定时提醒
     await shell.trashItem(egg.dir) // 进回收站，可反悔
     removeEgg(egg.eggId)
   })

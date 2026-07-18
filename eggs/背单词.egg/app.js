@@ -37,7 +37,47 @@ async function init() {
     render()
   })
 
+  await initReminder()
+
   render()
+}
+
+// ---- 每日提醒（egg.schedule，蛋关着也会响）----
+
+async function initReminder() {
+  const toggle = document.getElementById('reminderToggle')
+  const time = document.getElementById('reminderTime')
+
+  const entries = await egg.schedule.list()
+  const existing = entries.find(e => e.id === 'daily-review')
+  if (existing) {
+    toggle.checked = true
+    const [m, h] = existing.cron.split(' ')
+    if (/^\d+$/.test(m) && /^\d+$/.test(h)) {
+      time.value = `${h.padStart(2, '0')}:${m.padStart(2, '0')}`
+    }
+  }
+
+  const apply = async () => {
+    try {
+      if (!toggle.checked) {
+        await egg.schedule.cancel('daily-review')
+        egg.ui.toast('每日提醒已关闭')
+        return
+      }
+      const [h, m] = time.value.split(':').map(Number)
+      await egg.schedule.set('daily-review', `${m} ${h} * * *`, {
+        title: '背单词时间到啦',
+        body: '今天的单词还等着你，开柜翻两张卡片吧～'
+      })
+      egg.ui.toast(`每天 ${time.value} 提醒你背单词`)
+    } catch (err) {
+      egg.ui.toast(err.message)
+    }
+  }
+
+  toggle.addEventListener('change', apply)
+  time.addEventListener('change', () => { if (toggle.checked) apply() })
 }
 
 function renderAiNote(box, note) {

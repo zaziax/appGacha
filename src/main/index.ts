@@ -4,6 +4,7 @@ import { discoverEggs } from './eggs'
 import { registerCapabilities } from './capabilities'
 import { createShelfWindow } from './shelfWindow'
 import { registerShelfChannels } from './shelf'
+import { initSchedules } from './schedule'
 import { runSmoke, runShelfSmoke } from './smoke'
 
 protocol.registerSchemesAsPrivileged([
@@ -18,6 +19,7 @@ app.whenReady().then(async () => {
 
   const eggs = discoverEggs(path.join(app.getAppPath(), 'eggs'))
   console.log(`[appgacha] loaded ${eggs.length} egg(s): ${eggs.map(e => e.manifest.name).join(', ') || '(none)'}`)
+  if (!isSmoke) initSchedules(eggs)
 
   if (isSmoke) {
     let failed = false

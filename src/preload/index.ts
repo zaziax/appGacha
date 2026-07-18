@@ -60,8 +60,28 @@ contextBridge.exposeInMainWorld('egg', {
       invoke('egg:ai:chat', messages, opts),
     extract: (text: string, schema: object) => invoke('egg:ai:extract', text, schema)
   },
+  fs: {
+    read: (path: string) => invoke('egg:fs:read', path),
+    write: (path: string, content: string) => invoke('egg:fs:write', path, content),
+    list: (path?: string) => invoke('egg:fs:list', path)
+  },
+  notify: {
+    send: (title: string, body: string) => invoke('egg:notify:send', title, body)
+  },
+  schedule: {
+    set: (id: string, cron: string, notification: { title: string; body: string }) =>
+      invoke('egg:schedule:set', id, cron, notification),
+    cancel: (id: string) => invoke('egg:schedule:cancel', id),
+    list: () => invoke('egg:schedule:list')
+  },
+  window: {
+    setAlwaysOnTop: (flag: boolean) => invoke('egg:window:setAlwaysOnTop', flag),
+    setSize: (width: number, height: number) => invoke('egg:window:setSize', width, height)
+  },
   ui: {
     toast: (message: string) => { toast(message) },
-    confirm: (message: string) => Promise.resolve(window.confirm(String(message)))
+    confirm: (message: string) => Promise.resolve(window.confirm(String(message))),
+    pickFile: (filters?: { name: string; extensions: string[] }[]) => invoke('egg:ui:pickFile', filters),
+    saveFile: (content: string, defaultName?: string) => invoke('egg:ui:saveFile', content, defaultName)
   }
 })
