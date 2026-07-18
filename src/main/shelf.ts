@@ -7,7 +7,7 @@ import { isShelfSender, sendToShelf } from './shelfWindow'
 import { cancelAllForEgg, initSchedules } from './schedule'
 import { getAiSettings, getAiSettingsMasked, setAiSettings } from './settings'
 import { dataRoot } from './paths'
-import { runGacha, isGachaBusy } from './pipeline'
+import { runGacha, runUpgrade, isGachaBusy, hasBackup, restoreLatestBackup } from './pipeline'
 
 export function eggsRoot(): string {
   return dataRoot('eggs')
@@ -34,7 +34,8 @@ function listEggs() {
     version: e.manifest.version,
     wish: e.manifest.wish ?? '',
     permissions: e.manifest.permissions,
-    folder: path.basename(e.dir)
+    folder: path.basename(e.dir),
+    hasBackup: hasBackup(e.eggId)
   }))
 }
 
@@ -43,6 +44,21 @@ function uniqueFolder(root: string, baseName: string): string {
   let i = 2
   while (fs.existsSync(dir)) dir = path.join(root, `${baseName}-${i++}.egg`)
   return dir
+}
+
+// 扭蛋/升级共用的收尾：done 事件带 upgraded 标记，后台挂起时发系统通知
+function launchGacha(run: Promise<{ ok: boolean; name?: string; error?: string }>, upgraded: boolean): void {
+  void run.then(result => {
+    sendToShelf('gacha:done', { ...result, upgraded })
+    if (Notification.isSupported()) {
+      new Notification(result.ok
+        ? upgraded
+          ? { title: '咔哒！升级完成 ◓', body: `「${result.name}」焕然一新，数据完好` }
+          : { title: '咔哒！出蛋了 ◓', body: `「${result.name}」已放进你的收藏柜` }
+        : { title: upgraded ? '这次升级没成…' : '这次没扭出好蛋…', body: (result.error ?? '').slice(0, 120) }
+      ).show()
+    }
+  })
 }
 
 export function registerShelfChannels(): void {
@@ -96,17 +112,25 @@ export function registerShelfChannels(): void {
   handle('shelf:wish', async (wish) => {
     if (isGachaBusy()) throw new Error('机芯正忙，请等上一颗蛋出来')
     // 不 await：扭蛋过程通过 gacha:progress 事件流式上报，完成事件里带结果
-    void runGacha(String(wish ?? ''), p => sendToShelf('gacha:progress', p)).then(result => {
-      sendToShelf('gacha:done', result)
-      // 后台挂起时也能收到结果
-      if (Notification.isSupported()) {
-        new Notification(result.ok
-          ? { title: '咔哒！出蛋了 ◓', body: `「${result.name}」已放进你的收藏柜` }
-          : { title: '这次没扭出好蛋…', body: (result.error ?? '').slice(0, 120) }
-        ).show()
-      }
-    })
+    launchGacha(runGacha(String(wish ?? ''), p => sendToShelf('gacha:progress', p)), false)
     return { started: true }
+  })
+
+  handle('shelf:upgrade', async (eggId, wish) => {
+    if (isGachaBusy()) throw new Error('机芯正忙，请等上一颗蛋出来')
+    launchGacha(runUpgrade(String(eggId), String(wish ?? ''), p => sendToShelf('gacha:progress', p)), true)
+    return { started: true }
+  })
+
+  handle('shelf:rollback', async (eggId) => {
+    const egg = getEgg(eggId as string)
+    if (!egg) throw new Error('egg not found')
+    closeEggWindow(egg.eggId)
+    cancelAllForEgg(egg.eggId)
+    const name = restoreLatestBackup(egg.eggId, egg.dir)
+    egg.manifest = loadManifest(egg.dir)
+    initSchedules([egg]) // 还原回来的提醒重新装弹
+    return { name }
   })
 
   handle('shelf:getAiSettings', () => getAiSettingsMasked())

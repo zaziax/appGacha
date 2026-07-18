@@ -10,6 +10,8 @@ export interface DriverJob {
   stagingDir: string
   templateDir: string
   maxRounds: number
+  /** 升级模式：舱里是现有蛋的代码而非空白模板 */
+  upgrade?: { baseWish: string }
   onStage: (stage: string, detail?: string) => void
 }
 
@@ -129,9 +131,21 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
   let rounds = 1
   let turns = 0
 
+  const opening = job.upgrade
+    ? [
+        '这是一次对现有扭蛋的升级改造，装配舱里是这颗蛋当前的完整代码（data/ 数据不在舱内，运行时会在）。',
+        `蛋的原始愿望：${job.upgrade.baseWish}`,
+        `本次升级愿望：${job.wish}`,
+        '',
+        '要求：先读现有代码，在其基础上增量修改，保留原有功能与数据。',
+        '若改动数据库表结构，必须在启动逻辑里写好旧结构到新结构的迁移（如 try/catch 包裹 ALTER TABLE），旧数据一条都不能丢。',
+        '完成后调用 finish。'
+      ].join('\n')
+    : `用户的愿望：${job.wish}\n\n请开始制造这颗扭蛋。`
+
   const messages: unknown[] = [
     { role: 'system', content: buildSystemPrompt(job.templateDir) },
-    { role: 'user', content: `用户的愿望：${job.wish}\n\n请开始制造这颗扭蛋。` }
+    { role: 'user', content: opening }
   ]
 
   const runCheck = async (): Promise<{ pass: boolean; report: string }> => {

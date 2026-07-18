@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { EggContext, getEgg, loadManifest, registerEgg, removeEgg } from './eggs'
 import { createEggWindow } from './eggWindow'
+import { cancelAllForEgg } from './schedule'
 
 export interface TestResult {
   ok: boolean
@@ -78,7 +79,10 @@ export async function testEgg(dir: string, opts?: { screenshotTo?: string }): Pr
   } finally {
     win.destroy()
     ctx.aiMock = false
-    if (ephemeralRegistered) removeEgg(ctx.eggId)
+    if (ephemeralRegistered) {
+      cancelAllForEgg(ctx.eggId) // 试跑期蛋代码可能设了提醒，临时蛋销毁后不能留定时器
+      removeEgg(ctx.eggId)
+    }
   }
   return result
 }

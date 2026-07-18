@@ -5,7 +5,7 @@ import { createShelfWindow } from './shelfWindow'
 import { registerShelfChannels } from './shelf'
 import { initSchedules } from './schedule'
 import { dataRoot } from './paths'
-import { runSmoke, runShelfSmoke, runPipelineFailSmoke } from './smoke'
+import { runSmoke, runShelfSmoke, runPipelineFailSmoke, runUpgradeSmoke } from './smoke'
 import { sweepStaging } from './pipeline'
 
 protocol.registerSchemesAsPrivileged([
@@ -30,6 +30,7 @@ app.whenReady().then(async () => {
     }
     if (!(await runShelfSmoke(eggs.length))) failed = true
     if (!(await runPipelineFailSmoke())) failed = true
+    if (!(await runUpgradeSmoke())) failed = true
     app.exit(failed ? 1 : 0)
     return
   }

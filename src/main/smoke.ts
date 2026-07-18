@@ -1,12 +1,76 @@
 import { BrowserWindow } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
-import { EggContext } from './eggs'
+import { EggContext, registerEgg, removeEgg } from './eggs'
 import { createEggWindow } from './eggWindow'
 import { createShelfWindow } from './shelfWindow'
 import { validateEgg } from './validate'
 import { dataRoot } from './paths'
-import { runGacha } from './pipeline'
+import { runGacha, runUpgrade, restoreLatestBackup, hasBackup } from './pipeline'
+
+// 升级管线冒烟：一次性假蛋 + 假驱动，全链路验证 备份→入舱→换装→数据完好→版本递增→回滚
+export async function runUpgradeSmoke(): Promise<boolean> {
+  console.log('[smoke] pipeline-upgrade')
+  const eggId = 'a0000000-0000-4000-8000-smokeupgrade'
+  const dir = dataRoot('eggs', '__smoke-upgrade.egg')
+  const backups = dataRoot('backups', eggId)
+  const cleanup = () => {
+    removeEgg(eggId)
+    fs.rmSync(dir, { recursive: true, force: true })
+    fs.rmSync(backups, { recursive: true, force: true })
+  }
+
+  try {
+    // 假蛋落地：可渲染的最小蛋 + 一份必须存活的数据
+    fs.mkdirSync(path.join(dir, 'data'), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({
+      eggId, name: '冒烟升级蛋', version: '1.0.0', hostApiVersion: '1',
+      permissions: ['storage'], wish: '原始愿望'
+    }, null, 2), 'utf-8')
+    fs.writeFileSync(path.join(dir, 'index.html'),
+      '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><script src="app.js"></script></body></html>', 'utf-8')
+    fs.writeFileSync(path.join(dir, 'app.js'), 'document.body.textContent = "smoke v1"', 'utf-8')
+    fs.writeFileSync(path.join(dir, 'data', 'marker.txt'), 'precious', 'utf-8')
+    registerEgg(dir)
+
+    // 假驱动：改一行代码就算升级成功
+    const result = await runUpgrade(eggId, '冒烟升级愿望', () => {}, async (job) => {
+      fs.writeFileSync(path.join(job.stagingDir, 'app.js'), 'document.body.textContent = "smoke v2"', 'utf-8')
+      return { ok: true, rounds: 1, turns: 1 }
+    })
+
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf-8'))
+    const code = fs.readFileSync(path.join(dir, 'app.js'), 'utf-8')
+    const marker = fs.readFileSync(path.join(dir, 'data', 'marker.txt'), 'utf-8')
+    const upgraded =
+      result.ok === true &&
+      code.includes('smoke v2') &&
+      marker === 'precious' &&
+      manifest.version === '1.1.0' &&
+      manifest.eggId === eggId &&
+      manifest.wish === '原始愿望' &&
+      manifest.upgrades?.length === 1 &&
+      hasBackup(eggId)
+
+    // 回滚：整蛋回到备份时刻
+    const restoredName = restoreLatestBackup(eggId, dir)
+    const rolledBack =
+      restoredName === '冒烟升级蛋' &&
+      fs.readFileSync(path.join(dir, 'app.js'), 'utf-8').includes('smoke v1') &&
+      JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf-8')).version === '1.0.0' &&
+      fs.readFileSync(path.join(dir, 'data', 'marker.txt'), 'utf-8') === 'precious'
+
+    const pass = upgraded && rolledBack
+    console.log(`[smoke] pipeline-upgrade result=${JSON.stringify(result)} upgraded=${upgraded} rolledBack=${rolledBack}`)
+    console.log(pass ? '[smoke] pipeline-upgrade PASS' : '[smoke] pipeline-upgrade FAIL')
+    return pass
+  } catch (e) {
+    console.error(`[smoke] pipeline-upgrade FAIL: ${(e as Error).message}`)
+    return false
+  } finally {
+    cleanup()
+  }
+}
 
 // 失败管线冒烟：假驱动必然失败，验证装配舱归档 failed/ + FAILURE.json 留档
 export async function runPipelineFailSmoke(): Promise<boolean> {

@@ -19,4 +19,5 @@ export interface EggManifest {
   permissions: Permission[]
   wish?: string
   createdBy?: { model: string; pipelineVersion: string }
+  upgrades?: { wish: string; at: string; model: string }[]
 }

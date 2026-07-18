@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('shelf', {
   saveAiSettings: (s: { baseURL: string; model: string; apiKey: string }) => invoke('shelf:saveAiSettings', s),
   testAi: () => invoke('shelf:testAi'),
   wish: (text: string) => invoke('shelf:wish', text),
+  upgrade: (eggId: string, text: string) => invoke('shelf:upgrade', eggId, text),
+  rollback: (eggId: string) => invoke('shelf:rollback', eggId),
   onGachaProgress: (cb: (p: unknown) => void) => {
     ipcRenderer.on('gacha:progress', (_e, p) => cb(p))
   },
