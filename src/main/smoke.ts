@@ -1,8 +1,47 @@
 import { BrowserWindow } from 'electron'
+import fs from 'node:fs'
+import path from 'node:path'
 import { EggContext } from './eggs'
 import { createEggWindow } from './eggWindow'
 import { createShelfWindow } from './shelfWindow'
 import { validateEgg } from './validate'
+import { runGacha } from './pipeline'
+
+// 失败管线冒烟：假驱动必然失败，验证装配舱归档 failed/ + FAILURE.json 留档
+export async function runPipelineFailSmoke(appRoot: string): Promise<boolean> {
+  console.log('[smoke] pipeline-fail')
+  const failedRoot = path.join(appRoot, 'failed')
+  const before = new Set(fs.existsSync(failedRoot) ? fs.readdirSync(failedRoot) : [])
+  const stages: string[] = []
+
+  const result = await runGacha(
+    '冒烟测试：这颗蛋注定扭不出来',
+    p => stages.push(p.stage),
+    async () => ({ ok: false, rounds: 3, turns: 7, error: '假驱动固定失败（冒烟）' })
+  )
+
+  const archived = (fs.existsSync(failedRoot) ? fs.readdirSync(failedRoot) : [])
+    .filter(d => !before.has(d))
+  const record = archived.length === 1
+    ? JSON.parse(fs.readFileSync(path.join(failedRoot, archived[0], 'FAILURE.json'), 'utf-8'))
+    : null
+  const stagingClean = !fs.existsSync(path.join(appRoot, 'staging')) ||
+    fs.readdirSync(path.join(appRoot, 'staging')).length === 0
+
+  const pass =
+    result.ok === false &&
+    stages.includes('fail') &&
+    archived.length === 1 &&
+    record?.error === '假驱动固定失败（冒烟）' &&
+    typeof record?.wish === 'string' &&
+    stagingClean
+
+  console.log(`[smoke] pipeline-fail result=${JSON.stringify(result)} stages=[${stages.join(',')}] archived=${archived.length} stagingClean=${stagingClean}`)
+  // 冒烟产物不留档，验证完即清
+  for (const d of archived) fs.rmSync(path.join(failedRoot, d), { recursive: true, force: true })
+  console.log(pass ? '[smoke] pipeline-fail PASS' : '[smoke] pipeline-fail FAIL')
+  return pass
+}
 
 function waitForLoad(win: BrowserWindow, timeoutMs = 10_000): Promise<void> {
   return new Promise<void>((resolve, reject) => {

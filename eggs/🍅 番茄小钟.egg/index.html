@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>🍅 番茄小钟</title>
+  <link rel="stylesheet" href="base.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>🍅 番茄小钟</h1>
+    <button id="settingsToggle" class="ghost settings-toggle" title="设置">⚙️</button>
+  </header>
+  <main id="app">
+    <div class="pomodoro-container">
+      <div class="status-label" id="statusLabel">准备专注</div>
+
+      <div class="timer-ring-wrapper" id="timerRingWrapper">
+        <svg viewBox="0 0 260 260">
+          <circle class="timer-ring-bg" cx="130" cy="130" r="116" />
+          <circle class="timer-ring-progress" id="progressRing" cx="130" cy="130" r="116"
+            stroke-linecap="round" />
+        </svg>
+        <div class="timer-display" id="timerDisplay">
+          <div class="time" id="timeText">25:00</div>
+          <div class="label" id="phaseLabel">点击开始专注</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="mainBtn">开始专注</button>
+        <button id="resetBtn" class="ghost">重置</button>
+      </div>
+
+      <div class="stats">
+        <span class="tomato-icon">🍅</span>
+        <span class="count" id="tomatoCount">0</span>
+        <span class="muted">今日完成</span>
+      </div>
+    </div>
+
+    <div class="card settings-panel hidden" id="settingsPanel">
+      <h2 style="margin-bottom:8px;font-size:15px;">⚙️ 设置</h2>
+      <div class="setting-row">
+        <label>专注时长（分钟）</label>
+        <input type="number" id="focusTime" value="25" min="1" max="120">
+      </div>
+      <div class="setting-row">
+        <label>休息时长（分钟）</label>
+        <input type="number" id="breakTime" value="5" min="1" max="60">
+      </div>
+      <button id="saveSettingsBtn" style="margin-top:6px;width:100%;">保存设置</button>
+    </div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

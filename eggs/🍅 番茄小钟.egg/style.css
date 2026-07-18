@@ -1,0 +1,240 @@
+/* 番茄钟自定义样式 */
+
+.pomodoro-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+  padding: 12px 0 8px;
+}
+
+/* ── 状态标签 ── */
+.status-label {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-2);
+  letter-spacing: 3px;
+  transition: color 0.4s ease, transform 0.3s ease;
+  user-select: none;
+}
+
+.status-label.focus {
+  color: var(--accent);
+}
+
+.status-label.break {
+  color: var(--good);
+}
+
+.status-label.paused {
+  color: var(--text-3);
+}
+
+/* ── 环形计时器 ── */
+.timer-ring-wrapper {
+  position: relative;
+  width: 240px;
+  height: 240px;
+}
+
+.timer-ring-wrapper svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.04));
+}
+
+.timer-ring-bg {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 7;
+}
+
+.timer-ring-progress {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 7;
+  transition: stroke 0.5s ease, stroke-dashoffset 0.4s ease;
+}
+
+.timer-ring-progress.break {
+  stroke: var(--good);
+}
+
+.timer-ring-progress.caution {
+  stroke: var(--bad);
+}
+
+/* ── 中央时间显示 ── */
+.timer-display {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+.timer-display .time {
+  font-size: 52px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 3px;
+  color: var(--text);
+  transition: color 0.3s ease;
+  line-height: 1.1;
+}
+
+.timer-display .label {
+  font-size: 13px;
+  color: var(--text-3);
+  margin-top: 6px;
+  letter-spacing: 1px;
+  transition: color 0.3s ease;
+}
+
+/* 最后 10 秒脉冲 */
+.timer-display.pulse .time {
+  animation: pulse-text 0.8s ease-in-out infinite;
+  color: var(--bad);
+}
+
+.timer-display.pulse .label {
+  color: var(--bad);
+}
+
+@keyframes pulse-text {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+/* ── 控制按钮 ── */
+.controls {
+  display: flex;
+  gap: 14px;
+}
+
+.controls button {
+  min-width: 110px;
+  padding: 12px 28px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 50px;
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.controls button:active {
+  transform: scale(0.96);
+}
+
+#mainBtn {
+  box-shadow: 0 4px 14px rgba(232, 132, 60, 0.25);
+}
+
+#mainBtn.break-mode {
+  box-shadow: 0 4px 14px rgba(63, 154, 95, 0.25);
+}
+
+#mainBtn.pause-mode {
+  box-shadow: 0 4px 14px rgba(138, 138, 146, 0.2);
+  background: var(--text-3);
+}
+
+/* ── 统计 ── */
+.stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: 50px;
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+
+.stats .tomato-icon {
+  font-size: 18px;
+}
+
+.stats .count {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+  min-width: 24px;
+  text-align: center;
+  transition: transform 0.3s ease;
+}
+
+.stats .count.bounce {
+  animation: tomato-bounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes tomato-bounce {
+  0%   { transform: scale(1); }
+  25%  { transform: scale(1.4); }
+  50%  { transform: scale(0.85); }
+  75%  { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+/* ── 设置面板 ── */
+.settings-toggle {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+  opacity: 0.5;
+  transition: opacity 0.2s, transform 0.2s;
+  border-radius: 8px;
+}
+
+.settings-toggle:hover {
+  opacity: 0.9;
+  background: var(--border);
+}
+
+.settings-panel {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: opacity 0.3s ease, max-height 0.3s ease;
+}
+
+.settings-panel.hidden {
+  display: none;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.setting-row label {
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.setting-row input {
+  width: 80px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* ── 响应式微调 ── */
+@media (max-width: 400px) {
+  .timer-ring-wrapper {
+    width: 200px;
+    height: 200px;
+  }
+  .timer-display .time {
+    font-size: 42px;
+  }
+  .controls button {
+    min-width: 90px;
+    padding: 10px 20px;
+  }
+}

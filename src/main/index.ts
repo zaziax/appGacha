@@ -5,7 +5,8 @@ import { registerCapabilities } from './capabilities'
 import { createShelfWindow } from './shelfWindow'
 import { registerShelfChannels } from './shelf'
 import { initSchedules } from './schedule'
-import { runSmoke, runShelfSmoke } from './smoke'
+import { runSmoke, runShelfSmoke, runPipelineFailSmoke } from './smoke'
+import { sweepStaging } from './pipeline'
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'egg', privileges: { standard: true, secure: true, supportFetchAPI: true } }
@@ -16,6 +17,7 @@ const isSmoke = process.argv.includes('--smoke')
 app.whenReady().then(async () => {
   registerCapabilities()
   registerShelfChannels()
+  sweepStaging()
 
   const eggs = discoverEggs(path.join(app.getAppPath(), 'eggs'))
   console.log(`[appgacha] loaded ${eggs.length} egg(s): ${eggs.map(e => e.manifest.name).join(', ') || '(none)'}`)
@@ -27,6 +29,7 @@ app.whenReady().then(async () => {
       if (!(await runSmoke(egg))) failed = true
     }
     if (!(await runShelfSmoke(eggs.length))) failed = true
+    if (!(await runPipelineFailSmoke(app.getAppPath()))) failed = true
     app.exit(failed ? 1 : 0)
     return
   }

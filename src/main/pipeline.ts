@@ -27,6 +27,15 @@ export function isGachaBusy(): boolean {
   return busy
 }
 
+// 启动时调用：应用刚启动不可能有在途扭蛋，舱内一切（中断残留目录、自检截图）都是遗留物
+export function sweepStaging(): void {
+  const dir = root('staging')
+  if (!fs.existsSync(dir)) return
+  for (const entry of fs.readdirSync(dir)) {
+    try { fs.rmSync(path.join(dir, entry), { recursive: true, force: true }) } catch { /* 占用时下次再扫 */ }
+  }
+}
+
 function root(...p: string[]): string {
   return path.join(app.getAppPath(), ...p)
 }
