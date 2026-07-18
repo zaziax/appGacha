@@ -1,5 +1,7 @@
 * { box-sizing: border-box; margin: 0; }
 
+[hidden] { display: none !important; }
+
 body {
   font: 14px/1.6 system-ui, "Microsoft YaHei", sans-serif;
   background: #f6f5f2;
