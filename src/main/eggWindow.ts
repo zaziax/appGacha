@@ -5,6 +5,23 @@ import { registerEggProtocol, lockdownSession } from './protocol'
 import * as registry from './registry'
 
 const preparedPartitions = new Set<string>()
+const openWindows = new Map<string, BrowserWindow>()
+
+// 收藏柜点击入口：已开的蛋聚焦，未开的创建
+export function openEgg(egg: EggContext): BrowserWindow {
+  const existing = openWindows.get(egg.eggId)
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore()
+    existing.focus()
+    return existing
+  }
+  return createEggWindow(egg)
+}
+
+export function closeEggWindow(eggId: string): void {
+  const win = openWindows.get(eggId)
+  if (win && !win.isDestroyed()) win.close()
+}
 
 export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): BrowserWindow {
   const partition = `persist:egg-${egg.eggId}`
@@ -34,7 +51,11 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
   // R2: 窗口创建时登记 webContents → 蛋，权限检查只认这张表
   const wcId = win.webContents.id
   registry.register(wcId, egg)
-  win.on('closed', () => registry.unregister(wcId))
+  openWindows.set(egg.eggId, win)
+  win.on('closed', () => {
+    registry.unregister(wcId)
+    if (openWindows.get(egg.eggId) === win) openWindows.delete(egg.eggId)
+  })
 
   // R4: 蛋不能创建窗口
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))

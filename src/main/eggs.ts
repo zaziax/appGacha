@@ -16,17 +16,29 @@ export function getEgg(eggId: string): EggContext | undefined {
   return byEggId.get(eggId)
 }
 
+export function allEggs(): EggContext[] {
+  return [...byEggId.values()]
+}
+
+export function registerEgg(dir: string): EggContext {
+  const manifest = loadManifest(dir)
+  if (byEggId.has(manifest.eggId)) throw new Error(`egg "${manifest.eggId}" already registered`)
+  const ctx: EggContext = { eggId: manifest.eggId, dir, manifest }
+  byEggId.set(manifest.eggId, ctx)
+  return ctx
+}
+
+export function removeEgg(eggId: string): void {
+  byEggId.delete(eggId)
+}
+
 export function discoverEggs(eggsRoot: string): EggContext[] {
   if (!fs.existsSync(eggsRoot)) return []
   const found: EggContext[] = []
   for (const entry of fs.readdirSync(eggsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory() || !entry.name.endsWith('.egg')) continue
-    const dir = path.join(eggsRoot, entry.name)
     try {
-      const manifest = loadManifest(dir)
-      const ctx: EggContext = { eggId: manifest.eggId, dir, manifest }
-      byEggId.set(manifest.eggId, ctx)
-      found.push(ctx)
+      found.push(registerEgg(path.join(eggsRoot, entry.name)))
     } catch (e) {
       console.error(`[eggs] skip ${entry.name}: ${(e as Error).message}`)
     }
@@ -34,7 +46,7 @@ export function discoverEggs(eggsRoot: string): EggContext[] {
   return found
 }
 
-function loadManifest(dir: string): EggManifest {
+export function loadManifest(dir: string): EggManifest {
   const raw = fs.readFileSync(path.join(dir, 'manifest.json'), 'utf-8')
   const m = JSON.parse(raw) as EggManifest
   if (!m.eggId || typeof m.eggId !== 'string') throw new Error('manifest: eggId missing')

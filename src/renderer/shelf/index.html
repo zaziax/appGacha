@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:">
+  <title>应用扭蛋机</title>
+  <link rel="stylesheet" href="shelf.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="logo">◓</span>
+      <h1>应用扭蛋机</h1>
+    </div>
+    <div class="actions">
+      <button id="wishBtn" class="primary" title="扭蛋机芯建设中，敬请期待">许个愿 ✦</button>
+      <button id="importBtn">导入扭蛋</button>
+    </div>
+  </header>
+
+  <main id="grid"></main>
+
+  <div id="emptyState" hidden>
+    <div class="capsule">◓</div>
+    <p>收藏柜空空如也</p>
+    <p class="sub">许个愿扭一颗，或者导入别人分享的 .egg</p>
+  </div>
+
+  <div id="toast" hidden></div>
+
+  <script src="shelf.js"></script>
+</body>
+</html>

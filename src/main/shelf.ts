@@ -1,0 +1,89 @@
+import { app, dialog, ipcMain, shell, IpcMainInvokeEvent } from 'electron'
+import fs from 'node:fs'
+import path from 'node:path'
+import { allEggs, getEgg, loadManifest, registerEgg, removeEgg } from './eggs'
+import { openEgg, closeEggWindow } from './eggWindow'
+import { isShelfSender } from './shelfWindow'
+
+export function eggsRoot(): string {
+  return path.join(app.getAppPath(), 'eggs')
+}
+
+type ShelfHandler = (...args: unknown[]) => unknown
+
+// 收藏柜通道只认收藏柜窗口，蛋窗口调不动
+function handle(channel: string, fn: ShelfHandler): void {
+  ipcMain.handle(channel, async (event: IpcMainInvokeEvent, ...args: unknown[]) => {
+    try {
+      if (!isShelfSender(event.sender.id)) throw new Error('caller is not the shelf window')
+      return { ok: true, value: await fn(...args) }
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
+  })
+}
+
+function listEggs() {
+  return allEggs().map(e => ({
+    eggId: e.eggId,
+    name: e.manifest.name,
+    version: e.manifest.version,
+    wish: e.manifest.wish ?? '',
+    permissions: e.manifest.permissions,
+    folder: path.basename(e.dir)
+  }))
+}
+
+function uniqueFolder(root: string, baseName: string): string {
+  let dir = path.join(root, `${baseName}.egg`)
+  let i = 2
+  while (fs.existsSync(dir)) dir = path.join(root, `${baseName}-${i++}.egg`)
+  return dir
+}
+
+export function registerShelfChannels(): void {
+  handle('shelf:list', () => listEggs())
+
+  handle('shelf:open', (eggId) => {
+    const egg = getEgg(eggId as string)
+    if (!egg) throw new Error('egg not found')
+    openEgg(egg)
+  })
+
+  handle('shelf:import', async () => {
+    const res = await dialog.showOpenDialog({
+      title: '选择一个 .egg 文件夹',
+      properties: ['openDirectory']
+    })
+    if (res.canceled || res.filePaths.length === 0) return { imported: false }
+    const src = res.filePaths[0]
+    const manifest = loadManifest(src) // 校验不通过会抛错给前端
+    if (getEgg(manifest.eggId)) throw new Error(`「${manifest.name}」已在收藏柜里（eggId 相同）`)
+    const dest = uniqueFolder(eggsRoot(), manifest.name)
+    fs.cpSync(src, dest, { recursive: true })
+    registerEgg(dest)
+    return { imported: true, name: manifest.name }
+  })
+
+  handle('shelf:export', async (eggId) => {
+    const egg = getEgg(eggId as string)
+    if (!egg) throw new Error('egg not found')
+    const res = await dialog.showOpenDialog({
+      title: '选择导出位置',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (res.canceled || res.filePaths.length === 0) return { exported: false }
+    const dest = uniqueFolder(res.filePaths[0], egg.manifest.name)
+    fs.cpSync(egg.dir, dest, { recursive: true })
+    shell.showItemInFolder(dest)
+    return { exported: true, dest }
+  })
+
+  handle('shelf:trash', async (eggId) => {
+    const egg = getEgg(eggId as string)
+    if (!egg) throw new Error('egg not found')
+    closeEggWindow(egg.eggId)
+    await shell.trashItem(egg.dir) // 进回收站，可反悔
+    removeEgg(egg.eggId)
+  })
+}
