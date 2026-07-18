@@ -16,6 +16,7 @@
     <div class="actions">
       <button id="wishBtn" class="primary" title="扭蛋机芯建设中，敬请期待">许个愿 ✦</button>
       <button id="importBtn">导入扭蛋</button>
+      <button id="settingsBtn" title="模型设置">⚙</button>
     </div>
   </header>
 
@@ -25,6 +26,28 @@
     <div class="capsule">◓</div>
     <p>收藏柜空空如也</p>
     <p class="sub">许个愿扭一颗，或者导入别人分享的 .egg</p>
+  </div>
+
+  <div id="settingsMask" class="mask" hidden>
+    <div class="dialog">
+      <h2>模型设置</h2>
+      <p class="dialog-sub">OpenAI 兼容接口（DeepSeek / Kimi / Qwen 等均可）。Key 加密存储在本机，蛋永远接触不到。</p>
+      <label>接口地址 Base URL
+        <input id="aiBaseURL" placeholder="https://api.deepseek.com/v1" spellcheck="false">
+      </label>
+      <label>模型名 Model
+        <input id="aiModel" placeholder="deepseek-chat" spellcheck="false">
+      </label>
+      <label>API Key
+        <input id="aiKey" type="password" placeholder="sk-…（留空表示沿用已保存的）" spellcheck="false">
+      </label>
+      <div class="dialog-actions">
+        <span id="aiStatus"></span>
+        <button id="testAiBtn">测试连接</button>
+        <button id="saveAiBtn" class="primary">保存</button>
+        <button id="closeSettingsBtn">关闭</button>
+      </div>
+    </div>
   </div>
 
   <div id="toast" hidden></div>

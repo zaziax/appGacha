@@ -55,6 +55,11 @@ contextBridge.exposeInMainWorld('egg', {
     exec: (sql: string, params?: unknown[]) => invoke('egg:db:exec', sql, params),
     query: (sql: string, params?: unknown[]) => invoke('egg:db:query', sql, params)
   },
+  ai: {
+    chat: (messages: unknown[], opts?: { temperature?: number; maxTokens?: number }) =>
+      invoke('egg:ai:chat', messages, opts),
+    extract: (text: string, schema: object) => invoke('egg:ai:extract', text, schema)
+  },
   ui: {
     toast: (message: string) => { toast(message) },
     confirm: (message: string) => Promise.resolve(window.confirm(String(message)))

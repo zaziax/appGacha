@@ -17,5 +17,8 @@ contextBridge.exposeInMainWorld('shelf', {
   open: (eggId: string) => invoke('shelf:open', eggId),
   import: () => invoke('shelf:import'),
   export: (eggId: string) => invoke('shelf:export', eggId),
-  trash: (eggId: string) => invoke('shelf:trash', eggId)
+  trash: (eggId: string) => invoke('shelf:trash', eggId),
+  getAiSettings: () => invoke('shelf:getAiSettings'),
+  saveAiSettings: (s: { baseURL: string; model: string; apiKey: string }) => invoke('shelf:saveAiSettings', s),
+  testAi: () => invoke('shelf:testAi')
 })

@@ -4,6 +4,7 @@ import { EggContext } from '../eggs'
 import * as registry from '../registry'
 import * as storage from './storage'
 import * as db from './db'
+import * as ai from './ai'
 
 type Handler = (ctx: EggContext, ...args: unknown[]) => unknown
 
@@ -30,4 +31,7 @@ export function registerCapabilities(): void {
 
   handle('egg:db:exec', 'db', (ctx, sql, params) => db.exec(ctx, sql as string, params as unknown[]))
   handle('egg:db:query', 'db', (ctx, sql, params) => db.query(ctx, sql as string, params as unknown[]))
+
+  handle('egg:ai:chat', 'ai', (ctx, messages, opts) => ai.chat(ctx, messages, opts as { temperature?: number; maxTokens?: number } | undefined))
+  handle('egg:ai:extract', 'ai', (ctx, text, schema) => ai.extract(ctx, text, schema))
 }

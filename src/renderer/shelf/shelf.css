@@ -143,3 +143,66 @@ button.primary:hover { filter: brightness(1.06); }
   box-shadow: 0 4px 16px rgba(0,0,0,.25);
   max-width: 70vw;
 }
+
+.mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(30,30,36,.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.dialog {
+  background: #fff;
+  border-radius: 16px;
+  padding: 22px 24px;
+  width: 440px;
+  max-width: 92vw;
+  box-shadow: 0 12px 40px rgba(0,0,0,.18);
+}
+
+.dialog h2 { font-size: 17px; margin-bottom: 4px; }
+
+.dialog-sub { font-size: 12px; color: #8a8a92; margin-bottom: 16px; }
+
+.dialog label {
+  display: block;
+  font-size: 12px;
+  color: #55555c;
+  margin-bottom: 12px;
+}
+
+.dialog input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 12px;
+  border: 1px solid #ddd9d2;
+  border-radius: 10px;
+  font-size: 13px;
+  outline: none;
+}
+
+.dialog input:focus { border-color: #e8843c; }
+
+.dialog-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+#aiStatus {
+  flex: 1;
+  font-size: 12px;
+  color: #8a8a92;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#aiStatus.ok { color: #3f9a5f; }
+#aiStatus.err { color: #c0574f; }

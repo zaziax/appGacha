@@ -1,9 +1,10 @@
-import { app, dialog, ipcMain, shell, IpcMainInvokeEvent } from 'electron'
+import { app, dialog, ipcMain, net, shell, IpcMainInvokeEvent } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { allEggs, getEgg, loadManifest, registerEgg, removeEgg } from './eggs'
 import { openEgg, closeEggWindow } from './eggWindow'
 import { isShelfSender } from './shelfWindow'
+import { getAiSettings, getAiSettingsMasked, setAiSettings } from './settings'
 
 export function eggsRoot(): string {
   return path.join(app.getAppPath(), 'eggs')
@@ -85,5 +86,44 @@ export function registerShelfChannels(): void {
     closeEggWindow(egg.eggId)
     await shell.trashItem(egg.dir) // 进回收站，可反悔
     removeEgg(egg.eggId)
+  })
+
+  handle('shelf:getAiSettings', () => getAiSettingsMasked())
+
+  handle('shelf:saveAiSettings', (s) => {
+    const v = s as { baseURL?: string; model?: string; apiKey?: string }
+    if (!v?.baseURL?.trim() || !v?.model?.trim()) throw new Error('baseURL 和 model 不能为空')
+    const current = getAiSettings()
+    // key 留空视为沿用已保存的 key
+    const apiKey = v.apiKey?.trim() || current?.apiKey || ''
+    if (!apiKey) throw new Error('API Key 不能为空')
+    setAiSettings({ baseURL: v.baseURL, model: v.model, apiKey })
+  })
+
+  handle('shelf:testAi', async () => {
+    const cfg = getAiSettings()
+    if (!cfg || !cfg.apiKey) throw new Error('尚未保存配置')
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 20_000)
+    try {
+      const res = await net.fetch(`${cfg.baseURL}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+        body: JSON.stringify({
+          model: cfg.model,
+          messages: [{ role: 'user', content: '回复"pong"两个字，不要多余内容' }],
+          max_tokens: 10
+        }),
+        signal: controller.signal
+      })
+      if (!res.ok) {
+        const text = (await res.text().catch(() => '')).slice(0, 200)
+        throw new Error(`HTTP ${res.status}: ${text}`)
+      }
+      const data = (await res.json()) as { choices?: { message?: { content?: string } }[] }
+      return { reply: data.choices?.[0]?.message?.content ?? '(空响应)' }
+    } finally {
+      clearTimeout(timer)
+    }
   })
 }

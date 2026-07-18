@@ -71,6 +71,7 @@ export async function runSmoke(egg: EggContext): Promise<boolean> {
     const probe = await win.webContents.executeJavaScript(`(async () => {
       const out = {}
       out.bridge = typeof egg === 'object'
+      out.ai = typeof egg.ai?.chat === 'function' && typeof egg.ai?.extract === 'function'
       await egg.storage.set('__smoke', 42)
       out.storage = (await egg.storage.get('__smoke')) === 42
       await egg.storage.delete('__smoke')
@@ -83,7 +84,7 @@ export async function runSmoke(egg: EggContext): Promise<boolean> {
     })()`)
 
     const pass =
-      probe.bridge === true && probe.storage === true && probe.db === true && consoleErrors.length === 0
+      probe.bridge === true && probe.ai === true && probe.storage === true && probe.db === true && consoleErrors.length === 0
     console.log(`[smoke] probe=${JSON.stringify(probe)} consoleErrors=${consoleErrors.length}`)
     console.log(pass ? '[smoke] PASS' : '[smoke] FAIL')
     return pass

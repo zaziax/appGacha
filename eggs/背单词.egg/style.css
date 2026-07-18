@@ -111,6 +111,39 @@ button:hover { filter: brightness(1.06); }
 
 .card .hint { font-size: 12px; color: #b8b8bf; margin-top: 6px; }
 
+.card .ai-note { display: none; margin-top: 10px; }
+.card.open .ai-note { display: block; }
+
+.ai-btn {
+  background: transparent;
+  border: 1px dashed #e8b48c;
+  color: #d06a20;
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 99px;
+}
+
+.ai-btn:disabled { opacity: .6; cursor: wait; }
+
+.ai-sentence {
+  font-size: 13px;
+  color: #2b2b30;
+  background: #fdf5ee;
+  border-radius: 10px;
+  padding: 8px 12px 2px;
+  font-style: italic;
+}
+
+.ai-sentence-cn {
+  font-size: 12px;
+  color: #8a8a92;
+  background: #fdf5ee;
+  border-radius: 0 0 10px 10px;
+  padding: 2px 12px 8px;
+}
+
+.ai-mnemonic { font-size: 12px; color: #a06a3c; margin-top: 6px; }
+
 .card .actions {
   display: none;
   gap: 8px;

@@ -107,4 +107,51 @@ document.getElementById('wishBtn').addEventListener('click', () => {
   toast('扭蛋机芯还在建设中，很快就能许愿了 ✦')
 })
 
+// ---- 模型设置弹窗 ----
+
+const mask = document.getElementById('settingsMask')
+const statusEl = document.getElementById('aiStatus')
+
+function setStatus(text, cls) {
+  statusEl.textContent = text
+  statusEl.className = cls || ''
+}
+
+document.getElementById('settingsBtn').addEventListener('click', async () => {
+  setStatus('')
+  document.getElementById('aiKey').value = ''
+  try {
+    const s = await shelf.getAiSettings()
+    if (s) {
+      document.getElementById('aiBaseURL').value = s.baseURL
+      document.getElementById('aiModel').value = s.model
+      document.getElementById('aiKey').placeholder = s.hasKey ? '已保存（留空沿用）' : 'sk-…'
+    }
+  } catch { /* 首次无配置 */ }
+  mask.hidden = false
+})
+
+document.getElementById('closeSettingsBtn').addEventListener('click', () => { mask.hidden = true })
+mask.addEventListener('click', (e) => { if (e.target === mask) mask.hidden = true })
+
+document.getElementById('saveAiBtn').addEventListener('click', async () => {
+  try {
+    await shelf.saveAiSettings({
+      baseURL: document.getElementById('aiBaseURL').value,
+      model: document.getElementById('aiModel').value,
+      apiKey: document.getElementById('aiKey').value
+    })
+    setStatus('已保存', 'ok')
+    toast('模型配置已保存')
+  } catch (err) { setStatus(err.message, 'err') }
+})
+
+document.getElementById('testAiBtn').addEventListener('click', async () => {
+  setStatus('测试中…')
+  try {
+    const res = await shelf.testAi()
+    setStatus(`连接成功：${res.reply}`, 'ok')
+  } catch (err) { setStatus(err.message, 'err') }
+})
+
 render()

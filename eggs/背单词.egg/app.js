@@ -11,6 +11,7 @@ async function init() {
     mastered INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
   )`)
+  try { await egg.db.exec('ALTER TABLE words ADD COLUMN ai_note TEXT') } catch { /* 列已存在 */ }
 
   filter = (await egg.storage.get('filter')) || 'all'
   document.querySelectorAll('#filters button').forEach(b => {
@@ -37,6 +38,22 @@ async function init() {
   })
 
   render()
+}
+
+function renderAiNote(box, note) {
+  const sentence = document.createElement('div')
+  sentence.className = 'ai-sentence'
+  sentence.textContent = note.sentence
+
+  const sentenceCn = document.createElement('div')
+  sentenceCn.className = 'ai-sentence-cn'
+  sentenceCn.textContent = note.sentence_cn
+
+  const mnemonic = document.createElement('div')
+  mnemonic.className = 'ai-mnemonic'
+  mnemonic.textContent = `💡 ${note.mnemonic}`
+
+  box.append(sentence, sentenceCn, mnemonic)
 }
 
 async function render() {
@@ -70,6 +87,44 @@ async function render() {
     meaning.className = 'meaning'
     meaning.textContent = row.meaning
 
+    const aiBox = document.createElement('div')
+    aiBox.className = 'ai-note'
+    if (row.ai_note) {
+      renderAiNote(aiBox, JSON.parse(row.ai_note))
+    } else {
+      const aiBtn = document.createElement('button')
+      aiBtn.className = 'ai-btn'
+      aiBtn.textContent = '✦ AI 例句·助记'
+      aiBtn.addEventListener('click', async (e) => {
+        e.stopPropagation()
+        aiBtn.disabled = true
+        aiBtn.textContent = '思考中…'
+        try {
+          const note = await egg.ai.extract(
+            `请为英语单词 "${row.word}"（中文释义：${row.meaning}）生成学习卡片内容。`,
+            {
+              type: 'object',
+              properties: {
+                sentence: { type: 'string', description: '一句地道且贴近日常的英文例句，包含该单词' },
+                sentence_cn: { type: 'string', description: '例句的中文翻译' },
+                mnemonic: { type: 'string', description: '一条简短有趣的中文助记（谐音、词根或联想均可）' }
+              },
+              required: ['sentence', 'sentence_cn', 'mnemonic']
+            }
+          )
+          await egg.db.exec('UPDATE words SET ai_note = ? WHERE id = ?', [JSON.stringify(note), row.id])
+          render()
+        } catch (err) {
+          aiBtn.disabled = false
+          aiBtn.textContent = '✦ AI 例句·助记'
+          egg.ui.toast(err.message.startsWith('AI_NOT_CONFIGURED')
+            ? '主人还没配置 AI，去收藏柜设置里填一下吧'
+            : `AI 开小差了：${err.message}`)
+        }
+      })
+      aiBox.appendChild(aiBtn)
+    }
+
     const hint = document.createElement('div')
     hint.className = 'hint'
     hint.textContent = row.id === openId ? '' : '点击查看释义'
@@ -98,7 +153,7 @@ async function render() {
     })
 
     actions.append(toggle, remove)
-    card.append(word, meaning, hint, actions)
+    card.append(word, meaning, aiBox, hint, actions)
     card.addEventListener('click', () => {
       openId = openId === row.id ? null : row.id
       render()
