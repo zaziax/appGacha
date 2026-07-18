@@ -5,8 +5,11 @@
   "main": "dist/main/index.js",
   "private": true,
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && vite build --config src/ui/vite.config.ts",
     "start": "npm run build && electron .",
+    "start:legacy": "tsc && set APPGACHA_UI=legacy&& electron .",
+    "dev:ui": "vite --config src/ui/vite.config.ts",
+    "dev": "tsc && set APPGACHA_UI_DEV_URL=http://localhost:5173&& electron .",
     "smoke": "npm run build && electron . --smoke",
     "rebuild": "electron-rebuild -f -w better-sqlite3"
   },
@@ -14,11 +17,18 @@
     "@electron/rebuild": "^3.7.1",
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^22.0.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
     "electron": "37.2.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "vite": "^8.1.5"
   },
   "dependencies": {
     "better-sqlite3": "^12.0.0",
-    "cron-parser": "^5.6.2"
+    "cron-parser": "^5.6.2",
+    "motion": "^12.42.2",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   }
 }

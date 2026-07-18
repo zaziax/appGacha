@@ -131,14 +131,19 @@ export async function runShelfSmoke(expectedEggs: number): Promise<boolean> {
 
   try {
     await waitForLoad(win)
-    const probe = await win.webContents.executeJavaScript(`(async () => {
+    // React 渲染是异步的：轮询等蛋卡片就位（最多 5 秒）
+    const probe = await win.webContents.executeJavaScript(`(async (expected) => {
       const eggs = await shelf.list()
+      for (let i = 0; i < 50; i++) {
+        if (document.querySelectorAll('.egg-card').length >= expected) break
+        await new Promise(r => setTimeout(r, 100))
+      }
       return {
         bridge: typeof shelf === 'object',
         count: eggs.length,
         cards: document.querySelectorAll('.egg-card').length
       }
-    })()`)
+    })(${expectedEggs})`)
 
     const pass =
       probe.bridge === true &&

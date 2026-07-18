@@ -30,9 +30,14 @@
 
 ```powershell
 npm install        # Electron 二进制经常需要镜像/手动安装，见下
-npm start          # 构建并启动，自动加载 eggs/ 下所有蛋
-npm run smoke      # 无头验收：起离屏蛋窗口探测 bridge 全链路
+npm start          # 构建（tsc + vite）并启动，收藏柜为 React 新 UI
+npm run dev:ui     # 终端一：Vite dev server（收藏柜热更新）
+npm run dev        # 终端二：接 dev server 启动 Electron
+npm run start:legacy  # 素颜版收藏柜（迁移期兜底）
+npm run smoke      # 无头验收：蛋 bridge 全链路 + 收藏柜 + 失败/升级管线
 ```
+
+收藏柜 UI 为 React + TS + Vite（`src/ui/`）；蛋保持纯 HTML/CSS/JS 零构建（生成规范，红线）。
 
 国内网络下 Electron/native 预编译二进制建议走镜像：
 
