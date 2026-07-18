@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>🍅 番茄小钟</title>
+  <title>🍅 番茄小钟 · 待办</title>
   <link rel="stylesheet" href="base.css">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -37,6 +37,21 @@
         <span class="count" id="tomatoCount">0</span>
         <span class="muted">今日完成</span>
       </div>
+    </div>
+
+    <!-- ── Todo 清单 ── -->
+    <div class="card todo-card" id="todoSection">
+      <div class="todo-header">
+        <h2>📋 待办清单</h2>
+        <span class="todo-count muted" id="todoCount">0 项</span>
+      </div>
+      <div class="todo-input-row">
+        <input type="text" id="todoInput" placeholder="添加新待办…" maxlength="100" autocomplete="off">
+        <button id="addTodoBtn">添加</button>
+      </div>
+      <ul class="todo-list" id="todoList">
+        <li class="todo-empty">还没有待办，添加一条吧 📝</li>
+      </ul>
     </div>
 
     <div class="card settings-panel hidden" id="settingsPanel">

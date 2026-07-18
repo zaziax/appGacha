@@ -1,5 +1,5 @@
 /* ──────────────────────────────────────────
-   🍅 番茄小钟 - 全部逻辑
+   🍅 番茄小钟 · 待办 — 全部逻辑
    ────────────────────────────────────────── */
 
 // ── 状态常量 ──
@@ -34,7 +34,13 @@ let timerId  = null
 // 圆环周长（启动时计算）
 let circumference = 0
 
-// ── 初始化 ──
+// ── Todo 状态 ──
+let todoItems = []         // 内存中的待办列表
+let todoDbReady = false    // 数据库是否就绪
+
+// ──────────────────────────────────────────
+//   初始化
+// ──────────────────────────────────────────
 async function init() {
   // 计算圆环周长
   const r = progressRing.r.baseVal.value
@@ -58,12 +64,188 @@ async function init() {
   // 加载番茄计数
   await refreshTomatoCount()
 
+  // 初始化 Todo 数据库
+  await initTodoDb()
+
+  // 加载 Todo 列表
+  await loadTodos()
+
   // 事件绑定
   mainBtn.addEventListener('click', handleMainBtn)
   resetBtn.addEventListener('click', handleReset)
   $('settingsToggle').addEventListener('click', toggleSettings)
   $('saveSettingsBtn').addEventListener('click', saveSettings)
+  $('addTodoBtn').addEventListener('click', handleAddTodo)
+  $('todoInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') handleAddTodo()
+  })
 }
+
+// ──────────────────────────────────────────
+//   Todo 数据库
+// ──────────────────────────────────────────
+async function initTodoDb() {
+  try {
+    // 建表（CREATE TABLE IF NOT EXISTS 自动兼容新旧结构）
+    await egg.db.exec(
+      `CREATE TABLE IF NOT EXISTS todos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        text TEXT NOT NULL,
+        done INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+      )`
+    )
+
+    // 尝试迁移：旧版本可能没有 done 字段（虽然初始就有，但安全起见检查）
+    // 如果旧表有但类型不对，ALTER 会抛异常，catch 里忽略即可
+    try {
+      // 添加 sort_order 列 — 如果有旧表需要迁移排序能力
+      await egg.db.exec(`ALTER TABLE todos ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`)
+    } catch (_) { /* 列已存在，忽略 */ }
+
+    todoDbReady = true
+  } catch (err) {
+    console.warn('Todo 数据库初始化失败:', err)
+    egg.ui.toast('⚠️ 待办数据加载失败')
+  }
+}
+
+// ── 从数据库加载 Todo 列表 ──
+async function loadTodos() {
+  if (!todoDbReady) return
+  try {
+    const rows = await egg.db.query(
+      'SELECT id, text, done FROM todos ORDER BY sort_order ASC, id ASC'
+    )
+    todoItems = rows.map(r => ({
+      id: r.id,
+      text: r.text,
+      done: !!r.done
+    }))
+    renderTodos()
+  } catch (err) {
+    console.warn('加载待办失败:', err)
+    egg.ui.toast('⚠️ 加载待办失败')
+  }
+}
+
+// ── 添加待办 ──
+async function handleAddTodo() {
+  const input = $('todoInput')
+  const text = input.value.trim()
+  if (!text) {
+    egg.ui.toast('📝 请输入待办内容')
+    return
+  }
+
+  try {
+    // 获取当前最大 sort_order
+    const maxRow = await egg.db.query('SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_sort FROM todos')
+    const nextSort = maxRow[0]?.next_sort || 1
+
+    const result = await egg.db.exec(
+      'INSERT INTO todos (text, done, sort_order) VALUES (?, 0, ?)',
+      [text, nextSort]
+    )
+
+    todoItems.push({
+      id: result.lastInsertRowid,
+      text: text,
+      done: false
+    })
+
+    input.value = ''
+    input.focus()
+    renderTodos()
+    egg.ui.toast('✅ 已添加待办')
+  } catch (err) {
+    console.warn('添加待办失败:', err)
+    egg.ui.toast('⚠️ 添加失败')
+  }
+}
+
+// ── 切换完成状态 ──
+async function toggleTodoDone(id) {
+  const item = todoItems.find(t => t.id === id)
+  if (!item) return
+
+  const newDone = item.done ? 0 : 1
+  try {
+    await egg.db.exec('UPDATE todos SET done = ? WHERE id = ?', [newDone, id])
+    item.done = !!newDone
+    renderTodos()
+  } catch (err) {
+    console.warn('更新待办状态失败:', err)
+    egg.ui.toast('⚠️ 更新失败')
+  }
+}
+
+// ── 删除待办 ──
+async function deleteTodoItem(id) {
+  const confirmed = await egg.ui.confirm('确定要删除这条待办吗？')
+  if (!confirmed) return
+
+  try {
+    await egg.db.exec('DELETE FROM todos WHERE id = ?', [id])
+    todoItems = todoItems.filter(t => t.id !== id)
+    renderTodos()
+    egg.ui.toast('🗑️ 已删除')
+  } catch (err) {
+    console.warn('删除待办失败:', err)
+    egg.ui.toast('⚠️ 删除失败')
+  }
+}
+
+// ── 渲染 Todo 列表 ──
+function renderTodos() {
+  const list = $('todoList')
+  const count = $('todoCount')
+
+  if (todoItems.length === 0) {
+    list.innerHTML = '<li class="todo-empty">还没有待办，添加一条吧 📝</li>'
+    count.textContent = '0 项'
+    return
+  }
+
+  const doneCount = todoItems.filter(t => t.done).length
+  count.textContent = `${doneCount}/${todoItems.length} 项`
+
+  list.innerHTML = todoItems.map(item => {
+    const checkedClass = item.done ? 'checked' : ''
+    const doneTextClass = item.done ? 'done' : ''
+    return `
+      <li class="todo-item" data-id="${item.id}">
+        <span class="todo-check ${checkedClass}" data-action="toggle" data-id="${item.id}"></span>
+        <span class="todo-text ${doneTextClass}">${escapeHtml(item.text)}</span>
+        <button class="todo-delete" data-action="delete" data-id="${item.id}" title="删除">✕</button>
+      </li>
+    `
+  }).join('')
+
+  // 事件委托：点击复选框 / 删除按钮
+  list.addEventListener('click', async (e) => {
+    const target = e.target.closest('[data-action]')
+    if (!target) return
+    const id = Number(target.dataset.id)
+    const action = target.dataset.action
+    if (action === 'toggle') {
+      await toggleTodoDone(id)
+    } else if (action === 'delete') {
+      await deleteTodoItem(id)
+    }
+  })
+}
+
+// ── 简单的防 XSS 转义 ──
+function escapeHtml(str) {
+  const div = document.createElement('div')
+  div.textContent = str
+  return div.innerHTML
+}
+
+// ──────────────────────────────────────────
+//   番茄钟核心逻辑（完全保留不改）
+// ──────────────────────────────────────────
 
 // ── 重置到专注就绪 ──
 function resetToFocus() {

@@ -224,6 +224,181 @@
   font-weight: 600;
 }
 
+/* ── Todo 清单 ── */
+.todo-card {
+  margin-top: 18px;
+}
+
+.todo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.todo-header h2 {
+  font-size: 15px;
+}
+
+.todo-count {
+  font-size: 12px;
+}
+
+.todo-input-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.todo-input-row input {
+  flex: 1;
+  padding: 9px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  font-size: 14px;
+  background: var(--card);
+  color: var(--text);
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+.todo-input-row input:focus {
+  border-color: var(--accent);
+}
+
+.todo-input-row button {
+  padding: 9px 18px;
+  border-radius: 10px;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.todo-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.todo-empty {
+  color: var(--text-3);
+  font-size: 13px;
+  text-align: center;
+  padding: 20px 0 12px;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  border-top: 1px solid var(--border);
+  transition: opacity 0.2s ease, background 0.2s ease;
+  animation: todo-slide-in 0.3s ease;
+}
+
+.todo-item:first-child {
+  border-top: none;
+}
+
+.todo-item:hover {
+  background: rgba(0,0,0,0.01);
+}
+
+.todo-item.removing {
+  animation: todo-slide-out 0.25s ease forwards;
+}
+
+@keyframes todo-slide-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes todo-slide-out {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(20px); height: 0; padding: 0; margin: 0; }
+}
+
+/* 复选框（圆形） */
+.todo-check {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  background: var(--card);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  font-size: 12px;
+  color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.todo-check:hover {
+  border-color: var(--accent);
+  background: rgba(232, 132, 60, 0.06);
+}
+
+.todo-check.checked {
+  border-color: var(--good);
+  background: var(--good);
+  color: #fff;
+}
+
+.todo-check.checked::after {
+  content: '✓';
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* 待办文本 */
+.todo-text {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.4;
+  word-break: break-word;
+  transition: color 0.2s ease, text-decoration 0.2s ease;
+  cursor: default;
+}
+
+.todo-text.done {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+
+/* 删除按钮 */
+.todo-delete {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-3);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  opacity: 0;
+  transition: opacity 0.2s, color 0.2s, background 0.2s;
+  line-height: 1;
+}
+
+.todo-item:hover .todo-delete {
+  opacity: 1;
+}
+
+.todo-delete:hover {
+  color: var(--bad);
+  background: rgba(192, 87, 79, 0.08);
+}
+
 /* ── 响应式微调 ── */
 @media (max-width: 400px) {
   .timer-ring-wrapper {

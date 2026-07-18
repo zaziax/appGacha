@@ -157,7 +157,8 @@ export async function runUpgrade(
       m.eggId = eggId
       m.wish = egg.manifest.wish ?? upgradeWish
       m.hostApiVersion = '1'
-      m.version = bumpMinor(String(m.version ?? egg.manifest.version ?? '1.0.0'))
+      // 基于升级前真身的版本递增：智能体可能已在舱内自行 bump 过，不叠加
+      m.version = bumpMinor(String(egg.manifest.version ?? '1.0.0'))
       m.createdBy = { model: getAiSettings()?.model ?? 'unknown', pipelineVersion: PIPELINE_VERSION }
       m.upgrades = [...(egg.manifest.upgrades ?? []),
         { wish: upgradeWish, at: new Date().toISOString(), model: getAiSettings()?.model ?? 'unknown' }]
