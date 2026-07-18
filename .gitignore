@@ -1,0 +1,6 @@
+node_modules/
+dist/
+eggs/**/data/
+failed/
+staging/
+*.egg.bak-*

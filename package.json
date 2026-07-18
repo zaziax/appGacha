@@ -1,0 +1,23 @@
+{
+  "name": "appgacha",
+  "version": "0.1.0",
+  "description": "应用扭蛋机——许愿即得、可迁移的桌面小应用",
+  "main": "dist/main/index.js",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && electron .",
+    "smoke": "npm run build && electron . --smoke",
+    "rebuild": "electron-rebuild -f -w better-sqlite3"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.1",
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.0.0",
+    "electron": "37.2.0",
+    "typescript": "^5.5.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.0.0"
+  }
+}

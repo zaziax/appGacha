@@ -1,0 +1,126 @@
+* { box-sizing: border-box; margin: 0; }
+
+body {
+  font: 14px/1.6 system-ui, "Microsoft YaHei", sans-serif;
+  background: #f6f5f2;
+  color: #2b2b30;
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+h1 { font-size: 22px; letter-spacing: 1px; }
+
+.stats { color: #8a8a92; font-size: 13px; }
+
+#addForm {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+#addForm input {
+  flex: 1;
+  padding: 9px 12px;
+  border: 1px solid #ddd9d2;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 14px;
+  outline: none;
+}
+
+#addForm input:focus { border-color: #e8843c; }
+
+button {
+  border: none;
+  border-radius: 10px;
+  padding: 9px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  background: #e8843c;
+  color: #fff;
+}
+
+button:hover { filter: brightness(1.06); }
+
+#filters {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+#filters button {
+  background: transparent;
+  color: #8a8a92;
+  padding: 5px 12px;
+  border-radius: 99px;
+  font-size: 13px;
+}
+
+#filters button.active {
+  background: #2b2b30;
+  color: #fff;
+}
+
+#list { display: flex; flex-direction: column; gap: 10px; }
+
+.card {
+  background: #fff;
+  border: 1px solid #eceae5;
+  border-radius: 14px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: box-shadow .15s ease;
+}
+
+.card:hover { box-shadow: 0 3px 12px rgba(0,0,0,.06); }
+
+.card .word {
+  font-size: 17px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card.mastered .word { color: #9a9aa2; text-decoration: line-through; }
+
+.badge {
+  font-size: 11px;
+  font-weight: normal;
+  color: #3f9a5f;
+  background: #e7f4ec;
+  border-radius: 99px;
+  padding: 1px 8px;
+}
+
+.card .meaning {
+  margin-top: 8px;
+  color: #55555c;
+  display: none;
+}
+
+.card.open .meaning { display: block; }
+
+.card .hint { font-size: 12px; color: #b8b8bf; margin-top: 6px; }
+
+.card .actions {
+  display: none;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.card.open .actions { display: flex; }
+
+.actions .master { background: #3f9a5f; }
+.actions .unmaster { background: #8a8a92; }
+.actions .remove { background: transparent; color: #c0574f; }
+
+#empty { color: #a9a9b0; text-align: center; margin-top: 40px; }
