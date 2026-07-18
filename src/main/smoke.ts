@@ -12,7 +12,8 @@ import { runGacha, runUpgrade, restoreLatestBackup, hasBackup } from './pipeline
 export async function runUpgradeSmoke(): Promise<boolean> {
   console.log('[smoke] pipeline-upgrade')
   const eggId = 'a0000000-0000-4000-8000-smokeupgrade'
-  const dir = dataRoot('eggs', '__smoke-upgrade.egg')
+  // 名字带 emoji：曾因 fs.cpSync 遇非 BMP 路径原生闪退（Electron37/Node22），锁住回归
+  const dir = dataRoot('eggs', '__smoke-🍒升级蛋.egg')
   const backups = dataRoot('backups', eggId)
   const cleanup = () => {
     removeEgg(eggId)
@@ -24,7 +25,7 @@ export async function runUpgradeSmoke(): Promise<boolean> {
     // 假蛋落地：可渲染的最小蛋 + 一份必须存活的数据
     fs.mkdirSync(path.join(dir, 'data'), { recursive: true })
     fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({
-      eggId, name: '冒烟升级蛋', version: '1.0.0', hostApiVersion: '1',
+      eggId, name: '🍒 冒烟升级蛋', version: '1.0.0', hostApiVersion: '1',
       permissions: ['storage'], wish: '原始愿望'
     }, null, 2), 'utf-8')
     fs.writeFileSync(path.join(dir, 'index.html'),
@@ -55,7 +56,7 @@ export async function runUpgradeSmoke(): Promise<boolean> {
     // 回滚：整蛋回到备份时刻
     const restoredName = restoreLatestBackup(eggId, dir)
     const rolledBack =
-      restoredName === '冒烟升级蛋' &&
+      restoredName === '🍒 冒烟升级蛋' &&
       fs.readFileSync(path.join(dir, 'app.js'), 'utf-8').includes('smoke v1') &&
       JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf-8')).version === '1.0.0' &&
       fs.readFileSync(path.join(dir, 'data', 'marker.txt'), 'utf-8') === 'precious'

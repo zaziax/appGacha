@@ -7,6 +7,7 @@ import { isShelfSender, sendToShelf } from './shelfWindow'
 import { cancelAllForEgg, initSchedules } from './schedule'
 import { getAiSettings, getAiSettingsMasked, setAiSettings } from './settings'
 import { dataRoot } from './paths'
+import { copyDir } from './fsutil'
 import { logLine } from './log'
 import { runGacha, runUpgrade, isGachaBusy, hasBackup, restoreLatestBackup } from './pipeline'
 
@@ -88,7 +89,7 @@ export function registerShelfChannels(): void {
     const manifest = loadManifest(src) // 校验不通过会抛错给前端
     if (getEgg(manifest.eggId)) throw new Error(`「${manifest.name}」已在收藏柜里（eggId 相同）`)
     const dest = uniqueFolder(eggsRoot(), manifest.name)
-    fs.cpSync(src, dest, { recursive: true })
+    copyDir(src, dest)
     const ctx = registerEgg(dest)
     initSchedules([ctx]) // 蛋若随身带着提醒，落地即生效
     return { imported: true, name: manifest.name }
@@ -103,7 +104,7 @@ export function registerShelfChannels(): void {
     })
     if (res.canceled || res.filePaths.length === 0) return { exported: false }
     const dest = uniqueFolder(res.filePaths[0], egg.manifest.name)
-    fs.cpSync(egg.dir, dest, { recursive: true })
+    copyDir(egg.dir, dest)
     shell.showItemInFolder(dest)
     return { exported: true, dest }
   })

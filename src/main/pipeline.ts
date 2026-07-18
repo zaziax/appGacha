@@ -5,6 +5,7 @@ import { getEgg, loadManifest, registerEgg } from './eggs'
 import { closeEggWindow } from './eggWindow'
 import { getAiSettings } from './settings'
 import { appRoot, dataRoot } from './paths'
+import { copyDir } from './fsutil'
 import { testEgg } from './test'
 import { runFcDriver, DriverResult } from './fcDriver'
 
@@ -57,7 +58,7 @@ export async function runGacha(
     // ① 投币：备舱——模板落位，manifest 由管线写入（wish 不经智能体之手）
     onProgress({ stage: 'coin', detail: '投币，装配舱就位' })
     fs.mkdirSync(stagingDir, { recursive: true })
-    fs.cpSync(appRoot('template'), stagingDir, { recursive: true })
+    copyDir(appRoot('template'), stagingDir)
     fs.rmSync(path.join(stagingDir, 'EGG_GUIDE.md'), { force: true })
     fs.rmSync(path.join(stagingDir, 'egg.d.ts'), { force: true })
     writeManifestFields(stagingDir, { eggId, wish: wish.trim() })
@@ -116,10 +117,7 @@ export async function runUpgrade(
     backupEgg(eggId, egg.dir)
     fs.mkdirSync(stagingDir, { recursive: true })
     const realDataDir = path.resolve(egg.dir, 'data')
-    fs.cpSync(egg.dir, stagingDir, {
-      recursive: true,
-      filter: src => path.resolve(src) !== realDataDir
-    })
+    copyDir(egg.dir, stagingDir, src => path.resolve(src) !== realDataDir)
     patchManifest(stagingDir, m => { m.eggId = tempId })
 
     // ② 旋钮转动：增量进化（驱动自检走的是"无数据全新安装"路径）
@@ -142,7 +140,7 @@ export async function runUpgrade(
     const dataDir = path.join(egg.dir, 'data')
     if (fs.existsSync(dataDir)) {
       onProgress({ stage: 'clack', detail: '带旧数据迁移试跑…' })
-      fs.cpSync(dataDir, path.join(stagingDir, 'data'), { recursive: true })
+      copyDir(dataDir, path.join(stagingDir, 'data'))
       const t = await testEgg(stagingDir)
       fs.rmSync(path.join(stagingDir, 'data'), { recursive: true, force: true })
       if (!t.ok) {
@@ -197,8 +195,7 @@ export function hasBackup(eggId: string): boolean {
 
 function backupEgg(eggId: string, eggDir: string): void {
   const dest = path.join(backupsDir(eggId), new Date().toISOString().replace(/[:.]/g, '-'))
-  fs.mkdirSync(dest, { recursive: true })
-  fs.cpSync(eggDir, dest, { recursive: true })
+  copyDir(eggDir, dest)
   const all = fs.readdirSync(backupsDir(eggId)).sort()
   for (const old of all.slice(0, Math.max(0, all.length - MAX_BACKUPS_PER_EGG))) {
     fs.rmSync(path.join(backupsDir(eggId), old), { recursive: true, force: true })
@@ -212,7 +209,7 @@ export function restoreLatestBackup(eggId: string, eggDir: string): string {
   if (all.length === 0) throw new Error('没有可用的备份')
   const src = path.join(dir, all[all.length - 1])
   fs.rmSync(eggDir, { recursive: true, force: true })
-  fs.cpSync(src, eggDir, { recursive: true })
+  copyDir(src, eggDir)
   return loadManifest(eggDir).name
 }
 
@@ -222,9 +219,12 @@ function swapCode(stagingDir: string, eggDir: string): void {
     if (entry === 'data') continue
     fs.rmSync(path.join(eggDir, entry), { recursive: true, force: true })
   }
-  for (const entry of fs.readdirSync(stagingDir)) {
-    if (entry === 'data') continue
-    fs.cpSync(path.join(stagingDir, entry), path.join(eggDir, entry), { recursive: true })
+  for (const entry of fs.readdirSync(stagingDir, { withFileTypes: true })) {
+    if (entry.name === 'data') continue
+    const from = path.join(stagingDir, entry.name)
+    const to = path.join(eggDir, entry.name)
+    if (entry.isDirectory()) copyDir(from, to)
+    else fs.copyFileSync(from, to)
   }
 }
 
