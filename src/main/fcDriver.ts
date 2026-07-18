@@ -156,18 +156,21 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
   const execTool = async (name: string, args: Record<string, unknown>): Promise<string> => {
     switch (name) {
       case 'list_files':
+        job.onStage('crank', '查看装配舱文件…')
         return listAllFiles(job.stagingDir).join('\n')
       case 'read_file':
+        job.onStage('crank', `读取 ${args.path}…`)
         return fs.readFileSync(resolveSafe(job.stagingDir, String(args.path)), 'utf-8')
       case 'write_file': {
         const abs = resolveSafe(job.stagingDir, String(args.path))
         if (typeof args.content !== 'string') throw new Error('content 必须是字符串')
+        job.onStage('crank', `正在写 ${args.path}…`)
         fs.mkdirSync(path.dirname(abs), { recursive: true })
         fs.writeFileSync(abs, args.content, 'utf-8')
         return `已写入 ${args.path}（${Buffer.byteLength(args.content)} 字节）`
       }
       case 'check_egg': {
-        job.onStage('clack', `自检中（第 ${rounds} 轮）`)
+        job.onStage('clack', `自检中（第 ${rounds} 轮）…`)
         const { report } = await runCheck()
         return report
       }
@@ -180,6 +183,7 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
     if (Date.now() > deadline) return { ok: false, rounds, turns, error: '机芯超时（15 分钟）' }
     if (totalTokens > MAX_TOTAL_TOKENS) return { ok: false, rounds, turns, error: 'token 预算耗尽' }
     turns++
+    job.onStage('crank', `第 ${turns} 回合，模型思考中…`)
 
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
@@ -222,7 +226,7 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
       }
 
       if (tc.function.name === 'finish') {
-        job.onStage('clack', `最终验收（第 ${rounds} 轮）`)
+        job.onStage('clack', `最终验收（第 ${rounds} 轮）…`)
         const { pass, report } = await runCheck()
         if (pass) return { ok: true, rounds, turns }
         if (rounds >= job.maxRounds) {

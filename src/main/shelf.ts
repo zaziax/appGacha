@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, net, shell, IpcMainInvokeEvent } from 'electron'
+import { app, dialog, ipcMain, net, shell, IpcMainInvokeEvent, Notification } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { allEggs, getEgg, loadManifest, registerEgg, removeEgg } from './eggs'
@@ -97,6 +97,13 @@ export function registerShelfChannels(): void {
     // 不 await：扭蛋过程通过 gacha:progress 事件流式上报，完成事件里带结果
     void runGacha(String(wish ?? ''), p => sendToShelf('gacha:progress', p)).then(result => {
       sendToShelf('gacha:done', result)
+      // 后台挂起时也能收到结果
+      if (Notification.isSupported()) {
+        new Notification(result.ok
+          ? { title: '咔哒！出蛋了 ◓', body: `「${result.name}」已放进你的收藏柜` }
+          : { title: '这次没扭出好蛋…', body: (result.error ?? '').slice(0, 120) }
+        ).show()
+      }
     })
     return { started: true }
   })

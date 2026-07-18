@@ -241,3 +241,10 @@ button.primary:hover { filter: brightness(1.06); }
 
 #wishProgress h2, #wishResult h2 { text-align: center; }
 #wishProgress .dialog-sub { text-align: center; min-height: 1.5em; }
+
+#wishBtn.spinning { animation: pulse 1.4s ease-in-out infinite; }
+
+@keyframes pulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.18); }
+}

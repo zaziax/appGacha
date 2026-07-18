@@ -103,15 +103,10 @@ document.getElementById('importBtn').addEventListener('click', async () => {
   } catch (err) { toast(err.message) }
 })
 
-document.getElementById('wishBtn').addEventListener('click', () => {
-  showWishPane('form')
-  wishMask.hidden = false
-  document.getElementById('wishText').focus()
-})
-
 // ---- 许愿 / 扭蛋进度 ----
 
 const wishMask = document.getElementById('wishMask')
+const wishBtn = document.getElementById('wishBtn')
 const STAGE_TEXT = {
   coin: '投币…',
   crank: '旋钮转动…',
@@ -120,36 +115,72 @@ const STAGE_TEXT = {
   fail: '这次没扭出好蛋'
 }
 let lastEggId = null
+// 扭蛋状态独立于弹窗存在，弹窗只是它的一个视图（支持后台挂起）
+const gacha = { running: false, stage: null, detail: '', pane: 'form' }
+
+function updateWishBtn() {
+  if (gacha.running) {
+    wishBtn.textContent = `◓ ${STAGE_TEXT[gacha.stage] || '扭蛋中…'}`
+    wishBtn.classList.add('spinning')
+  } else {
+    wishBtn.textContent = '许个愿 ✦'
+    wishBtn.classList.remove('spinning')
+  }
+}
+
+function updateProgressPane() {
+  document.getElementById('stageTitle').textContent = STAGE_TEXT[gacha.stage] || gacha.stage || ''
+  document.getElementById('stageDetail').textContent = gacha.detail || ''
+}
+
+document.getElementById('wishBtn').addEventListener('click', () => {
+  if (gacha.running) {
+    showWishPane('progress')
+    updateProgressPane()
+  } else {
+    showWishPane(gacha.pane === 'result' ? 'result' : 'form')
+  }
+  wishMask.hidden = false
+  if (!gacha.running && gacha.pane !== 'result') document.getElementById('wishText').focus()
+})
 
 function showWishPane(which) {
+  gacha.pane = which
   document.getElementById('wishForm').hidden = which !== 'form'
   document.getElementById('wishProgress').hidden = which !== 'progress'
   document.getElementById('wishResult').hidden = which !== 'result'
 }
 
 document.getElementById('closeWishBtn').addEventListener('click', () => { wishMask.hidden = true })
+document.getElementById('bgWishBtn').addEventListener('click', () => { wishMask.hidden = true })
 
 document.getElementById('startWishBtn').addEventListener('click', async () => {
   const text = document.getElementById('wishText').value.trim()
   if (text.length < 2) return
   try {
     await shelf.wish(text)
+    gacha.running = true
+    gacha.stage = 'coin'
+    gacha.detail = ''
+    updateWishBtn()
     showWishPane('progress')
-    document.getElementById('stageTitle').textContent = STAGE_TEXT.coin
-    document.getElementById('stageDetail').textContent = ''
+    updateProgressPane()
   } catch (err) {
     toast(err.message)
   }
 })
 
 shelf.onGachaProgress((p) => {
-  if (wishMask.hidden) return
-  document.getElementById('stageTitle').textContent = STAGE_TEXT[p.stage] || p.stage
-  document.getElementById('stageDetail').textContent = p.detail || ''
+  gacha.running = true
+  gacha.stage = p.stage
+  gacha.detail = p.detail || ''
+  updateWishBtn()
+  if (!wishMask.hidden) updateProgressPane()
 })
 
 shelf.onGachaDone((r) => {
-  showWishPane('result')
+  gacha.running = false
+  updateWishBtn()
   const openBtn = document.getElementById('openNewEggBtn')
   const retryBtn = document.getElementById('retryWishBtn')
   if (r.ok) {
@@ -159,21 +190,29 @@ shelf.onGachaDone((r) => {
     openBtn.hidden = false
     retryBtn.hidden = true
     render()
+    if (wishMask.hidden) toast(`咔哒！「${r.name}」出蛋了，已入柜`)
   } else {
     document.getElementById('resultTitle').textContent = '这次没扭出好蛋…'
     document.getElementById('resultDetail').textContent = r.error || ''
     openBtn.hidden = true
     retryBtn.hidden = false
+    if (wishMask.hidden) toast('这次没扭出好蛋，点许愿按钮看详情')
   }
+  // 结果面板就位：弹窗开着立即可见，后台挂起则下次点许愿按钮看到
+  showWishPane('result')
 })
 
 document.getElementById('openNewEggBtn').addEventListener('click', () => {
   if (lastEggId) shelf.open(lastEggId).catch(err => toast(err.message))
+  gacha.pane = 'form'
   wishMask.hidden = true
 })
 
 document.getElementById('retryWishBtn').addEventListener('click', () => showWishPane('form'))
-document.getElementById('closeResultBtn').addEventListener('click', () => { wishMask.hidden = true })
+document.getElementById('closeResultBtn').addEventListener('click', () => {
+  gacha.pane = 'form'
+  wishMask.hidden = true
+})
 
 // ---- 模型设置弹窗 ----
 

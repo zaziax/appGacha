@@ -95,7 +95,8 @@ async function runDriverSafely(
     templateDir: root('template'),
     maxRounds: MAX_ROUNDS,
     onStage: (stage, detail) => {
-      if (stage === 'clack') onProgress({ stage: 'clack', detail })
+      // 驱动的实况全部转发：crank 是工作动作，clack 是自检
+      onProgress({ stage: stage === 'clack' ? 'clack' : 'crank', detail })
     }
   })
 }
