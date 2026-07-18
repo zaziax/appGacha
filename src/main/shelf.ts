@@ -7,6 +7,7 @@ import { isShelfSender, sendToShelf } from './shelfWindow'
 import { cancelAllForEgg, initSchedules } from './schedule'
 import { getAiSettings, getAiSettingsMasked, setAiSettings } from './settings'
 import { dataRoot } from './paths'
+import { logLine } from './log'
 import { runGacha, runUpgrade, isGachaBusy, hasBackup, restoreLatestBackup } from './pipeline'
 
 export function eggsRoot(): string {
@@ -46,9 +47,16 @@ function uniqueFolder(root: string, baseName: string): string {
   return dir
 }
 
+// 扭蛋/升级共用：进度落日志再转发收藏柜（闪退时 app.log 里能看到最后一步）
+function reportProgress(p: { stage: string; detail?: string }): void {
+  logLine('[gacha]', p.stage, p.detail ?? '')
+  sendToShelf('gacha:progress', p)
+}
+
 // 扭蛋/升级共用的收尾：done 事件带 upgraded 标记，后台挂起时发系统通知
 function launchGacha(run: Promise<{ ok: boolean; name?: string; error?: string }>, upgraded: boolean): void {
   void run.then(result => {
+    logLine('[gacha] done', result)
     sendToShelf('gacha:done', { ...result, upgraded })
     if (Notification.isSupported()) {
       new Notification(result.ok
@@ -112,13 +120,13 @@ export function registerShelfChannels(): void {
   handle('shelf:wish', async (wish) => {
     if (isGachaBusy()) throw new Error('机芯正忙，请等上一颗蛋出来')
     // 不 await：扭蛋过程通过 gacha:progress 事件流式上报，完成事件里带结果
-    launchGacha(runGacha(String(wish ?? ''), p => sendToShelf('gacha:progress', p)), false)
+    launchGacha(runGacha(String(wish ?? ''), reportProgress), false)
     return { started: true }
   })
 
   handle('shelf:upgrade', async (eggId, wish) => {
     if (isGachaBusy()) throw new Error('机芯正忙，请等上一颗蛋出来')
-    launchGacha(runUpgrade(String(eggId), String(wish ?? ''), p => sendToShelf('gacha:progress', p)), true)
+    launchGacha(runUpgrade(String(eggId), String(wish ?? ''), reportProgress), true)
     return { started: true }
   })
 

@@ -27,6 +27,10 @@ export function createShelfWindow(opts?: { show?: boolean }): BrowserWindow {
   shelfWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   shelfWindow.on('closed', () => { shelfWindow = null })
   shelfWindow.loadFile(path.join(app.getAppPath(), 'src', 'renderer', 'shelf', 'index.html'))
+  // 开发期默认带上 DevTools，便于定位渲染层问题
+  if (!app.isPackaged && (opts?.show ?? true)) {
+    shelfWindow.webContents.openDevTools({ mode: 'detach' })
+  }
   return shelfWindow
 }
 

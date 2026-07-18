@@ -5,6 +5,7 @@ import { createShelfWindow } from './shelfWindow'
 import { registerShelfChannels } from './shelf'
 import { initSchedules } from './schedule'
 import { dataRoot } from './paths'
+import { initLogging } from './log'
 import { runSmoke, runShelfSmoke, runPipelineFailSmoke, runUpgradeSmoke } from './smoke'
 import { sweepStaging } from './pipeline'
 
@@ -13,6 +14,7 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 const isSmoke = process.argv.includes('--smoke')
+if (!isSmoke) initLogging()
 
 app.whenReady().then(async () => {
   registerCapabilities()
