@@ -3,4 +3,5 @@ dist/
 eggs/**/data/
 failed/
 staging/
-*.egg.bak-*
+backups/
+app.log
