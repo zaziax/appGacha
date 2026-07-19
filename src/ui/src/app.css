@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap');
 @import "tailwindcss";
 
 /* ==== Frameless window ==== */
@@ -5,88 +6,43 @@ html, body, #root {
   height: 100%;
   margin: 0;
   overflow: hidden;
+  font-family: 'Nunito', 'Microsoft YaHei', system-ui, sans-serif;
+  font-weight: 700;
 }
 
 @theme {
-  --color-brand: #e8843c;
-  --color-brand-hover: #d07030;
-  --color-cream: #f6f5f2;
-  --color-wood: #c8b89a;
-  --color-wood-dark: #a89070;
-  --color-muted: #8a8a92;
-  --color-danger: #c0574f;
-  --color-text: #2b2b30;
-  --color-card: #fff;
-  --color-border: #ddd9d2;
+  --color-brand: #D9534F;
+  --color-brand-hover: #c4403d;
+  --color-cream: #F4EBE1;
+  --color-card: #FFFFFF;
+  --color-text: #5C4033;
+  --color-muted: #8B7355;
+  --color-danger: #D9534F;
+  --color-border: #5C4033;
+  --color-blue: #5B8DEF;
+  --color-blue-hover: #4a7de0;
 }
 
-/* ==== 木纹架子背景 ==== */
-.shelf-bg {
-  background:
-    repeating-linear-gradient(
-      2deg,
-      transparent,
-      transparent 3px,
-      rgba(180, 150, 120, 0.04) 3px,
-      rgba(180, 150, 120, 0.04) 4px
-    ),
-    linear-gradient(180deg, #e8dcc8 0%, #ddd0b8 50%, #d4c8a8 100%);
+/* ==== GACHAGO-style card: white bg, thick dark border, hard shadow ==== */
+.card-gachago {
+  background: #fff;
+  border: 4px solid #5C4033;
+  border-radius: 20px;
+  box-shadow: 6px 6px 0 rgba(92, 64, 51, 0.18);
 }
 
-/* ==== 胶囊光泽 ==== */
-.capsule-shine {
-  background: radial-gradient(ellipse at 50% 25%, rgba(255,255,255,0.4) 0%, transparent 60%);
+/* ==== Button base: thick dark border ==== */
+.btn-brutal {
+  border: 3px solid #5C4033;
+  border-radius: 14px;
+  font-weight: 900;
+  box-shadow: 3px 3px 0 rgba(92, 64, 51, 0.18);
+  transition: transform 0.1s;
 }
-.capsule-waist {
-  background: rgba(0, 0, 0, 0.08);
-  height: 3px;
-  border-radius: 2px;
-}
+.btn-brutal:active { transform: translateY(2px); }
 
-/* ==== 扭蛋机 SVG 渐变定义 ==== */
-.gacha-body-grad {
-  stop-color: #fef9f0;
-}
-.gacha-body-grad-stop {
-  stop-color: #f0e2cc;
-}
-.gacha-dome-glass {
-  stop-color: rgba(255,255,255,0.45);
-}
-.gacha-dome-glass-stop {
-  stop-color: rgba(255,255,255,0.08);
-}
-.gacha-wood-grad {
-  stop-color: #c8a870;
-}
-.gacha-wood-grad-stop {
-  stop-color: #a08050;
-}
-.gacha-metal-grad {
-  stop-color: #e8d8b0;
-}
-.gacha-metal-grad-stop {
-  stop-color: #c8b080;
-}
-
-/* ==== 粒子动画 ==== */
-@keyframes particle-burst {
-  0% { transform: translate(0, 0) scale(1); opacity: 1; }
-  100% { transform: translate(var(--tx), var(--ty)) scale(0); opacity: 0; }
-}
-
-/* ==== 脉冲动画（许愿按钮） ==== */
-@keyframes pulse-glow {
-  0%, 100% { filter: brightness(1); }
-  50% { filter: brightness(1.18); }
-}
-
-/* ==== 视图切换过渡 ==== */
-.view-enter {
-  opacity: 0;
-  transform: translateY(12px);
-}
-.view-enter-active {
-  opacity: 1;
-  transform: translateY(0);
-}
+/* ==== Custom scrollbar ==== */
+.chat-scroll::-webkit-scrollbar { width: 5px; }
+.chat-scroll::-webkit-scrollbar-track { background: transparent; }
+.chat-scroll::-webkit-scrollbar-thumb { background: #D4C8B5; border-radius: 99px; }
+.chat-scroll::-webkit-scrollbar-thumb:hover { background: #C0B098; }

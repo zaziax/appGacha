@@ -1,4 +1,4 @@
-/* 雷霆战机 - 游戏自定义样式 */
+/* 雷霆战机·火力进化 - 游戏自定义样式 */
 
 body {
   padding: 0;
@@ -72,7 +72,7 @@ canvas {
   cursor: none;
 }
 
-/* 覆盖层（开始/结束界面） */
+/* 覆盖层（开始/结束/排行榜界面） */
 .overlay-screen {
   position: absolute;
   top: 0;
@@ -138,6 +138,31 @@ canvas {
   margin-bottom: 18px;
 }
 
+.name-input-row {
+  margin: 12px 0;
+}
+
+.name-input-row input {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid #3a3a7a;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 15px;
+  color: #e0e8ff;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.name-input-row input:focus {
+  border-color: #e8843c;
+  box-shadow: 0 0 12px rgba(232,132,60,0.25);
+}
+
+.name-input-row input::placeholder {
+  color: #556688;
+}
+
 .screen-box button {
   background: linear-gradient(135deg, #e8843c, #d06a20);
   border: none;
@@ -158,6 +183,80 @@ canvas {
 
 .screen-box button:active {
   transform: scale(0.97);
+}
+
+.screen-box button.ghost {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid #3a3a7a;
+  box-shadow: none;
+  color: #aabbdd;
+  padding: 10px 24px;
+  font-size: 14px;
+}
+
+.screen-box button.ghost:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: #5a5a9a;
+  box-shadow: none;
+}
+
+/* 排行榜列表样式 */
+#leaderboardList {
+  max-height: 280px;
+  overflow-y: auto;
+  text-align: left;
+  margin-bottom: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a7a transparent;
+}
+
+#leaderboardList::-webkit-scrollbar {
+  width: 4px;
+}
+
+#leaderboardList::-webkit-scrollbar-thumb {
+  background: #3a3a7a;
+  border-radius: 2px;
+}
+
+.lb-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  margin-bottom: 3px;
+  font-size: 13px;
+  color: #c8d0e0;
+}
+
+.lb-row.lb-highlight {
+  background: rgba(255, 204, 68, 0.1);
+  border: 1px solid rgba(255, 204, 68, 0.2);
+}
+
+.lb-rank {
+  width: 28px;
+  font-weight: 700;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.lb-rank.gold { color: #ffcc44; }
+.lb-rank.silver { color: #c0c8e0; }
+.lb-rank.bronze { color: #cc8855; }
+
+.lb-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-score {
+  font-weight: 600;
+  color: #44ddff;
+  flex-shrink: 0;
 }
 
 /* 移动端适配 */

@@ -1,0 +1,130 @@
+/* 简易计算器样式 */
+
+.calculator {
+  max-width: 320px;
+  margin: 0 auto;
+}
+
+/* ---- 显示屏 ---- */
+.display {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px 12px;
+  margin-bottom: 12px;
+  text-align: right;
+  min-height: 88px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+
+.display-expression {
+  font-size: 13px;
+  color: var(--text-3);
+  min-height: 20px;
+  word-break: break-all;
+  line-height: 1.3;
+  transition: opacity 0.15s;
+}
+
+.display-input {
+  font-size: 34px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+  transition: font-size 0.1s;
+}
+
+/* 数字过长时缩小字号 */
+.display-input.small {
+  font-size: 24px;
+}
+
+.display-input.xsmall {
+  font-size: 18px;
+}
+
+/* ---- 按钮网格 ---- */
+.buttons {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.btn {
+  padding: 16px 0;
+  font-size: 20px;
+  font-weight: 500;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.08s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  text-align: center;
+  line-height: 1;
+}
+
+.btn:hover {
+  filter: brightness(0.96);
+}
+
+.btn:active {
+  transform: scale(0.93);
+  filter: brightness(0.92);
+}
+
+/* 运算符 */
+.btn-operator {
+  background: #f0ede8;
+  color: var(--accent-deep);
+  border-color: var(--border-strong);
+}
+
+.btn-operator:hover {
+  background: #e8e4de;
+}
+
+/* 等号（主色调） */
+.btn-equals {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.btn-equals:hover {
+  filter: brightness(1.06);
+}
+
+.btn-equals:active {
+  filter: brightness(0.94);
+}
+
+/* 清除按钮（红色调） */
+.btn-clear {
+  color: var(--bad);
+  font-weight: 600;
+}
+
+/* 退格 */
+.btn-backspace {
+  font-size: 18px;
+}
+
+/* 正负号 */
+.btn-negate {
+  font-size: 18px;
+}
+
+/* 数字按钮悬停微效果 */
+.btn:not(.btn-operator):not(.btn-equals):not(.btn-clear):hover {
+  background: #faf9f7;
+}

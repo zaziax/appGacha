@@ -2,10 +2,7 @@ import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { shelf } from '../shelf'
 
-interface Props {
-  onClose: () => void
-  onToast: (msg: string) => void
-}
+interface Props { onClose: () => void; onToast: (msg: string) => void }
 
 export function SettingsDialog({ onClose, onToast }: Props) {
   const [baseURL, setBaseURL] = useState('')
@@ -15,62 +12,63 @@ export function SettingsDialog({ onClose, onToast }: Props) {
   const [status, setStatus] = useState<{ text: string; cls: '' | 'ok' | 'err' }>({ text: '', cls: '' })
 
   useEffect(() => {
-    shelf.getAiSettings().then(s => {
-      if (s) { setBaseURL(s.baseURL); setModel(s.model); setHasKey(s.hasKey) }
-    }).catch(() => {})
+    shelf.getAiSettings().then(s => { if (s) { setBaseURL(s.baseURL); setModel(s.model); setHasKey(s.hasKey) } }).catch(() => {})
   }, [])
 
+  const inputCls = 'block w-full mt-1.5 px-4 py-3 border-[3px] border-text rounded-2xl text-[14px] font-bold outline-none focus:border-brand transition-colors bg-white'
+
   return (
-    <div className="fixed inset-0 bg-black/35 flex items-center justify-center z-[100]" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-white rounded-2xl p-6 w-[440px] max-w-[92vw] shadow-xl">
+    <div className="fixed inset-0 bg-black/25 flex items-center justify-center z-[100]" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      {/* Dialog — GACHAGO card style */}
+      <div className="bg-white border-[4px] border-text rounded-2xl p-6 w-[440px] max-w-[92vw]" style={{ boxShadow: '6px 6px 0 rgba(92,64,51,0.2)' }}>
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-lg font-semibold text-text">模型设置</h2>
-          <button onClick={onClose} className="w-7 h-7 rounded-full bg-[#f0ede8] text-[#888] hover:bg-[#e5e0d8] hover:text-[#555] flex items-center justify-center transition-colors">
-            <X className="w-4 h-4" />
+          <h2 className="text-lg font-extrabold text-text">模型设置</h2>
+          <button onClick={onClose}
+            className="w-9 h-9 rounded-xl border-[3px] border-text flex items-center justify-center text-text hover:bg-cream active:translate-y-0.5 transition-all font-extrabold"
+            style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.15)' }}>
+            <X className="w-4 h-4" strokeWidth={3} />
           </button>
         </div>
-        <p className="text-xs text-muted mb-4">OpenAI 兼容接口（DeepSeek / Kimi / Qwen 等均可）。Key 加密存储在本机，蛋永远接触不到。</p>
+        <p className="text-xs font-bold text-muted mb-5">OpenAI 兼容接口（DeepSeek / Kimi / Qwen 等均可）。Key 加密存储在本机，蛋永远接触不到。</p>
 
-        <label className="block text-xs text-[#55555c] mb-3">
+        <label className="block text-xs font-extrabold text-text mb-4">
           接口地址 Base URL
-          <input value={baseURL} onChange={e => setBaseURL(e.target.value)}
-            placeholder="https://api.deepseek.com/v1" spellCheck={false}
-            className="block w-full mt-1 px-3 py-2 border border-[#ddd9d2] rounded-xl text-[13px] outline-none focus:border-brand transition-colors font-[system-ui,'Microsoft_YaHei',sans-serif]" />
+          <input value={baseURL} onChange={e => setBaseURL(e.target.value)} placeholder="https://api.deepseek.com/v1" spellCheck={false} className={inputCls} />
         </label>
-        <label className="block text-xs text-[#55555c] mb-3">
+        <label className="block text-xs font-extrabold text-text mb-4">
           模型名 Model
-          <input value={model} onChange={e => setModel(e.target.value)}
-            placeholder="deepseek-chat" spellCheck={false}
-            className="block w-full mt-1 px-3 py-2 border border-[#ddd9d2] rounded-xl text-[13px] outline-none focus:border-brand transition-colors font-[system-ui,'Microsoft_YaHei',sans-serif]" />
+          <input value={model} onChange={e => setModel(e.target.value)} placeholder="deepseek-chat" spellCheck={false} className={inputCls} />
         </label>
-        <label className="block text-xs text-[#55555c] mb-4">
+        <label className="block text-xs font-extrabold text-text mb-5">
           API Key
-          <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)}
-            placeholder={hasKey ? '已保存（留空沿用）' : 'sk-…'} spellCheck={false}
-            className="block w-full mt-1 px-3 py-2 border border-[#ddd9d2] rounded-xl text-[13px] outline-none focus:border-brand transition-colors font-[system-ui,'Microsoft_YaHei',sans-serif]" />
+          <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={hasKey ? '已保存（留空沿用）' : 'sk-…'} spellCheck={false} className={inputCls} />
         </label>
 
-        <div className="flex gap-2 items-center justify-end">
-          <span className={`flex-1 text-xs truncate ${status.cls === 'ok' ? 'text-green-600' : status.cls === 'err' ? 'text-danger' : 'text-muted'}`}>
-            {status.text}
-          </span>
-          <button onClick={async () => {
+        <div className="flex gap-3 items-center justify-end">
+          <span className={`flex-1 text-xs font-bold truncate ${status.cls === 'ok' ? 'text-emerald-600' : status.cls === 'err' ? 'text-danger' : 'text-muted'}`}>{status.text}</span>
+          <Btn onClick={async () => {
             setStatus({ text: '测试中…', cls: '' })
-            try {
-              const res = await shelf.testAi()
-              setStatus({ text: `连接成功：${res.reply}`, cls: 'ok' })
-            } catch (err) { setStatus({ text: (err as Error).message, cls: 'err' }) }
-          }} className="px-4 py-2 border border-[#ddd9d2] rounded-xl text-sm hover:border-[#c9c4bb] active:scale-95 transition-all">测试连接</button>
-          <button onClick={async () => {
-            try {
-              await shelf.saveAiSettings({ baseURL, model, apiKey })
-              setStatus({ text: '已保存', cls: 'ok' })
-              setHasKey(true)
-              onToast('模型配置已保存')
-            } catch (err) { setStatus({ text: (err as Error).message, cls: 'err' }) }
-          }} className="px-4 py-2 bg-brand text-white rounded-xl text-sm font-medium hover:bg-brand-hover active:scale-95 transition-all">保存</button>
+            try { const res = await shelf.testAi(); setStatus({ text: `连接成功：${res.reply}`, cls: 'ok' }) }
+            catch (err) { setStatus({ text: (err as Error).message, cls: 'err' }) }
+          }}>测试连接</Btn>
+          <Btn primary onClick={async () => {
+            try { await shelf.saveAiSettings({ baseURL, model, apiKey }); setStatus({ text: '已保存', cls: 'ok' }); setHasKey(true); onToast('模型配置已保存') }
+            catch (err) { setStatus({ text: (err as Error).message, cls: 'err' }) }
+          }}>保存</Btn>
         </div>
       </div>
     </div>
+  )
+}
+
+function Btn({ children, primary, onClick }: { children: React.ReactNode; primary?: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick}
+      className="px-5 py-2.5 rounded-xl text-sm font-extrabold active:translate-y-0.5 transition-all border-[3px] border-text"
+      style={{
+        background: primary ? '#D9534F' : '#fff',
+        color: primary ? '#fff' : '#5C4033',
+        boxShadow: '3px 3px 0 rgba(92,64,51,0.18)'
+      }}>{children}</button>
   )
 }
