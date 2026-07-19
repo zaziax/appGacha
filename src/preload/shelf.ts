@@ -29,5 +29,12 @@ contextBridge.exposeInMainWorld('shelf', {
   },
   onGachaDone: (cb: (r: unknown) => void) => {
     ipcRenderer.on('gacha:done', (_e, r) => cb(r))
+  },
+  minimize: () => ipcRenderer.send('win:minimize'),
+  maximize: () => ipcRenderer.send('win:maximize'),
+  close: () => ipcRenderer.send('win:close'),
+  isMaximized: () => ipcRenderer.invoke('win:isMaximized'),
+  onWindowState: (cb: (s: { maximized: boolean }) => void) => {
+    ipcRenderer.on('win:stateChanged', (_e, s) => cb(s))
   }
 })

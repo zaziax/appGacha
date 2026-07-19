@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+/* ==== Frameless window ==== */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+@theme {
+  --color-brand: #e8843c;
+  --color-brand-hover: #d07030;
+  --color-cream: #f6f5f2;
+  --color-wood: #c8b89a;
+  --color-wood-dark: #a89070;
+  --color-muted: #8a8a92;
+  --color-danger: #c0574f;
+  --color-text: #2b2b30;
+  --color-card: #fff;
+  --color-border: #ddd9d2;
+}
+
+/* ==== 木纹架子背景 ==== */
+.shelf-bg {
+  background:
+    repeating-linear-gradient(
+      2deg,
+      transparent,
+      transparent 3px,
+      rgba(180, 150, 120, 0.04) 3px,
+      rgba(180, 150, 120, 0.04) 4px
+    ),
+    linear-gradient(180deg, #e8dcc8 0%, #ddd0b8 50%, #d4c8a8 100%);
+}
+
+/* ==== 胶囊光泽 ==== */
+.capsule-shine {
+  background: radial-gradient(ellipse at 50% 25%, rgba(255,255,255,0.4) 0%, transparent 60%);
+}
+.capsule-waist {
+  background: rgba(0, 0, 0, 0.08);
+  height: 3px;
+  border-radius: 2px;
+}
+
+/* ==== 扭蛋机 SVG 渐变定义 ==== */
+.gacha-body-grad {
+  stop-color: #fef9f0;
+}
+.gacha-body-grad-stop {
+  stop-color: #f0e2cc;
+}
+.gacha-dome-glass {
+  stop-color: rgba(255,255,255,0.45);
+}
+.gacha-dome-glass-stop {
+  stop-color: rgba(255,255,255,0.08);
+}
+.gacha-wood-grad {
+  stop-color: #c8a870;
+}
+.gacha-wood-grad-stop {
+  stop-color: #a08050;
+}
+.gacha-metal-grad {
+  stop-color: #e8d8b0;
+}
+.gacha-metal-grad-stop {
+  stop-color: #c8b080;
+}
+
+/* ==== 粒子动画 ==== */
+@keyframes particle-burst {
+  0% { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--tx), var(--ty)) scale(0); opacity: 0; }
+}
+
+/* ==== 脉冲动画（许愿按钮） ==== */
+@keyframes pulse-glow {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.18); }
+}
+
+/* ==== 视图切换过渡 ==== */
+.view-enter {
+  opacity: 0;
+  transform: translateY(12px);
+}
+.view-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+}

@@ -2,6 +2,7 @@ import { BrowserWindow, session } from 'electron'
 import path from 'node:path'
 import { EggContext } from './eggs'
 import { registerEggProtocol, lockdownSession } from './protocol'
+import { bindWindowStateEvents } from './shelf'
 import * as registry from './registry'
 
 const preparedPartitions = new Set<string>()
@@ -35,6 +36,7 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
   const win = new BrowserWindow({
     width: 900,
     height: 640,
+    frame: false,
     show: opts?.show ?? true,
     title: egg.manifest.name,
     autoHideMenuBar: true,
@@ -59,6 +61,8 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
 
   // R4: 蛋不能创建窗口
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+
+  bindWindowStateEvents(win.webContents.id)
 
   win.loadURL(`egg://${egg.eggId}/index.html`)
   return win

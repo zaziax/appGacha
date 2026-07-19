@@ -2,7 +2,7 @@ import { app, protocol } from 'electron'
 import { discoverEggs } from './eggs'
 import { registerCapabilities } from './capabilities'
 import { createShelfWindow } from './shelfWindow'
-import { registerShelfChannels } from './shelf'
+import { registerShelfChannels, registerWindowControls, bindWindowStateEvents } from './shelf'
 import { initSchedules } from './schedule'
 import { dataRoot } from './paths'
 import { initLogging } from './log'
@@ -19,6 +19,7 @@ if (!isSmoke) initLogging()
 app.whenReady().then(async () => {
   registerCapabilities()
   registerShelfChannels()
+  registerWindowControls()
   sweepStaging()
 
   const eggs = discoverEggs(dataRoot('eggs'))
@@ -37,7 +38,8 @@ app.whenReady().then(async () => {
     return
   }
 
-  createShelfWindow()
+  const shelfWin = createShelfWindow()
+  bindWindowStateEvents(shelfWin.webContents.id)
 })
 
 // smoke 模式会反复开关离屏窗口，不能因窗口清零而退出

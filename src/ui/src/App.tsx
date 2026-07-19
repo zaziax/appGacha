@@ -1,19 +1,32 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
 import { shelf, EggInfo } from './shelf'
 import { getGachaState, subscribeGacha, onGachaDone, setGachaUpgrade } from './gachaStore'
+import { TitleBar } from './components/TitleBar'
+import { MachineView } from './components/MachineView'
 import { EggCard } from './components/EggCard'
-import { WishDialog } from './components/WishDialog'
 import { SettingsDialog } from './components/SettingsDialog'
 import { Toast, useToast } from './components/Toast'
 
+type View = 'machine' | 'shelf'
+
+function stageText(stage: string | null): string {
+  switch (stage) {
+    case 'coin': return '投币…'
+    case 'crank': return '旋钮转动…'
+    case 'clack': return '机芯咔咔…'
+    case 'pop': return '咔哒！'
+    case 'fail': return '这次没扭出好蛋'
+    default: return '扭蛋中…'
+  }
+}
+
 export default function App() {
   const [eggs, setEggs] = useState<EggInfo[]>([])
-  const [wishOpen, setWishOpen] = useState(false)
+  const [view, setView] = useState<View>('machine')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const { toast, showToast } = useToast()
   const gacha = useSyncExternalStore(subscribeGacha, getGachaState)
-  const wishOpenRef = useRef(wishOpen)
-  wishOpenRef.current = wishOpen
 
   const refresh = useCallback(() => {
     shelf.list().then(setEggs).catch(err => showToast(err.message))
@@ -23,85 +36,122 @@ export default function App() {
 
   useEffect(() => onGachaDone(r => {
     refresh()
-    if (!wishOpenRef.current) {
-      showToast(r.ok
-        ? (r.upgraded ? `咔哒！「${r.name}」升级完成` : `咔哒！「${r.name}」出蛋了，已入柜`)
-        : (r.upgraded ? '这次升级没成，点许愿按钮看详情' : '这次没扭出好蛋，点许愿按钮看详情'))
-    }
+    showToast(r.ok
+      ? (r.upgraded ? `咔哒！「${r.name}」升级完成` : `咔哒！「${r.name}」出蛋了，已入柜`)
+      : (r.upgraded ? '这次升级没成，点许愿按钮看详情' : '这次没扭出好蛋，点许愿按钮看详情'))
   }), [refresh, showToast])
 
-  const openWish = (upgrade: { eggId: string; name: string } | null) => {
-    if (gacha.running) {
-      setWishOpen(true) // 机芯忙时打开就是进度视图
-      return
-    }
-    if (!gacha.result) {
-      // 没有待查看的结果时才切换许愿对象
-      setGachaUpgrade(upgrade)
-    }
-    setWishOpen(true)
+  const handleUpgrade = (eggId: string, name: string) => {
+    setGachaUpgrade({ eggId, name })
+    setView('machine')
+  }
+
+  const handleImport = async () => {
+    try {
+      const res = await shelf.import()
+      if (res.imported) { showToast(`「${res.name}」已入柜！`); refresh() }
+    } catch (err) { showToast((err as Error).message) }
   }
 
   return (
-    <>
-      <header>
-        <div className="brand">
-          <span className="logo">◓</span>
-          <h1>应用扭蛋机</h1>
-        </div>
-        <div className="actions">
-          <button
-            id="wishBtn"
-            className={gacha.running ? 'primary spinning' : 'primary'}
-            title="说出愿望，扭一颗应用"
-            onClick={() => openWish(null)}
-          >
-            {gacha.running ? `◓ ${stageText(gacha.stage)}` : '许个愿 ✦'}
-          </button>
-          <button onClick={async () => {
-            try {
-              const res = await shelf.import()
-              if (res.imported) { showToast(`「${res.name}」已入柜！`); refresh() }
-            } catch (err) { showToast((err as Error).message) }
-          }}>导入扭蛋</button>
-          <button title="模型设置" onClick={() => setSettingsOpen(true)}>⚙</button>
-        </div>
-      </header>
+    <div
+      className="h-screen flex flex-col overflow-hidden"
+      style={{ background: 'linear-gradient(180deg, #f9f7f2 0%, #f0ece4 100%)' }}
+    >
+      {/* Custom Title Bar */}
+      <TitleBar
+        view={view}
+        onViewChange={setView}
+        gachaRunning={gacha.running}
+        gachaStage={gacha.stage ? stageText(gacha.stage) : null}
+        onImport={handleImport}
+        onSettings={() => setSettingsOpen(true)}
+      />
 
-      <main id="grid">
-        {eggs.map(egg => (
-          <EggCard
-            key={egg.eggId}
-            egg={egg}
-            onToast={showToast}
-            onChanged={refresh}
-            onUpgrade={() => openWish({ eggId: egg.eggId, name: egg.name })}
-          />
-        ))}
-      </main>
+      {/* Content */}
+      <div className="flex-1 overflow-auto">
+        <AnimatePresence mode="wait">
+          {view === 'machine' ? (
+            <motion.div
+              key="machine"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ type: 'spring', stiffness: 200, damping: 20, mass: 0.8 }}
+            >
+              <MachineView onToast={showToast} onEggCreated={refresh} />
+            </motion.div>
+          ) : (
+            <motion.div
+              key="shelf"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ type: 'spring', stiffness: 200, damping: 20, mass: 0.8 }}
+              className="p-6"
+            >
+              <div className="shelf-bg rounded-xl border-t-[8px] border-[#a08060] shadow-[inset_0_2px_12px_rgba(0,0,0,0.06),0_2px_8px_rgba(0,0,0,0.04)]">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-5 p-5 min-h-[200px]">
+                  {eggs.length > 0 ? (
+                    eggs.map(egg => (
+                      <EggCard
+                        key={egg.eggId}
+                        egg={egg}
+                        onToast={showToast}
+                        onChanged={refresh}
+                        onUpgrade={() => handleUpgrade(egg.eggId, egg.name)}
+                      />
+                    ))
+                  ) : (
+                    <div className="col-span-full flex flex-wrap gap-4 justify-center items-center min-h-[160px]">
+                      {['?', '?', '?'].map((s, i) => (
+                        <div
+                          key={i}
+                          onClick={() => setView('machine')}
+                          className="w-[60px] h-[80px] rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-300 text-2xl cursor-pointer hover:border-brand hover:text-brand transition-colors select-none"
+                          title="许个愿，扭一颗蛋"
+                        >
+                          {s}
+                        </div>
+                      ))}
+                      <div className="w-full text-center text-muted">
+                        <p>收藏柜空空如也</p>
+                        <p className="text-xs mt-1">许个愿扭一颗，或者导入别人分享的 .egg</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
-      {eggs.length === 0 && (
-        <div id="emptyState">
-          <div className="capsule">◓</div>
-          <p>收藏柜空空如也</p>
-          <p className="sub">许个愿扭一颗，或者导入别人分享的 .egg</p>
-        </div>
-      )}
+      {/* Resize handles for frameless window */}
+      <ResizeHandles />
 
-      {wishOpen && <WishDialog onClose={() => setWishOpen(false)} onToast={showToast} />}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} onToast={showToast} />}
       <Toast toast={toast} />
-    </>
+    </div>
   )
 }
 
-export function stageText(stage: string | null): string {
-  switch (stage) {
-    case 'coin': return '投币…'
-    case 'crank': return '旋钮转动…'
-    case 'clack': return '机芯咔咔…'
-    case 'pop': return '咔哒！'
-    case 'fail': return '这次没扭出好蛋'
-    default: return '扭蛋中…'
-  }
+/** Thin resize borders for frameless window edges */
+function ResizeHandles() {
+  const style = (cursor: string, top?: number, bottom?: number, left?: number, right?: number): React.CSSProperties => ({
+    position: 'fixed',
+    zIndex: 9999,
+    cursor,
+    top, bottom, left, right
+  })
+  return (
+    <>
+      {/* top edge is the title bar drag region — no extra resize handle needed */}
+      <div style={style('s-resize', undefined, 0, 0, 0)} className="h-1" />       {/* bottom */}
+      <div style={style('e-resize', 0, 0, undefined, 0)} className="w-1" />        {/* right */}
+      <div style={style('w-resize', 0, 0, 0, undefined)} className="w-1" />        {/* left */}
+      <div style={style('se-resize', undefined, 0, undefined, 0)} className="w-2 h-2" /> {/* bottom-right */}
+      <div style={style('sw-resize', undefined, 0, 0)} className="w-2 h-2" />      {/* bottom-left */}
+    </>
+  )
 }

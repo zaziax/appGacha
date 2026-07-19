@@ -1,4 +1,4 @@
-import { dialog, ipcMain, net, shell, IpcMainInvokeEvent, Notification } from 'electron'
+import { dialog, ipcMain, net, shell, IpcMainInvokeEvent, Notification, BrowserWindow } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { allEggs, getEgg, loadManifest, registerEgg, removeEgg } from './eggs'
@@ -180,4 +180,26 @@ export function registerShelfChannels(): void {
       clearTimeout(timer)
     }
   })
+}
+
+export function registerWindowControls(): void {
+  const win = (e: IpcMainInvokeEvent | Electron.IpcMainEvent) => BrowserWindow.fromWebContents(e.sender)!
+
+  ipcMain.handle('win:isMaximized', e => win(e).isMaximized())
+
+  ipcMain.on('win:minimize', e => win(e).minimize())
+  ipcMain.on('win:maximize', e => {
+    const w = win(e)
+    w.isMaximized() ? w.unmaximize() : w.maximize()
+  })
+  ipcMain.on('win:close', e => win(e).close())
+}
+
+export function bindWindowStateEvents(webContentsId: number): void {
+  const w = BrowserWindow.fromId(webContentsId)
+  if (!w) return
+  const emit = (maximized: boolean) => w.webContents.send('win:stateChanged', { maximized })
+  w.on('maximize', () => emit(true))
+  w.on('unmaximize', () => emit(false))
+  emit(w.isMaximized())
 }

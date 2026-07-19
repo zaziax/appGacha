@@ -27,6 +27,8 @@ export interface AiSettingsMasked {
   hasKey: boolean
 }
 
+export interface WindowState { maximized: boolean }
+
 export interface ShelfBridge {
   list(): Promise<EggInfo[]>
   open(eggId: string): Promise<void>
@@ -41,6 +43,11 @@ export interface ShelfBridge {
   testAi(): Promise<{ reply: string }>
   onGachaProgress(cb: (p: GachaProgress) => void): void
   onGachaDone(cb: (r: GachaResult) => void): void
+  minimize(): void
+  maximize(): void
+  close(): void
+  isMaximized(): Promise<boolean>
+  onWindowState(cb: (s: WindowState) => void): void
 }
 
 declare global {

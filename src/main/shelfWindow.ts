@@ -29,6 +29,7 @@ export function createShelfWindow(opts?: { show?: boolean }): BrowserWindow {
     height: 620,
     minWidth: 560,
     minHeight: 420,
+    frame: false,
     show: opts?.show ?? true,
     title: '应用扭蛋机',
     autoHideMenuBar: true,

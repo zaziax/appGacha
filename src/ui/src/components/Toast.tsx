@@ -15,5 +15,9 @@ export function useToast() {
 
 export function Toast({ toast }: { toast: ToastState | null }) {
   if (!toast) return null
-  return <div id="toast" key={toast.key}>{toast.msg}</div>
+  return (
+    <div key={toast.key} className="fixed left-1/2 bottom-7 -translate-x-1/2 bg-[rgba(30,30,36,0.92)] text-white px-5 py-2.5 rounded-full text-[13px] shadow-lg max-w-[70vw] z-[300]">
+      {toast.msg}
+    </div>
+  )
 }
