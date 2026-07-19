@@ -1,0 +1,83 @@
+/* appGacha 扭蛋基础视觉 —— 所有蛋的家族相似性来自这里，蛋自己的 style.css 在其上叠加 */
+
+* { box-sizing: border-box; margin: 0; }
+
+:root {
+  --bg: #f6f5f2;
+  --card: #ffffff;
+  --border: #eceae5;
+  --border-strong: #ddd9d2;
+  --text: #2b2b30;
+  --text-2: #55555c;
+  --text-3: #8a8a92;
+  --accent: #e8843c;
+  --accent-deep: #d06a20;
+  --good: #3f9a5f;
+  --bad: #c0574f;
+  --radius: 14px;
+}
+
+body {
+  font: 14px/1.6 system-ui, "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+h1 { font-size: 22px; letter-spacing: 1px; }
+h2 { font-size: 16px; }
+
+button {
+  border: none;
+  border-radius: 10px;
+  padding: 9px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+}
+
+button:hover { filter: brightness(1.06); }
+button:disabled { opacity: .55; cursor: not-allowed; }
+
+button.ghost {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+}
+
+button.danger { background: transparent; color: var(--bad); }
+
+input, textarea, select {
+  padding: 9px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--card);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  color: var(--text);
+}
+
+input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.muted { color: var(--text-3); font-size: 12px; }
+
+.row { display: flex; gap: 8px; align-items: center; }
+.col { display: flex; flex-direction: column; gap: 10px; }

@@ -1,0 +1,14 @@
+{
+  "eggId": "6a018639-6a61-47c6-9a81-72a67e013603",
+  "name": "雷霆战机",
+  "version": "1.0.0",
+  "hostApiVersion": "1",
+  "permissions": [
+    "storage"
+  ],
+  "wish": "一个类似雷霆战机小游戏",
+  "createdBy": {
+    "model": "deepseek-v4-flash",
+    "pipelineVersion": "0.1"
+  }
+}

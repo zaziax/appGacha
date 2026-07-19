@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>雷霆战机</title>
+  <link rel="stylesheet" href="base.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1 id="appTitle">⚡ 雷霆战机</h1>
+    <div class="header-info">
+      <span class="score-display">🏆 <span id="highScore">0</span></span>
+      <span class="lives-display" id="livesDisplay">❤️❤️❤️</span>
+      <span class="score-display">💥 <span id="currentScore">0</span></span>
+    </div>
+  </header>
+  <main id="app">
+    <canvas id="gameCanvas" width="480" height="700"></canvas>
+    <!-- 开始界面 -->
+    <div id="startScreen" class="overlay-screen">
+      <div class="screen-box">
+        <h2>⚡ 雷霆战机</h2>
+        <p class="subtitle">消灭敌机，挑战最高分！</p>
+        <div class="controls-hint">
+          <p>⌨️ 方向键 / WASD 移动</p>
+          <p>🖱️ 鼠标 / 触屏 直接操控</p>
+          <p>🔫 自动射击</p>
+        </div>
+        <button id="startBtn">开始战斗</button>
+      </div>
+    </div>
+    <!-- 结束界面 -->
+    <div id="gameOverScreen" class="overlay-screen" style="display:none">
+      <div class="screen-box">
+        <h2>💥 战机坠毁</h2>
+        <p class="final-score-text">得分：<span id="finalScore">0</span></p>
+        <p class="muted">🏆 最高纪录：<span id="finalHighScore">0</span></p>
+        <button id="restartBtn">再来一局</button>
+      </div>
+    </div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
