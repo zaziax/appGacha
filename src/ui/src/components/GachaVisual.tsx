@@ -1,146 +1,284 @@
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import type { GachaProgress } from '../shelf'
 
-const CANVAS_W = 240; const CANVAS_H = 320; const PAD = 14
+/* ================================================================
+   GACHAGO! Pro 物理拟真扭蛋机 — ported from reference.
+   CSS machine shell + canvas physics + knob crank + chute drop.
+   ================================================================ */
 
-const FLAT_COLORS = ['#ff5a5a','#ff9a4a','#f8d050','#5ac08a','#5aa8e8','#8a68e8','#f07090','#3cc8b0','#ff7eb3','#6eb5ff','#ffd866','#a0d86a']
+interface Props {
+  stage: GachaProgress['stage'] | null
+  running: boolean
+  /** AI finished generating — knob pulses, user needs to turn it to reveal result */
+  resultReady: boolean
+  /** Called after crank→clack→drop animation completes */
+  onReveal: () => void
+}
 
-interface Capsule { x: number; y: number; vx: number; vy: number; r: number; w: number; h: number; el: HTMLDivElement | null }
+// Ball physics colors
+const BALL_COLORS = ['#FFD700', '#6DA3F0', '#50C878', '#E06C68', '#FFA500', '#C78DE0']
+const BALL_RADIUS = 14
+const GRAVITY = 0.15
+const FRICTION = 0.98
+const BOUNCE = 0.6
+const BALL_COUNT = 18
 
-interface Props { stage: GachaProgress['stage'] | null; running: boolean }
-
-export function GachaVisual({ stage, running }: Props) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const capsulesRef = useRef<Capsule[]>([])
+export function GachaVisual({ stage, running, resultReady, onReveal }: Props) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const ballsRef = useRef<Ball[]>([])
   const rafRef = useRef<number>(0)
+  const agitatedRef = useRef(false)
+  const knobRef = useRef<HTMLDivElement>(null)
+  const knobAngle = useRef(0)
+  const [dropping, setDropping] = useState(false)
+  const [revealing, setRevealing] = useState(false)
+  const revealTimer = useRef<number>(0)
 
-  const initCapsules = useCallback(() => {
-    const container = containerRef.current; if (!container) return
-    capsulesRef.current = []
-    container.querySelectorAll('.phys-capsule').forEach(e => e.remove())
-    const stageEl = container.querySelector('.capsule-stage') as HTMLElement; if (!stageEl) return
-
-    for (let i = 0; i < 14; i++) {
-      const w = 14 + Math.random() * 8; const h = w * 1.45; const r = Math.floor(w / 2)
-      const el = document.createElement('div')
-      el.className = 'phys-capsule'
-      el.style.cssText = `position:absolute;width:${w}px;height:${h}px;border-radius:${r}px;background:${FLAT_COLORS[i % FLAT_COLORS.length]};border:2px solid #5C4033;pointer-events:none;z-index:2`
-      stageEl.appendChild(el)
-      capsulesRef.current.push({
-        x: PAD + r + Math.random() * (CANVAS_W - PAD * 2 - r * 2),
-        y: PAD + r + Math.random() * (CANVAS_H - PAD * 2 - r * 2),
-        vx: (Math.random() - 0.5) * 4, vy: (Math.random() - 0.5) * 4, r, w, h, el
-      })
-    }
-  }, [])
-  useEffect(() => { initCapsules() }, [initCapsules])
-
+  // ---- Physics engine init ----
   useEffect(() => {
-    const gravity = 0.10; const friction = 0.996; const bounce = -0.25
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const dpr = window.devicePixelRatio || 1
+    const rect = canvas.getBoundingClientRect()
+    canvas.width = rect.width * dpr
+    canvas.height = rect.height * dpr
+    const ctx = canvas.getContext('2d')!
+    ctx.scale(dpr, dpr)
+    const W = rect.width; const H = rect.height
+
+    // Init balls spread across top 60% of container
+    const balls: Ball[] = []
+    for (let i = 0; i < BALL_COUNT; i++) {
+      balls.push(new Ball(W, H))
+    }
+    ballsRef.current = balls
+
     const step = () => {
-      const caps = capsulesRef.current
-      for (const c of caps) {
-        c.vy += gravity; c.vx *= friction; c.vy *= friction; c.x += c.vx; c.y += c.vy
-        const l = PAD + c.r, r = CANVAS_W - PAD - c.r, t = PAD + c.r, b = CANVAS_H - PAD - c.r
-        if (c.x > r) { c.x = r; c.vx *= bounce }; if (c.x < l) { c.x = l; c.vx *= bounce }
-        if (c.y > b) { c.y = b; c.vy *= bounce }; if (c.y < t) { c.y = t; c.vy *= bounce }
-        if (Math.abs(c.vx) < 0.02) c.vx = 0; if (Math.abs(c.vy) < 0.02) c.vy = 0
+      ctx.clearRect(0, 0, W, H)
+      for (const b of balls) {
+        b.update(W, H, agitatedRef.current)
       }
-      for (let i = 0; i < caps.length; i++) {
-        for (let j = i + 1; j < caps.length; j++) {
-          const a = caps[i], b = caps[j], dx = a.x - b.x, dy = a.y - b.y, dist = Math.sqrt(dx*dx+dy*dy), minDist = a.r + b.r + 2
-          if (dist < minDist && dist > 0.01) {
-            const ang = Math.atan2(dy, dx), push = (minDist - dist) / 2
-            a.x += Math.cos(ang) * push; a.y += Math.sin(ang) * push
-            b.x -= Math.cos(ang) * push; b.y -= Math.sin(ang) * push
-          }
-        }
+      resolveCollisions(balls)
+      for (const b of balls) {
+        b.draw(ctx)
       }
-      for (const c of caps) { if (c.el) c.el.style.transform = `translate(${c.x - c.r}px,${c.y - c.h/2}px)` }
       rafRef.current = requestAnimationFrame(step)
     }
     rafRef.current = requestAnimationFrame(step)
+
     return () => cancelAnimationFrame(rafRef.current)
   }, [])
 
+  // ---- Stage effects ----
   useEffect(() => {
-    if (stage === 'clack' || stage === 'fail')
-      for (const c of capsulesRef.current) { c.vx += (Math.random()-0.5)*10; c.vy += (Math.random()-0.5)*8-2 }
+    if (stage === 'crank') {
+      // Rotate knob + agitate balls
+      agitatedRef.current = true
+      if (knobRef.current) {
+        knobAngle.current += 360 + Math.random() * 180
+        knobRef.current.style.transform = `rotate(${knobAngle.current}deg)`
+      }
+    }
+    if (stage === 'clack') {
+      // Stop agitation, drop capsule
+      agitatedRef.current = false
+      setDropping(true)
+      setTimeout(() => setDropping(false), 800)
+    }
+    if (stage === 'pop' || stage === 'fail') {
+      agitatedRef.current = false
+      setDropping(false)
+    }
   }, [stage])
 
-  useEffect(() => {
-    if (stage === 'coin') {
-      for (const c of capsulesRef.current) { if (c.el) c.el.style.opacity = '1' }
-      const caps = capsulesRef.current
-      if (caps.length > 0) { const idx = Math.floor(Math.random()*caps.length); if (caps[idx].el) caps[idx].el.style.opacity = '0.4' }
-    } else { for (const c of capsulesRef.current) { if (c.el) c.el.style.opacity = '1' } }
-  }, [stage])
+  // ---- Cleanup reveal timer on unmount ----
+  useEffect(() => { return () => clearTimeout(revealTimer.current) }, [])
+
+  // ---- Knob click: if result ready → play reveal sequence ----
+  const handleKnob = useCallback(() => {
+    if (running || revealing) return
+
+    if (resultReady) {
+      // Play the ritual reveal sequence
+      setRevealing(true)
+      agitatedRef.current = true
+
+      // Step 1: Crank — spin knob + agitate balls (1s)
+      if (knobRef.current) {
+        knobAngle.current += 360 + Math.random() * 180
+        knobRef.current.style.transform = `rotate(${knobAngle.current}deg)`
+      }
+      revealTimer.current = window.setTimeout(() => {
+        // Step 2: Clack — stop agitation, drop capsule
+        agitatedRef.current = false
+        setDropping(true)
+
+        revealTimer.current = window.setTimeout(() => {
+          // Step 3: Pop — call reveal callback
+          setDropping(false)
+          setRevealing(false)
+          onReveal()
+        }, 800)
+      }, 1000)
+    } else {
+      // Idle — just a little wiggle
+      if (knobRef.current) {
+        knobAngle.current += 60
+        knobRef.current.style.transform = `rotate(${knobAngle.current}deg)`
+      }
+    }
+  }, [running, revealing, resultReady, onReveal])
 
   return (
-    <div ref={containerRef} className="flex flex-col items-center gap-4 select-none">
-      {/* Capsule container — GACHAGO card style: white, thick border, hard shadow */}
-      <div className="relative" style={{ width: CANVAS_W, height: CANVAS_H }}>
-        <div
-          className="capsule-stage absolute inset-0 rounded-2xl bg-white"
-          style={{ border: '4px solid #5C4033', boxShadow: '6px 6px 0 rgba(92,64,51,0.18)' }}
-        />
+    <div className="flex flex-col items-center select-none gap-2">
+      {/* ======== Machine Shell ======== */}
+      <div className="relative" style={{ width: 280, height: 420 }}>
+        {/* Machine body */}
+        <div className="absolute inset-0 rounded-[50px_50px_30px_30px] border-[5px] border-text overflow-hidden"
+          style={{
+            background: 'linear-gradient(135deg, #E06C68 0%, #C5524E 100%)',
+            boxShadow: 'inset -10px -10px 0 rgba(0,0,0,0.10), 10px 15px 0 rgba(74,59,50,0.15)'
+          }}>
+        </div>
 
-        <AnimatePresence>
-          {stage === 'clack' && (
-            <motion.div className="absolute z-10"
-              style={{ width:20,height:29,borderRadius:10,border:'2px solid #5C4033',background:FLAT_COLORS[0],left:CANVAS_W/2-10,top:CANVAS_H+4 }}
-              initial={{ y:0,opacity:1 }} animate={{ y:[0,40,60,70],opacity:1 }} exit={{ opacity:0 }}
-              transition={{ duration:0.7,times:[0,0.4,0.7,1],ease:'easeIn' }} />
-          )}
-        </AnimatePresence>
+        {/* ======== Glass container + Canvas ======== */}
+        <div className="absolute top-[30px] left-1/2 -translate-x-1/2 w-[220px] h-[200px] rounded-[50%_50%_15%_15%] border-[5px] border-text overflow-hidden"
+          style={{
+            background: 'rgba(255,255,255,0.85)',
+            boxShadow: 'inset 5px 5px 15px rgba(0,0,0,0.05)'
+          }}>
+          <canvas ref={canvasRef} className="w-full h-full block" />
+          {/* Glass reflection */}
+          <div className="absolute top-[20px] right-[30px] w-[40px] h-[80px] rounded-[20px] pointer-events-none rotate-[-20deg]"
+            style={{ background: 'rgba(255,255,255,0.4)' }} />
+        </div>
 
-        <AnimatePresence>
-          {stage === 'fail' && (
-            <motion.div className="absolute inset-0 rounded-2xl bg-white/50 z-20 pointer-events-none"
-              initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }} />
-          )}
-        </AnimatePresence>
+        {/* ======== Mechanism area ======== */}
+        <div className="absolute inset-x-0 bottom-[15px] flex flex-col items-center gap-[20px]">
+          {/* Knob — pulses when result is ready */}
+          <div className={`relative w-[110px] h-[110px] rounded-full border-[5px] border-text bg-white cursor-pointer flex items-center justify-center ${resultReady ? 'animate-pulse' : ''}`}
+            style={{ boxShadow: resultReady ? '4px 4px 0 rgba(0,0,0,0.10), 0 0 20px rgba(255,180,50,0.5)' : '4px 4px 0 rgba(0,0,0,0.10)' }}
+            onClick={handleKnob}>
+            {/* Spinner (rotates) */}
+            <div ref={knobRef} className="absolute inset-0 flex items-center justify-center"
+              style={{ transition: 'transform 0.8s cubic-bezier(0.25, 1, 0.5, 1)' }}>
+              {/* Handle bar */}
+              <div className="absolute w-[20px] h-[84px] rounded-[12px] border-[3.5px] border-text"
+                style={{ background: '#6DA3F0', boxShadow: 'inset -3px 0 0 rgba(0,0,0,0.10)' }} />
+              {/* Handle center */}
+              <div className="w-[40px] h-[40px] rounded-full border-[3.5px] border-text z-[2]"
+                style={{ background: '#E06C68', boxShadow: 'inset -3px -3px 0 rgba(0,0,0,0.10)' }} />
+            </div>
+          </div>
+
+          {/* Chute */}
+          <div
+            className="relative w-[120px] h-[65px] rounded-[10px_10px_32px_32px] border-[5px] border-text overflow-visible"
+            style={{
+              background: '#3D302A',
+              boxShadow: 'inset 0 8px 16px rgba(0,0,0,0.45)'
+            }}>
+            {/* Drop capsule */}
+            <AnimatePresence>
+              {dropping && (
+                <motion.div
+                  className="absolute left-1/2 w-[52px] h-[52px] rounded-full border-[3.5px] border-text flex items-center justify-center text-xl z-20"
+                  style={{
+                    background: 'radial-gradient(circle at 35% 35%, #fff 10%, #FFD700 60%, #D4AF37 100%)',
+                    boxShadow: '0 4px 8px rgba(0,0,0,0.2)'
+                  }}
+                  initial={{ top: -70, x: '-50%', scale: 0.5, opacity: 1 }}
+                  animate={{ top: [25, 15, 20], x: '-50%', scale: [1.1, 0.95, 1], opacity: 1 }}
+                  exit={{ top: -70, x: '-50%', scale: 0, opacity: 0 }}
+                  transition={{ duration: 0.7, times: [0.4, 0.6, 1], ease: 'easeOut' }}
+                >
+                  <span role="img" aria-label="capsule">🥚</span>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
       </div>
 
-      {/* Stage text */}
-      <div className="h-6 flex items-center justify-center">
-        <AnimatePresence mode="wait">
-          {running && stage && (
-            <motion.span key={stage} className="text-[14px] font-extrabold text-text"
-              initial={{ opacity:0,y:3 }} animate={{ opacity:1,y:0 }} exit={{ opacity:0,y:-3 }} transition={{ duration:0.15 }}>
-              {labelFor(stage)}
-            </motion.span>
-          )}
-        </AnimatePresence>
-      </div>
-
-      <AnimatePresence>{stage === 'pop' && <PopParticles />}</AnimatePresence>
+      {/* Hint */}
+      <p className="text-xs font-bold text-muted/60">
+        {resultReady ? '👆 扭一下，开蛋！' : revealing ? '扭蛋中…' : running ? '机芯工作中…' : '👆 旋钮转动出蛋'}
+      </p>
     </div>
   )
 }
 
-function labelFor(s: GachaProgress['stage']): string {
-  switch (s) {
-    case 'coin': return '投币…'; case 'crank': return '旋钮转动…'; case 'clack': return '机芯咔咔…'
-    case 'pop': return '咔哒！'; case 'fail': return '这次没扭出好蛋'; default: return '扭蛋中…'
+/* ================================================================
+   Canvas physics — Ball class + collision
+   ================================================================ */
+
+class Ball {
+  x: number; y: number; r: number
+  vx: number; vy: number
+  color: string
+
+  constructor(W: number, H: number) {
+    this.r = BALL_RADIUS
+    this.x = Math.random() * (W - this.r * 2) + this.r
+    this.y = Math.random() * (H * 0.6) + this.r
+    this.vx = (Math.random() - 0.5) * 2
+    this.vy = (Math.random() - 0.5) * 2
+    this.color = BALL_COLORS[Math.floor(Math.random() * BALL_COLORS.length)]
+  }
+
+  update(W: number, H: number, agitated: boolean) {
+    this.vy += GRAVITY
+    this.vx *= FRICTION
+    this.vy *= FRICTION
+    this.x += this.vx
+    this.y += this.vy
+
+    if (this.x - this.r < 0) { this.x = this.r; this.vx *= -BOUNCE }
+    if (this.x + this.r > W) { this.x = W - this.r; this.vx *= -BOUNCE }
+    if (this.y - this.r < 0) { this.y = this.r; this.vy *= -BOUNCE }
+    if (this.y + this.r > H) { this.y = H - this.r; this.vy *= -BOUNCE }
+
+    if (agitated) {
+      this.vx += (Math.random() - 0.5) * 3
+      this.vy += (Math.random() - 0.5) * 3
+    }
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    ctx.beginPath()
+    ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2)
+    ctx.fillStyle = this.color
+    ctx.fill()
+    ctx.lineWidth = 2.5
+    ctx.strokeStyle = '#4A3B32'
+    ctx.stroke()
+    // Highlight
+    ctx.beginPath()
+    ctx.arc(this.x - this.r * 0.3, this.y - this.r * 0.3, this.r * 0.25, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(255,255,255,0.6)'
+    ctx.fill()
   }
 }
 
-function PopParticles() {
-  const particles = Array.from({length:14},(_,i)=>{
-    const a=(i/14)*Math.PI*2,d=35+Math.random()*55
-    return {tx:Math.cos(a)*d,ty:Math.sin(a)*d-20,color:FLAT_COLORS[i%FLAT_COLORS.length],size:4+Math.random()*4,delay:Math.random()*0.08}
-  })
-  return (
-    <motion.div className="absolute top-[44%] left-1/2 -translate-x-1/2 pointer-events-none z-30"
-      initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
-      {particles.map((p,i)=>(
-        <motion.div key={i} className="absolute -translate-x-1/2 -translate-y-1/2"
-          style={{width:p.size,height:p.size,borderRadius:p.size>5?4:2,background:p.color}}
-          initial={{x:0,y:0,opacity:0,scale:0}} animate={{x:p.tx,y:p.ty,opacity:[0,1,0],scale:[0,1,0.5]}}
-          transition={{duration:0.55,delay:p.delay,ease:'easeOut'}} />
-      ))}
-    </motion.div>
-  )
+function resolveCollisions(balls: Ball[]) {
+  for (let i = 0; i < balls.length; i++) {
+    for (let j = i + 1; j < balls.length; j++) {
+      const a = balls[i], b = balls[j]
+      const dx = b.x - a.x, dy = b.y - a.y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      const minDist = a.r + b.r
+      if (dist < minDist) {
+        const angle = Math.atan2(dy, dx)
+        const overlap = minDist - dist
+        const moveX = Math.cos(angle) * overlap * 0.5
+        const moveY = Math.sin(angle) * overlap * 0.5
+        a.x -= moveX; a.y -= moveY
+        b.x += moveX; b.y += moveY
+        const tvx = a.vx, tvy = a.vy
+        a.vx = b.vx * BOUNCE; a.vy = b.vy * BOUNCE
+        b.vx = tvx * BOUNCE; b.vy = tvy * BOUNCE
+      }
+    }
+  }
 }

@@ -20,8 +20,15 @@ export function MachineView({ onToast, onEggCreated }: Props) {
   const gacha = useSyncExternalStore(subscribeGacha, getGachaState)
   const [text, setText] = useState('')
   const [lastWish, setLastWish] = useState('')
+  const [revealed, setRevealed] = useState(true)
   const msgEnd = useRef<HTMLDivElement>(null)
-  const hasActivity = gacha.running || gacha.result
+  const hasActivity = gacha.running || (gacha.result && revealed)
+  const resultReady = !!(gacha.result && !revealed && !gacha.running)
+
+  // When gacha completes, defer reveal
+  useEffect(() => {
+    if (gacha.result && !gacha.running) setRevealed(false)
+  }, [gacha.result, gacha.running])
 
   useEffect(() => { msgEnd.current?.scrollIntoView({ behavior: 'smooth' }) }, [gacha.stage])
 
@@ -39,7 +46,7 @@ export function MachineView({ onToast, onEggCreated }: Props) {
     <div className="flex h-full">
       {/* Left: Gacha Visual — cream bg */}
       <div className="w-[38%] min-w-[280px] max-w-[340px] flex items-center justify-center overflow-hidden bg-cream">
-        <GachaVisual stage={gacha.running ? gacha.stage : null} running={gacha.running} />
+        <GachaVisual stage={gacha.running ? gacha.stage : null} running={gacha.running} resultReady={resultReady} onReveal={() => setRevealed(true)} />
       </div>
 
       {/* Subtle panel separator */}
@@ -53,10 +60,10 @@ export function MachineView({ onToast, onEggCreated }: Props) {
           <div className="flex-1 min-w-0">
             <p className="text-[14px] font-extrabold text-text">应用扭蛋助手</p>
             <p className="text-[12px] font-bold text-muted">
-              {gacha.running ? '正在扭蛋…' : gacha.result ? '扭蛋完成' : '在线'}
+              {gacha.running ? '正在扭蛋…' : resultReady ? '请扭动旋钮…' : gacha.result ? '扭蛋完成' : '在线'}
             </p>
           </div>
-          <span className={`w-3 h-3 rounded-full border-[3px] border-text ${gacha.running ? 'bg-brand' : 'bg-emerald-400'}`} />
+          <span className={`w-3 h-3 rounded-full border-[3px] border-text ${gacha.running ? 'bg-brand' : resultReady ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`} />
         </div>
 
         {/* Messages — scrollable, no borders */}
@@ -130,15 +137,28 @@ export function MachineView({ onToast, onEggCreated }: Props) {
             )}
           </AnimatePresence>
 
-          {/* Result card — bordered card */}
+          {/* Result card — only shown after user turns knob */}
           <AnimatePresence>
-            {gacha.result && (
+            {gacha.result && revealed && (
               <motion.div key="result" className="flex gap-3" {...fadeIn}>
                 <Egg className="w-5 h-5 text-brand mt-0.5 shrink-0" strokeWidth={2.5} />
                 <ResultCard result={gacha.result}
-                  onOpen={() => { if (gacha.result?.eggId) shelf.open(gacha.result.eggId).catch(err => onToast(err.message)); clearGachaResult(); setLastWish(''); onEggCreated() }}
-                  onRetry={() => { dismissResult(); setLastWish('') }}
-                  onClose={() => { clearGachaResult(); setLastWish(''); onEggCreated() }} />
+                  onOpen={() => { if (gacha.result?.eggId) shelf.open(gacha.result.eggId).catch(err => onToast(err.message)); clearGachaResult(); setLastWish(''); setRevealed(true); onEggCreated() }}
+                  onRetry={() => { dismissResult(); setLastWish(''); setRevealed(true) }}
+                  onClose={() => { clearGachaResult(); setLastWish(''); setRevealed(true); onEggCreated() }} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Result ready prompt — tells user to turn the knob */}
+          <AnimatePresence>
+            {resultReady && (
+              <motion.div key="ready-hint" className="flex gap-3" {...fadeIn}>
+                <Egg className="w-5 h-5 text-brand mt-0.5 shrink-0" strokeWidth={2.5} />
+                <div className="bg-cream rounded-2xl rounded-tl-md px-4 py-3 max-w-[85%]">
+                  <p className="text-[14px] font-extrabold text-text">蛋扭好了！</p>
+                  <p className="text-[13px] font-bold text-muted mt-1">转动左侧扭蛋机的旋钮，看看扭出了什么 🎉</p>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>

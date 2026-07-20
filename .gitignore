@@ -1,6 +1,7 @@
 node_modules/
 dist/
 eggs/**/data/
+eggs/
 failed/
 staging/
 backups/
