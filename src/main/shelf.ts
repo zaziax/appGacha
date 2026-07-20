@@ -11,6 +11,71 @@ import { copyDir } from './fsutil'
 import { logLine } from './log'
 import { runGacha, runUpgrade, isGachaBusy, hasBackup, restoreLatestBackup } from './pipeline'
 
+// ---- 许愿引导 AI ----
+
+const WISH_GUIDE_SYSTEM = `你是「应用扭蛋机」的许愿引导助手。用户想让你帮他做一个小应用（称为"蛋"）。
+你的任务：根据用户的愿望描述，提出 2~3 个关键问题来明确需求细节。
+
+规则：
+- 每个问题必须提供 2~4 个预设选项（简短词组），选项要覆盖常见选择
+- 问题应聚焦于：核心功能范围、交互方式、数据需求等实质性细节
+- 不要问视觉风格/配色相关问题（后续有专门步骤处理）
+- 问题数量：第一轮 2~3 个；如果用户回答后仍有重大模糊点，第二轮最多再问 1~2 个
+- 如果用户的描述已经足够清晰（功能明确、无重大歧义），直接返回 done:true
+
+严格输出 JSON，格式：
+{"done":false,"questions":[{"text":"问题文本","options":["选项1","选项2","选项3"]}]}
+或
+{"done":true,"questions":[]}
+
+不要输出任何 JSON 以外的文字。`
+
+interface WishQuestion { text: string; options: string[] }
+interface WishChatResult { done: boolean; questions: WishQuestion[] }
+
+async function wishChatAi(messages: { role: string; content: string }[]): Promise<WishChatResult> {
+  const cfg = getAiSettings()
+  if (!cfg || !cfg.apiKey) throw new Error('尚未配置模型，请先在设置里填写 API')
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 30_000)
+  try {
+    const res = await net.fetch(`${cfg.baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+      body: JSON.stringify({
+        model: cfg.model,
+        messages: [{ role: 'system', content: WISH_GUIDE_SYSTEM }, ...messages],
+        response_format: { type: 'json_object' },
+        temperature: 0.3,
+        max_tokens: 800
+      }),
+      signal: controller.signal
+    })
+    if (!res.ok) {
+      const text = (await res.text().catch(() => '')).slice(0, 200)
+      throw new Error(`AI HTTP ${res.status}: ${text}`)
+    }
+    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] }
+    const content = data.choices?.[0]?.message?.content ?? ''
+    const stripped = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
+    const parsed = JSON.parse(stripped) as WishChatResult
+    // 基本校验
+    if (typeof parsed.done !== 'boolean') parsed.done = true
+    if (!Array.isArray(parsed.questions)) parsed.questions = []
+    parsed.questions = parsed.questions.slice(0, 3).map(q => ({
+      text: String(q.text ?? ''),
+      options: Array.isArray(q.options) ? q.options.slice(0, 4).map(String) : []
+    }))
+    return parsed
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw new Error('AI 响应超时，请重试')
+    throw e
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export function eggsRoot(): string {
   return dataRoot('eggs')
 }
@@ -140,6 +205,12 @@ export function registerShelfChannels(): void {
     egg.manifest = loadManifest(egg.dir)
     initSchedules([egg]) // 还原回来的提醒重新装弹
     return { name }
+  })
+
+  handle('shelf:wishChat', async (messages) => {
+    const msgs = messages as { role: string; content: string }[]
+    if (!Array.isArray(msgs) || msgs.length === 0) throw new Error('messages 不能为空')
+    return wishChatAi(msgs)
   })
 
   handle('shelf:getAiSettings', () => getAiSettingsMasked())

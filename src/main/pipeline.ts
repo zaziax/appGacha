@@ -7,14 +7,22 @@ import { getAiSettings } from './settings'
 import { appRoot, dataRoot } from './paths'
 import { copyDir } from './fsutil'
 import { testEgg } from './test'
-import { runFcDriver, DriverResult } from './fcDriver'
+import { runFcDriver, DriverResult, ActivityType } from './fcDriver'
 
 export const PIPELINE_VERSION = '0.1'
 const MAX_ROUNDS = 3
 
+export interface GachaActivity {
+  type: ActivityType
+  text: string
+  /** 同 id 的条目在前端原地替换（流式思考实时更新） */
+  id?: string
+}
+
 export interface GachaProgress {
   stage: 'coin' | 'crank' | 'clack' | 'pop' | 'fail'
   detail?: string
+  activity?: GachaActivity
 }
 
 export interface GachaResult {
@@ -128,7 +136,8 @@ export async function runUpgrade(
       templateDir: appRoot('template'),
       maxRounds: MAX_ROUNDS,
       upgrade: { baseWish: egg.manifest.wish ?? '（未留档）' },
-      onStage: (stage, detail) => onProgress({ stage: stage === 'clack' ? 'clack' : 'crank', detail })
+      onStage: (stage, detail) => onProgress({ stage: stage === 'clack' ? 'clack' : 'crank', detail }),
+      onActivity: (type, text, id) => onProgress({ stage: 'crank', activity: { type, text, id } })
     })
     if (!result.ok) {
       archiveFailure(stagingDir, tempId, upgradeWish, result)
@@ -255,7 +264,8 @@ async function runDriverSafely(
     onStage: (stage, detail) => {
       // 驱动的实况全部转发：crank 是工作动作，clack 是自检
       onProgress({ stage: stage === 'clack' ? 'clack' : 'crank', detail })
-    }
+    },
+    onActivity: (type, text, id) => onProgress({ stage: 'crank', activity: { type, text, id } })
   })
 }
 

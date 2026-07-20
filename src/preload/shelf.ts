@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('shelf', {
   wish: (text: string) => invoke('shelf:wish', text),
   upgrade: (eggId: string, text: string) => invoke('shelf:upgrade', eggId, text),
   rollback: (eggId: string) => invoke('shelf:rollback', eggId),
+  wishChat: (messages: { role: string; content: string }[]) => invoke('shelf:wishChat', messages),
   onGachaProgress: (cb: (p: unknown) => void) => {
     ipcRenderer.on('gacha:progress', (_e, p) => cb(p))
   },

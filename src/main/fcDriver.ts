@@ -5,6 +5,8 @@ import { getAiSettings } from './settings'
 import { validateEgg } from './validate'
 import { testEgg } from './test'
 
+export type ActivityType = 'think' | 'tool' | 'write' | 'check' | 'retry' | 'error'
+
 export interface DriverJob {
   wish: string
   stagingDir: string
@@ -13,6 +15,8 @@ export interface DriverJob {
   /** 升级模式：舱里是现有蛋的代码而非空白模板 */
   upgrade?: { baseWish: string }
   onStage: (stage: string, detail?: string) => void
+  /** 机芯实况：AI 思考、工具调用、文件写入、自检结果等。id 相同的条目原地替换（用于流式思考实时更新） */
+  onActivity?: (type: ActivityType, text: string, id?: string) => void
 }
 
 export interface DriverResult {
@@ -25,7 +29,9 @@ export interface DriverResult {
 const MAX_TURNS = 60
 const MAX_TOTAL_TOKENS = 300_000
 const OVERALL_TIMEOUT_MS = 15 * 60 * 1000
-const REQUEST_TIMEOUT_MS = 180_000
+const STALL_TIMEOUT_MS = 60_000        // 流式断流检测：60 秒收不到任何数据即判定中断
+const REQUEST_HARD_CAP_MS = 8 * 60_000 // 单次请求硬上限（防模型无限吐字）
+const MAX_RETRIES = 2
 
 interface ToolCall { id: string; function: { name: string; arguments: string } }
 interface AssistantMessage { role: 'assistant'; content: string | null; tool_calls?: ToolCall[] }
@@ -122,6 +128,116 @@ function buildSystemPrompt(templateDir: string): string {
   ].join('\n')
 }
 
+// HTTP 业务错误（4xx/5xx）——与网络/断流错误区分，不重试
+class HttpError extends Error {
+  constructor(public status: number, public body: string) { super(`HTTP ${status}`) }
+}
+
+interface StreamResult { message: AssistantMessage; estimatedTokens: number }
+
+/**
+ * 流式请求（SSE）+ 断流检测。
+ * 与 Claude Code / Codex 等工具同款的超时策略：只要 token 还在流就不算超时，
+ * 只有“断流”（60 秒无任何数据）才中断并重试。tool_calls 以增量 delta 拼接。
+ */
+async function streamCompletion(
+  cfg: { baseURL: string; model: string; apiKey: string },
+  messages: unknown[],
+  onDelta: (accumulatedText: string) => void
+): Promise<StreamResult> {
+  const controller = new AbortController()
+  const hardTimer = setTimeout(
+    () => controller.abort(new Error('单次生成超过 8 分钟上限')),
+    REQUEST_HARD_CAP_MS
+  )
+  let stallTimer: ReturnType<typeof setTimeout> | undefined
+  const feedStallWatchdog = () => {
+    clearTimeout(stallTimer)
+    stallTimer = setTimeout(
+      () => controller.abort(new Error('响应流中断（60 秒无数据）')),
+      STALL_TIMEOUT_MS
+    )
+  }
+  feedStallWatchdog()
+
+  try {
+    const res = await net.fetch(`${cfg.baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+      body: JSON.stringify({ model: cfg.model, messages, tools: TOOLS, temperature: 0.3, stream: true }),
+      signal: controller.signal
+    })
+    if (!res.ok) {
+      const text = (await res.text().catch(() => '')).slice(0, 300)
+      throw new HttpError(res.status, text)
+    }
+    if (!res.body) throw new Error('响应没有数据流')
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let content = ''
+    const tcMap = new Map<number, { id: string; name: string; args: string }>()
+
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      feedStallWatchdog()
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        const t = line.trim()
+        if (!t.startsWith('data:')) continue
+        const payload = t.slice(5).trim()
+        if (!payload || payload === '[DONE]') continue
+        let chunk: {
+          choices?: {
+            delta?: {
+              content?: string
+              tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[]
+            }
+          }[]
+        }
+        try { chunk = JSON.parse(payload) } catch { continue }
+        const delta = chunk.choices?.[0]?.delta
+        if (!delta) continue
+        if (delta.content) {
+          content += delta.content
+          onDelta(content)
+        }
+        for (const tcd of delta.tool_calls ?? []) {
+          const idx = tcd.index ?? 0
+          const acc = tcMap.get(idx) ?? { id: '', name: '', args: '' }
+          if (tcd.id) acc.id = tcd.id
+          if (tcd.function?.name) acc.name += tcd.function.name
+          if (tcd.function?.arguments) acc.args += tcd.function.arguments
+          tcMap.set(idx, acc)
+        }
+      }
+    }
+
+    const tool_calls = [...tcMap.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([, tc], i) => ({
+        id: tc.id || `call_stream_${i}_${Date.now()}`,
+        function: { name: tc.name, arguments: tc.args }
+      }))
+
+    const message: AssistantMessage = {
+      role: 'assistant',
+      content: content || null,
+      ...(tool_calls.length ? { tool_calls } : {})
+    }
+    // 流式模式多数提供商不返回 usage，用字符数粗估（预算护栏是软性的）
+    const totalChars = content.length + [...tcMap.values()].reduce((s, t) => s + t.args.length, 0)
+    return { message, estimatedTokens: Math.ceil(totalChars / 3) }
+  } finally {
+    clearTimeout(hardTimer)
+    clearTimeout(stallTimer)
+  }
+}
+
 export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
   const cfg = getAiSettings()
   if (!cfg || !cfg.apiKey) return { ok: false, rounds: 0, turns: 0, error: 'AI_NOT_CONFIGURED: 请先在设置里配置模型' }
@@ -171,21 +287,26 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
     switch (name) {
       case 'list_files':
         job.onStage('crank', '查看装配舱文件…')
+        job.onActivity?.('tool', '查看装配舱文件清单')
         return listAllFiles(job.stagingDir).join('\n')
       case 'read_file':
         job.onStage('crank', `读取 ${args.path}…`)
+        job.onActivity?.('tool', `读取 ${args.path}`)
         return fs.readFileSync(resolveSafe(job.stagingDir, String(args.path)), 'utf-8')
       case 'write_file': {
         const abs = resolveSafe(job.stagingDir, String(args.path))
         if (typeof args.content !== 'string') throw new Error('content 必须是字符串')
         job.onStage('crank', `正在写 ${args.path}…`)
+        const lines = args.content.split('\n').length
+        job.onActivity?.('write', `写入 ${args.path}（${lines} 行）`)
         fs.mkdirSync(path.dirname(abs), { recursive: true })
         fs.writeFileSync(abs, args.content, 'utf-8')
         return `已写入 ${args.path}（${Buffer.byteLength(args.content)} 字节）`
       }
       case 'check_egg': {
         job.onStage('clack', `自检中（第 ${rounds} 轮）…`)
-        const { report } = await runCheck()
+        const { pass, report } = await runCheck()
+        job.onActivity?.('check', pass ? `自检通过（第 ${rounds} 轮）` : `自检发现问题（第 ${rounds} 轮），准备修复…`)
         return report
       }
       default:
@@ -199,31 +320,43 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
     turns++
     job.onStage('crank', `第 ${turns} 回合，模型思考中…`)
 
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
-    let data: { choices?: { message?: AssistantMessage }[]; usage?: { total_tokens?: number } }
-    try {
-      const res = await net.fetch(`${cfg.baseURL}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
-        body: JSON.stringify({ model: cfg.model, messages, tools: TOOLS, temperature: 0.3 }),
-        signal: controller.signal
-      })
-      if (!res.ok) {
-        const text = (await res.text().catch(() => '')).slice(0, 300)
-        return { ok: false, rounds, turns, error: `模型请求失败 HTTP ${res.status}: ${text}` }
+    let stream: StreamResult | undefined
+    let lastError = ''
+    let lastThinkEmit = 0
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        stream = await streamCompletion(cfg, messages, partial => {
+          // 思考内容节流上报（同 id 原地替换，前端看到文字逐字生长）
+          const now = Date.now()
+          if (now - lastThinkEmit < 1200) return
+          lastThinkEmit = now
+          job.onActivity?.('think', partial.trim().slice(0, 200), `think-${turns}`)
+        })
+        break
+      } catch (e) {
+        if (e instanceof HttpError) {
+          // HTTP 业务错误不重试（通常是配置/余额问题）
+          return { ok: false, rounds, turns, error: `模型请求失败 HTTP ${e.status}: ${e.body}` }
+        }
+        lastError = (e as Error).message
+        if (attempt < MAX_RETRIES) {
+          job.onActivity?.('retry', `模型请求中断（${lastError}），第 ${attempt + 1} 次重试…`)
+          await new Promise(r => setTimeout(r, 2000))
+        }
       }
-      data = await res.json()
-    } catch (e) {
-      return { ok: false, rounds, turns, error: `模型请求异常: ${(e as Error).message}` }
-    } finally {
-      clearTimeout(timer)
+    }
+    if (!stream) {
+      return { ok: false, rounds, turns, error: `模型请求异常（已重试 ${MAX_RETRIES} 次）: ${lastError}` }
     }
 
-    totalTokens += data.usage?.total_tokens ?? 0
-    const msg = data.choices?.[0]?.message
-    if (!msg) return { ok: false, rounds, turns, error: '模型响应异常：没有 message' }
+    totalTokens += stream.estimatedTokens
+    const msg = stream.message
     messages.push(msg)
+
+    // 机芯实况：AI 的完整思考（替换流式片段）
+    if (msg.content && msg.content.trim()) {
+      job.onActivity?.('think', msg.content.trim().slice(0, 200), `think-${turns}`)
+    }
 
     if (!msg.tool_calls || msg.tool_calls.length === 0) {
       messages.push({ role: 'user', content: '请继续使用工具完成制造；全部完成后调用 finish。' })

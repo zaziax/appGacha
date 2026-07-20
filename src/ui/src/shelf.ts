@@ -8,9 +8,17 @@ export interface EggInfo {
   hasBackup: boolean
 }
 
+export interface GachaActivity {
+  type: 'think' | 'tool' | 'write' | 'check' | 'retry' | 'error'
+  text: string
+  /** 同 id 的条目原地替换（流式思考实时更新） */
+  id?: string
+}
+
 export interface GachaProgress {
   stage: 'coin' | 'crank' | 'clack' | 'pop' | 'fail'
   detail?: string
+  activity?: GachaActivity
 }
 
 export interface GachaResult {
@@ -29,6 +37,9 @@ export interface AiSettingsMasked {
 
 export interface WindowState { maximized: boolean }
 
+export interface WishQuestion { text: string; options: string[] }
+export interface WishChatResult { done: boolean; questions: WishQuestion[] }
+
 export interface ShelfBridge {
   list(): Promise<EggInfo[]>
   open(eggId: string): Promise<void>
@@ -38,6 +49,7 @@ export interface ShelfBridge {
   rollback(eggId: string): Promise<{ name: string }>
   wish(text: string): Promise<{ started: boolean }>
   upgrade(eggId: string, text: string): Promise<{ started: boolean }>
+  wishChat(messages: { role: string; content: string }[]): Promise<WishChatResult>
   getAiSettings(): Promise<AiSettingsMasked | null>
   saveAiSettings(s: { baseURL: string; model: string; apiKey: string }): Promise<void>
   testAi(): Promise<{ reply: string }>
