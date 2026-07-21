@@ -33,7 +33,7 @@ const STALL_TIMEOUT_MS = 60_000        // 流式断流检测：60 秒收不到�
 const REQUEST_HARD_CAP_MS = 8 * 60_000 // 单次请求硬上限（防模型无限吐字）
 const MAX_RETRIES = 2
 
-interface ToolCall { id: string; function: { name: string; arguments: string } }
+interface ToolCall { id: string; type: 'function'; function: { name: string; arguments: string } }
 interface AssistantMessage { role: 'assistant'; content: string | null; tool_calls?: ToolCall[] }
 
 const TOOLS = [
@@ -221,6 +221,7 @@ async function streamCompletion(
       .sort(([a], [b]) => a - b)
       .map(([, tc], i) => ({
         id: tc.id || `call_stream_${i}_${Date.now()}`,
+        type: 'function' as const,
         function: { name: tc.name, arguments: tc.args }
       }))
 
