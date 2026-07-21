@@ -81,7 +81,8 @@ export async function runGacha(
       return { ok: false, error: result.error }
     }
 
-    // ③ 咔哒：管线复写受保护字段（防智能体篡改），原子入柜
+    // ③ 咔哒：剥离未用 vendor，管线复写受保护字段（防智能体篡改），原子入柜
+    stripUnusedVendor(stagingDir)
     const manifest = writeManifestFields(stagingDir, { eggId, wish: wish.trim() })
     const dest = uniqueFolder(dataRoot('eggs'), manifest.name)
     fs.mkdirSync(dataRoot('eggs'), { recursive: true })
@@ -161,7 +162,8 @@ export async function runUpgrade(
       }
     }
 
-    // ④ 咔哒：写回真身与升级记录，换装（代码整体替换，data/ 原地不动）
+    // ④ 咔哒：剥离未用 vendor，写回真身与升级记录，换装（代码整体替换，data/ 原地不动）
+    stripUnusedVendor(stagingDir)
     patchManifest(stagingDir, m => {
       m.eggId = eggId
       m.wish = egg.manifest.wish ?? upgradeWish
@@ -298,4 +300,38 @@ function archiveFailure(stagingDir: string, eggId: string, wish: string, result:
     JSON.stringify({ wish, ...result, pipelineVersion: PIPELINE_VERSION }, null, 2),
     'utf-8'
   )
+}
+
+/**
+ * 剥离未被 import 的 vendor 文件 + 开发参考文件（icons-manifest.json）。
+ * 蛋保持自包含可移植，不用的库不占体积。
+ */
+function stripUnusedVendor(dir: string): void {
+  // icons-manifest.json 是生成时的参考清单，运行时不需要
+  fs.rmSync(path.join(dir, 'icons-manifest.json'), { force: true })
+
+  const vendorDir = path.join(dir, 'vendor')
+  if (!fs.existsSync(vendorDir)) return
+
+  // 扫描蛋自身代码（跳过 vendor/ 和 data/）中的 vendor 引用
+  const referenced = new Set<string>()
+  const scanImports = (rel: string) => {
+    for (const entry of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
+      const relPath = rel ? `${rel}/${entry.name}` : entry.name
+      if (entry.isDirectory()) {
+        if (relPath !== 'vendor' && relPath !== 'data') scanImports(relPath)
+        continue
+      }
+      if (!entry.name.endsWith('.js') && !entry.name.endsWith('.html')) continue
+      const content = fs.readFileSync(path.join(dir, relPath), 'utf-8')
+      for (const m of content.matchAll(/\.\/vendor\/([\w.-]+)/g)) referenced.add(m[1])
+    }
+  }
+  scanImports('')
+
+  for (const file of fs.readdirSync(vendorDir)) {
+    if (!referenced.has(file)) fs.rmSync(path.join(vendorDir, file), { force: true })
+  }
+  // vendor 目录空了则整个移除
+  if (fs.readdirSync(vendorDir).length === 0) fs.rmSync(vendorDir, { recursive: true, force: true })
 }

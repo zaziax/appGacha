@@ -9,7 +9,7 @@ export interface ValidationIssue {
 }
 
 const MAX_FILE_BYTES = 500 * 1024
-const MAX_TOTAL_BYTES = 2 * 1024 * 1024
+const MAX_TOTAL_BYTES = 5 * 1024 * 1024   // vendor 库可能较大
 const FORBIDDEN_JS = [
   { re: /\brequire\s*\(/, msg: '禁止使用 require()——蛋没有 Node 环境' },
   { re: /\bprocess\s*\./, msg: '禁止访问 process——蛋没有 Node 环境' },
@@ -17,6 +17,10 @@ const FORBIDDEN_JS = [
   { re: /\blocalStorage\b/, msg: '禁止使用 localStorage（迁移会丢数据），用 egg.storage' }
 ]
 const EXTERNAL_URL = /https?:\/\//i
+// ESM 检测：含顶层 import/export 的文件不用 vm.Script 检查（vm.Script 不支持模块语法）
+const ESM_RE = /(?:^|\n)\s*(?:import\s[\s\S]*?from\s|import\s*\(|export\s+(?:default\s|const\s|function\s|class\s|\{))/
+// emoji 检测（覆盖常见 emoji Unicode 区段）
+const EMOJI_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}\u{2B50}\u{2705}\u{274C}\u{2757}\u{2764}\u{2194}-\u{21AA}\u{231A}-\u{23F3}]/u
 
 export function validateEgg(dir: string): ValidationIssue[] {
   const issues: ValidationIssue[] = []
@@ -56,7 +60,7 @@ export function validateEgg(dir: string): ValidationIssue[] {
     for (const entry of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
       const relPath = rel ? `${rel}/${entry.name}` : entry.name
       if (entry.isDirectory()) {
-        if (relPath === 'data') continue
+        if (relPath === 'data' || relPath === 'vendor') continue  // vendor 是宿主资产，不扫描
         walk(relPath)
         continue
       }
@@ -72,14 +76,20 @@ export function validateEgg(dir: string): ValidationIssue[] {
       if (['.js', '.html', '.css'].includes(ext) && EXTERNAL_URL.test(content)) {
         add(relPath, '出现外部 http(s) 引用——蛋默认断网，外部资源会加载失败')
       }
+      if (['.js', '.html', '.css'].includes(ext) && EMOJI_RE.test(content)) {
+        add(relPath, '包含 emoji 字符——禁止使用 emoji，请用 icons.svg 图标代替')
+      }
       if (ext === '.js') {
         for (const rule of FORBIDDEN_JS) {
           if (rule.re.test(content)) add(relPath, rule.msg)
         }
-        try {
-          new vm.Script(content, { filename: relPath })
-        } catch (e) {
-          add(relPath, `JS 语法错误: ${(e as Error).message}`)
+        // ESM 文件跳过 vm.Script（不支持 import/export 语法），由 testEgg 在 Chromium 中实际加载验证
+        if (!ESM_RE.test(content)) {
+          try {
+            new vm.Script(content, { filename: relPath })
+          } catch (e) {
+            add(relPath, `JS 语法错误: ${(e as Error).message}`)
+          }
         }
       }
       if (ext === '.html' && /<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?\S[\s\S]*?<\/script>/i.test(content)) {
