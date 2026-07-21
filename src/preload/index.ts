@@ -64,6 +64,7 @@ function styledConfirm(message: string): Promise<boolean> {
           box-shadow: 0 12px 40px rgba(0,0,0,.22);
           transform: scale(.92) translateY(8px); transition: transform .18s cubic-bezier(.2,.9,.3,1.2);
         }
+        #__egg_confirm.show { opacity: 1; }
         #__egg_confirm.show .cf-card { transform: scale(1) translateY(0); }
         #__egg_confirm .cf-msg {
           font-size: 14px; font-weight: 600; line-height: 1.55;
