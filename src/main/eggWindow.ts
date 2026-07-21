@@ -8,6 +8,10 @@ import * as registry from './registry'
 const preparedPartitions = new Set<string>()
 const openWindows = new Map<string, BrowserWindow>()
 
+/** 窗口尺寸钳制 240~1600，防智障声明 */
+const clampSize = (v: number | undefined, fallback: number): number =>
+  v === undefined || !Number.isFinite(v) ? fallback : Math.min(1600, Math.max(240, Math.round(v)))
+
 // 收藏柜点击入口：已开的蛋聚焦，未开的创建
 export function openEgg(egg: EggContext): BrowserWindow {
   const existing = openWindows.get(egg.eggId)
@@ -33,10 +37,17 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
     preparedPartitions.add(partition)
   }
 
+  // D11 窗口形态：manifest.window 声明 type/尺寸/置顶
+  const spec = egg.manifest.window ?? {}
+  const isWidget = spec.type === 'widget'
+
   const win = new BrowserWindow({
-    width: 900,
-    height: 640,
+    width: clampSize(spec.width, 900),
+    height: clampSize(spec.height, 640),
     frame: false,
+    // widget：透明无边框，蛋用 CSS 自绘形状；standard：保持现有不透明行为
+    transparent: isWidget,
+    alwaysOnTop: spec.alwaysOnTop ?? false,
     show: opts?.show ?? true,
     title: egg.manifest.name,
     autoHideMenuBar: true,
@@ -46,6 +57,8 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
       contextIsolation: true,
       nodeIntegration: false,
       preload: path.join(__dirname, '../preload/index.js'),
+      // 窗口类型传给 preload（process.argv）：widget 不注入标题栏、改注入 hover 浮钮
+      additionalArguments: [`--egg-window-type=${isWidget ? 'widget' : 'standard'}`],
       partition
     }
   })

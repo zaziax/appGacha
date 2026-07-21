@@ -118,7 +118,7 @@ function buildSystemPrompt(templateDir: string): string {
   const dts = fs.readFileSync(path.join(templateDir, 'egg.d.ts'), 'utf-8')
   return [
     '你是 appGacha 的扭蛋机芯——一个把用户愿望制造成桌面小应用（扭蛋）的工程智能体。',
-    '装配舱里已放好模板文件，你通过工具读写文件完成制造。做法：先规划功能，然后整文件写出 manifest.json（只改 name/permissions）、index.html、style.css、app.js，随后调用 check_egg 自检，修完所有问题后调用 finish。',
+    '装配舱里已放好模板文件，你通过工具读写文件完成制造。做法：先规划功能并为应用选择合适的窗口形态（大方窗 standard 还是悬浮组件 widget，见 EGG_GUIDE 「窗口形态」节），然后整文件写出 manifest.json（只改 name/permissions/window）、index.html、style.css、app.js，随后调用 check_egg 自检，修完所有问题后调用 finish。',
     '',
     '=== 制造规范（EGG_GUIDE.md） ===',
     guide,

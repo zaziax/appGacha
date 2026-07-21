@@ -262,6 +262,9 @@ export function registerWindowControls(): void {
   const win = (e: IpcMainInvokeEvent | Electron.IpcMainEvent) => BrowserWindow.fromWebContents(e.sender)!
 
   ipcMain.handle('win:isMaximized', e => win(e).isMaximized())
+  // 置顶状态查询/切换——宿主 hover 浮钮专用，不走 egg 权限门控
+  ipcMain.handle('win:isAlwaysOnTop', e => win(e).isAlwaysOnTop())
+  ipcMain.on('win:setAlwaysOnTop', (e, flag) => win(e).setAlwaysOnTop(flag === true))
 
   ipcMain.on('win:minimize', e => win(e).minimize())
   ipcMain.on('win:maximize', e => {

@@ -50,6 +50,28 @@ export function validateEgg(dir: string): ValidationIssue[] {
         if (!KNOWN_PERMISSIONS.includes(p as never)) add('manifest.json', `未知权限 "${p}"`)
       }
     }
+    // window 字段（可选）：类型/尺寸/布尔校验，尺寸越界由运行时钳制不报错
+    if (manifest.window !== undefined) {
+      const w = manifest.window
+      if (typeof w !== 'object' || w === null || Array.isArray(w)) {
+        add('manifest.json', 'window 必须是对象')
+      } else {
+        const win = w as Record<string, unknown>
+        if (win.type !== undefined && win.type !== 'standard' && win.type !== 'widget') {
+          add('manifest.json', 'window.type 只能是 "standard" 或 "widget"')
+        }
+        for (const k of ['width', 'height'] as const) {
+          if (win[k] !== undefined && (typeof win[k] !== 'number' || !Number.isFinite(win[k] as number))) {
+            add('manifest.json', `window.${k} 必须是数字`)
+          }
+        }
+        for (const k of ['alwaysOnTop', 'autoStart'] as const) {
+          if (win[k] !== undefined && typeof win[k] !== 'boolean') {
+            add('manifest.json', `window.${k} 必须是布尔值`)
+          }
+        }
+      }
+    }
   }
 
   if (!fs.existsSync(path.join(dir, 'index.html'))) add('index.html', '入口文件缺失')
