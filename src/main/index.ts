@@ -3,6 +3,7 @@ import { discoverEggs } from './eggs'
 import { registerCapabilities } from './capabilities'
 import { createShelfWindow } from './shelfWindow'
 import { registerShelfChannels, registerWindowControls, bindWindowStateEvents } from './shelf'
+import { registerWidgetControlEvents } from './widgetControls'
 import { initSchedules } from './schedule'
 import { dataRoot } from './paths'
 import { initLogging } from './log'
@@ -20,6 +21,7 @@ app.whenReady().then(async () => {
   registerCapabilities()
   registerShelfChannels()
   registerWindowControls()
+  registerWidgetControlEvents()
   sweepStaging()
 
   const eggs = discoverEggs(dataRoot('eggs'))

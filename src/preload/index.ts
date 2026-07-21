@@ -239,73 +239,11 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-// ---- widget 窗口 hover 浮钮（D11：透明窗口唯一保证的安全出口，蛋代码移除会被重新挂回） ----
+// ---- widget hover 事件上报（D11：安全出口改为独立卫星控制窗，由主进程管理，不在蛋 DOM 内） ----
 
-const pinIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></svg>'
-const closeIcon24 = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>'
-
-function injectWidgetFloat(): void {
-  if (document.getElementById('__egg_float')) return
-
-  const float = document.createElement('div')
-  float.id = '__egg_float'
-  float.innerHTML = `
-    <style>
-      #__egg_float {
-        position: fixed; top: 8px; right: 8px; z-index: 2147483647;
-        display: flex; align-items: center; gap: 2px;
-        background: rgba(30,30,36,.72); backdrop-filter: blur(8px);
-        border-radius: 99px; padding: 3px;
-        -webkit-app-region: drag; user-select: none;
-        opacity: 0; transition: opacity .18s ease; pointer-events: none;
-        font-family: system-ui, "Microsoft YaHei", sans-serif;
-      }
-      #__egg_float.show { opacity: 1; pointer-events: auto; }
-      #__egg_float button {
-        -webkit-app-region: no-drag;
-        width: 26px; height: 26px; border: none; background: none;
-        border-radius: 99px; cursor: pointer; display: flex; align-items: center;
-        justify-content: center; color: rgba(255,255,255,.75); padding: 0;
-        transition: background .15s, color .15s;
-      }
-      #__egg_float button:hover { background: rgba(255,255,255,.16); color: #fff; }
-      #__egg_float button.pinned { color: #e8843c; }
-      #__egg_float button.float-close:hover { background: #c0574f; color: #fff; }
-      #__egg_float button svg { width: 14px; height: 14px; display: block; }
-    </style>
-    <button id="__float_pin" title="置顶">${pinIcon}</button>
-    <button id="__float_close" class="float-close" title="关闭">${closeIcon24}</button>
-  `
-  document.body.appendChild(float)
-
-  const pinBtn = float.querySelector('#__float_pin') as HTMLElement
-  const closeBtn = float.querySelector('#__float_close') as HTMLElement
-
-  // 置顶开关（宿主通道，不受蛋权限门控）
-  ipcRenderer.invoke('win:isAlwaysOnTop').then((onTop: boolean) => {
-    if (onTop) pinBtn.classList.add('pinned')
-  }).catch(() => {})
-  pinBtn.addEventListener('click', () => {
-    const pinned = pinBtn.classList.toggle('pinned')
-    ipcRenderer.send('win:setAlwaysOnTop', pinned)
-  })
-  closeBtn.addEventListener('click', () => ipcRenderer.send('win:close'))
-
-  // 悬停窗口时浮现，移开后淑出
-  let hideTimer: ReturnType<typeof setTimeout> | null = null
-  const show = () => { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null } float.classList.add('show') }
-  const hideSoon = () => { if (hideTimer) clearTimeout(hideTimer); hideTimer = setTimeout(() => float.classList.remove('show'), 450) }
-  document.documentElement.addEventListener('mouseenter', show)
-  document.documentElement.addEventListener('mouseleave', hideSoon)
-
-  // 蛋代码移除浮钮 → MutationObserver 重新挂回（安全出口不可被堵死）
-  const guard = new MutationObserver(() => {
-    if (!document.getElementById('__egg_float')) {
-      guard.disconnect()
-      injectWidgetFloat()
-    }
-  })
-  guard.observe(document.body, { childList: true, subtree: true })
+function setupWidgetHover(): void {
+  document.documentElement.addEventListener('mouseenter', () => ipcRenderer.send('widget:hover'))
+  document.documentElement.addEventListener('mouseleave', () => ipcRenderer.send('widget:leave'))
 }
 
 // SVG icons (inline to avoid external deps)
@@ -317,9 +255,9 @@ const closeIcon = '<svg viewBox="0 0 16 16"><line x1="4" y1="4" x2="12" y2="12" 
 // 窗口类型（主进程经 additionalArguments 传入 process.argv）
 const isWidget = process.argv.includes('--egg-window-type=widget')
 
-// DOM ready 时注入：standard 标题栏 / widget hover 浮钮
+// DOM ready 时注入：standard 标题栏 / widget hover 事件上报
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => isWidget ? injectWidgetFloat() : injectTitleBar())
+  document.addEventListener('DOMContentLoaded', () => isWidget ? setupWidgetHover() : injectTitleBar())
 } else {
-  isWidget ? injectWidgetFloat() : injectTitleBar()
+  isWidget ? setupWidgetHover() : injectTitleBar()
 }
