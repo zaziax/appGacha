@@ -132,6 +132,11 @@ function launchGacha(run: Promise<{ ok: boolean; name?: string; error?: string }
         : { title: upgraded ? '这次升级没成…' : '这次没扭出好蛋…', body: (result.error ?? '').slice(0, 120) }
       ).show()
     }
+  }).catch(e => {
+    // 兜底：管线意外 reject 时也必须通知前端，否则 running 永远为 true
+    const error = (e as Error).message ?? '机芯意外故障'
+    logLine('[gacha] unexpected error', error)
+    sendToShelf('gacha:done', { ok: false, error, upgraded })
   })
 }
 

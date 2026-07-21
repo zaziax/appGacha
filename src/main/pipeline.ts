@@ -86,7 +86,7 @@ export async function runGacha(
     const manifest = writeManifestFields(stagingDir, { eggId, wish: wish.trim() })
     const dest = uniqueFolder(dataRoot('eggs'), manifest.name)
     fs.mkdirSync(dataRoot('eggs'), { recursive: true })
-    fs.renameSync(stagingDir, dest)
+    await safeRename(stagingDir, dest)
     const ctx = registerEgg(dest)
     onProgress({ stage: 'pop', detail: `咔哒！「${manifest.name}」出蛋了` })
     return { ok: true, eggId: ctx.eggId, name: manifest.name }
@@ -294,12 +294,36 @@ function archiveFailure(stagingDir: string, eggId: string, wish: string, result:
   const failedRoot = dataRoot('failed')
   fs.mkdirSync(failedRoot, { recursive: true })
   const dest = path.join(failedRoot, `${new Date().toISOString().replace(/[:.]/g, '-')}-${eggId.slice(0, 8)}`)
-  fs.renameSync(stagingDir, dest)
+  try {
+    fs.renameSync(stagingDir, dest)
+  } catch {
+    // Windows 文件锁：rename 失败则复制后删除
+    copyDir(stagingDir, dest)
+    fs.rmSync(stagingDir, { recursive: true, force: true })
+  }
   fs.writeFileSync(
     path.join(dest, 'FAILURE.json'),
     JSON.stringify({ wish, ...result, pipelineVersion: PIPELINE_VERSION }, null, 2),
     'utf-8'
   )
+}
+
+/** Windows 文件句柄释放有延迟，rename 加重试 + copy 兜底 */
+async function safeRename(from: string, to: string): Promise<void> {
+  for (let i = 0; i < 3; i++) {
+    try {
+      fs.renameSync(from, to)
+      return
+    } catch (e) {
+      if (i === 2) {
+        // 最后一次重试失败：复制后删除
+        copyDir(from, to)
+        fs.rmSync(from, { recursive: true, force: true })
+        return
+      }
+      await new Promise(r => setTimeout(r, 800))
+    }
+  }
 }
 
 /**
