@@ -139,6 +139,7 @@ import * as THREE from './vendor/three.module.js'   // 3D 场景
 ```
 
 使用原则：
+- **禁止 read_file 读取 vendor/ 下的库文件**：它们体积巨大（数百 KB 至 MB 级），读取会耗尽你的上下文窗口。import 路径见上方示例，API 用法以官方文档为准
 - 日期计算**永远用 dayjs**，不要用原生 Date（月份从 0 开始、无 addDays 等坑）
 - 需要图表时**永远用 Chart.js**，不要手画 canvas 图表
 - 3D 场景注意性能：widget 类帧率目标 30fps，面数 ≤ 5 万，避免后处理特效栈
