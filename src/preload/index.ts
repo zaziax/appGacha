@@ -42,6 +42,79 @@ function toast(message: string): void {
   }, 2400)
 }
 
+// ---- 风格化确认弹窗（替代原生 window.confirm，跟随蛋的 base.css 变量） ----
+
+function styledConfirm(message: string): Promise<boolean> {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div')
+    overlay.id = '__egg_confirm'
+    overlay.innerHTML = `
+      <style>
+        #__egg_confirm {
+          position: fixed; inset: 0; z-index: 2147483647;
+          background: rgba(0,0,0,.32); backdrop-filter: blur(2px);
+          display: flex; align-items: center; justify-content: center;
+          opacity: 0; transition: opacity .16s ease;
+          font-family: system-ui, "Microsoft YaHei", sans-serif;
+        }
+        #__egg_confirm .cf-card {
+          background: var(--card, #fff); color: var(--text, #2b2b30);
+          border: 1px solid var(--border, #e5e5e5); border-radius: 16px;
+          padding: 22px 24px 18px; width: 320px; max-width: 86vw;
+          box-shadow: 0 12px 40px rgba(0,0,0,.22);
+          transform: scale(.92) translateY(8px); transition: transform .18s cubic-bezier(.2,.9,.3,1.2);
+        }
+        #__egg_confirm.show .cf-card { transform: scale(1) translateY(0); }
+        #__egg_confirm .cf-msg {
+          font-size: 14px; font-weight: 600; line-height: 1.55;
+          white-space: pre-wrap; word-break: break-word; margin: 0 0 18px;
+        }
+        #__egg_confirm .cf-actions { display: flex; justify-content: flex-end; gap: 8px; }
+        #__egg_confirm .cf-btn {
+          border: none; border-radius: 10px; padding: 8px 18px;
+          font-size: 13px; font-weight: 700; cursor: pointer;
+          transition: background .15s, transform .1s; font-family: inherit;
+        }
+        #__egg_confirm .cf-btn:active { transform: scale(.96); }
+        #__egg_confirm .cf-cancel {
+          background: var(--bg-inset, #f2f2f2); color: var(--text-2, #666);
+        }
+        #__egg_confirm .cf-cancel:hover { background: var(--border, #e5e5e5); }
+        #__egg_confirm .cf-ok {
+          background: var(--accent, #4a7dff); color: #fff;
+        }
+        #__egg_confirm .cf-ok:hover { filter: brightness(1.08); }
+      </style>
+      <div class="cf-card">
+        <p class="cf-msg"></p>
+        <div class="cf-actions">
+          <button class="cf-btn cf-cancel">取消</button>
+          <button class="cf-btn cf-ok">确定</button>
+        </div>
+      </div>
+    `
+    overlay.querySelector('.cf-msg')!.textContent = String(message)
+
+    const close = (ok: boolean) => {
+      overlay.style.opacity = '0'
+      setTimeout(() => { overlay.remove(); resolve(ok) }, 150)
+      document.removeEventListener('keydown', onKey)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close(false)
+      if (e.key === 'Enter') close(true)
+    }
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(false) })
+    overlay.querySelector('.cf-cancel')!.addEventListener('click', () => close(false))
+    overlay.querySelector('.cf-ok')!.addEventListener('click', () => close(true))
+    document.addEventListener('keydown', onKey)
+
+    document.body.appendChild(overlay)
+    requestAnimationFrame(() => overlay.classList.add('show'))
+    ;(overlay.querySelector('.cf-ok') as HTMLElement).focus()
+  })
+}
+
 // ---- bridge 暴露：hostApiVersion 1 ----
 
 contextBridge.exposeInMainWorld('egg', {
@@ -80,7 +153,7 @@ contextBridge.exposeInMainWorld('egg', {
   },
   ui: {
     toast: (message: string) => { toast(message) },
-    confirm: (message: string) => Promise.resolve(window.confirm(String(message))),
+    confirm: (message: string) => styledConfirm(String(message)),
     pickFile: (filters?: { name: string; extensions: string[] }[]) => invoke('egg:ui:pickFile', filters),
     saveFile: (content: string, defaultName?: string) => invoke('egg:ui:saveFile', content, defaultName)
   },

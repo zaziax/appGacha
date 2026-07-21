@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { X } from 'lucide-react'
 import { EggInfo, shelf } from '../shelf'
+import { ConfirmDialog } from './ConfirmDialog'
 
 function eggColor(eggId: string): string {
   let h = 0
@@ -13,6 +14,7 @@ interface Props { egg: EggInfo; onToast: (msg: string) => void; onChanged: () =>
 
 export function EggCard({ egg, onToast, onChanged, onUpgrade }: Props) {
   const [detailOpen, setDetailOpen] = useState(false)
+  const [confirmState, setConfirmState] = useState<null | { title: string; message: string; confirmText: string; danger: boolean; action: () => Promise<void> }>(null)
   const c = eggColor(egg.eggId)
   const openEgg = () => shelf.open(egg.eggId).catch(err => onToast(err.message))
 
@@ -79,23 +81,40 @@ export function EggCard({ egg, onToast, onChanged, onUpgrade }: Props) {
                   try { const res = await shelf.export(egg.eggId); if (res.exported) onToast(`「${egg.name}」已导出`) }
                   catch (err) { onToast((err as Error).message) }
                 }}>导出</Btn>
-                <Btn danger onClick={async () => {
-                  if (!confirm(`把「${egg.name}」放进回收站？`)) return
-                  try { await shelf.trash(egg.eggId); onToast(`「${egg.name}」已放进回收站`); onChanged(); setDetailOpen(false) }
-                  catch (err) { onToast((err as Error).message) }
-                }}>删除</Btn>
+                <Btn danger onClick={() => setConfirmState({
+                  title: '放进回收站',
+                  message: `把「${egg.name}」放进回收站？蛋和它的数据一起，可从回收站找回。`,
+                  confirmText: '删除', danger: true,
+                  action: async () => { await shelf.trash(egg.eggId); onToast(`「${egg.name}」已放进回收站`); onChanged(); setDetailOpen(false) }
+                })}>删除</Btn>
                 {egg.hasBackup && (
-                  <Btn onClick={async () => {
-                    if (!confirm(`把「${egg.name}」还原到最近一次备份？`)) return
-                    try { const res = await shelf.rollback(egg.eggId); onToast(`「${res.name}」已还原`); onChanged(); setDetailOpen(false) }
-                    catch (err) { onToast((err as Error).message) }
-                  }}>还原</Btn>
+                  <Btn onClick={() => setConfirmState({
+                    title: '还原备份',
+                    message: `把「${egg.name}」还原到最近一次备份？代码和数据一起回到备份时刻。`,
+                    confirmText: '还原', danger: false,
+                    action: async () => { const res = await shelf.rollback(egg.eggId); onToast(`「${res.name}」已还原`); onChanged(); setDetailOpen(false) }
+                  })}>还原</Btn>
                 )}
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {confirmState && (
+        <ConfirmDialog
+          title={confirmState.title}
+          message={confirmState.message}
+          confirmText={confirmState.confirmText}
+          danger={confirmState.danger}
+          onConfirm={async () => {
+            setConfirmState(null)
+            try { await confirmState.action() }
+            catch (err) { onToast((err as Error).message) }
+          }}
+          onCancel={() => setConfirmState(null)}
+        />
+      )}
     </>
   )
 }
