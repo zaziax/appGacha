@@ -118,6 +118,80 @@ function styledConfirm(message: string): Promise<boolean> {
 
 // ---- bridge 暴露：hostApiVersion 1 ----
 
+// ---- P2 局域网联机：egg.net 房间代理 ----
+// 注意：contextBridge 从 invoke 返回的对象是“快照代理”，页面属性赋值不会穿透回 preload。
+// 因此回调用「函数注册式」（room.onMessage(fn)）而非「属性赋值式」（room.onMessage = fn）。
+
+interface RoomCallbacks {
+  message?: (msg: unknown, peerId: string) => void
+  peerJoin?: (peerId: string) => void
+  peerLeave?: (peerId: string) => void
+  closed?: (reason: string) => void
+}
+
+const roomCallbacks = new Map<string, RoomCallbacks>()
+const activeRoomIds = new Set<string>()
+
+function makeRoomProxy(snap: { roomId: string; code: string; peerId: string; isHost: boolean; peers: string[] }) {
+  activeRoomIds.add(snap.roomId)
+  roomCallbacks.set(snap.roomId, {})
+  return {
+    id: snap.roomId,
+    code: snap.code,
+    peerId: snap.peerId,
+    isHost: snap.isHost,
+    peers: snap.peers,
+    broadcast: (msg: unknown) => invoke('egg:net:broadcast', snap.roomId, msg) as Promise<void>,
+    close: () => {
+      activeRoomIds.delete(snap.roomId)
+      roomCallbacks.delete(snap.roomId)
+      return invoke('egg:net:close', snap.roomId) as Promise<void>
+    },
+    /** 注册收到消息回调 */
+    onMessage: (fn: (msg: unknown, peerId: string) => void) => {
+      const cb = roomCallbacks.get(snap.roomId)
+      if (cb) cb.message = fn
+    },
+    /** 注册新玩家加入回调 */
+    onPeerJoin: (fn: (peerId: string) => void) => {
+      const cb = roomCallbacks.get(snap.roomId)
+      if (cb) cb.peerJoin = fn
+    },
+    /** 注册玩家离开回调 */
+    onPeerLeave: (fn: (peerId: string) => void) => {
+      const cb = roomCallbacks.get(snap.roomId)
+      if (cb) cb.peerLeave = fn
+    },
+    /** 注册房间关闭回调 */
+    onClosed: (fn: (reason: string) => void) => {
+      const cb = roomCallbacks.get(snap.roomId)
+      if (cb) cb.closed = fn
+    }
+  }
+}
+
+// 主进程推送房间事件 → 分发到对应 RoomProxy 回调
+ipcRenderer.on('egg:net:event', (_e, roomId: string, type: string, payload: any) => {
+  const cb = roomCallbacks.get(roomId)
+  if (!cb) return
+  switch (type) {
+    case 'message':
+      cb.message?.(payload.msg, payload.from)
+      break
+    case 'peer-join':
+      cb.peerJoin?.(payload.peerId)
+      break
+    case 'peer-leave':
+      cb.peerLeave?.(payload.peerId)
+      break
+    case 'closed':
+      roomCallbacks.delete(roomId)
+      activeRoomIds.delete(roomId)
+      cb.closed?.(payload.reason)
+      break
+  }
+})
+
 contextBridge.exposeInMainWorld('egg', {
   hostApiVersion: '1',
   storage: {
@@ -151,6 +225,13 @@ contextBridge.exposeInMainWorld('egg', {
   window: {
     setAlwaysOnTop: (flag: boolean) => invoke('egg:window:setAlwaysOnTop', flag),
     setSize: (width: number, height: number) => invoke('egg:window:setSize', width, height)
+  },
+  net: {
+    createRoom: (name: string) =>
+      invoke('egg:net:createRoom', name).then(snap => makeRoomProxy(snap as any)),
+    findRooms: () => invoke('egg:net:findRooms'),
+    joinRoom: (idOrCode: string) =>
+      invoke('egg:net:joinRoom', idOrCode).then(snap => makeRoomProxy(snap as any))
   },
   ui: {
     toast: (message: string) => { toast(message) },

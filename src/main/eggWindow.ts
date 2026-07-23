@@ -5,6 +5,7 @@ import { registerEggProtocol, lockdownSession } from './protocol'
 import { bindWindowStateEvents } from './shelf'
 import * as registry from './registry'
 import { attachControls } from './widgetControls'
+import { onEggClosed } from './net/coordinator'
 
 const preparedPartitions = new Set<string>()
 const openWindows = new Map<string, BrowserWindow>()
@@ -79,6 +80,8 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
   win.on('closed', () => {
     registry.unregister(wcId)
     if (openWindows.get(egg.eggId) === win) openWindows.delete(egg.eggId)
+    // P2：蛋窗口关闭 → 清理其房间（host 解散 / joiner 离开）
+    onEggClosed(egg.eggId)
   })
 
   // R4: 蛋不能创建窗口

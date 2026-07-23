@@ -9,6 +9,7 @@ import * as ai from './ai'
 import * as fsx from './fsx'
 import * as schedule from '../schedule'
 import { showNotification } from '../schedule'
+import * as coordinator from '../net/coordinator'
 
 type Handler = (ctx: EggContext, args: unknown[], event: IpcMainInvokeEvent) => unknown
 
@@ -99,4 +100,15 @@ export function registerCapabilities(): void {
       Math.min(Math.max(height, 150), 1600)
     )
   })
+
+  // ---- P2 局域网联机：蛋不懂网络，蛋只懂房间 ----
+  handle('egg:net:createRoom', 'network', (ctx, [name], event) =>
+    coordinator.createRoom(name as string, ctx.eggId, event.sender.id))
+  handle('egg:net:findRooms', 'network', () => coordinator.findRooms())
+  handle('egg:net:joinRoom', 'network', (ctx, [idOrCode], event) =>
+    coordinator.joinRoom(idOrCode as string, ctx.eggId, event.sender.id))
+  handle('egg:net:broadcast', 'network', (ctx, [roomId, msg], event) =>
+    coordinator.broadcast(roomId as string, event.sender.id, msg))
+  handle('egg:net:close', 'network', (ctx, [roomId], event) =>
+    coordinator.closeRoom(roomId as string, event.sender.id))
 }

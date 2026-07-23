@@ -182,8 +182,9 @@ import * as THREE from './vendor/three.module.js'   // 3D 场景
 
 ## manifest.permissions 可选值
 
-`storage` `db` `ai` `fs` `notify` `schedule` `window`
+`storage` `db` `ai` `fs` `notify` `schedule` `window` `network`
 ——按需最小声明；`egg.ui`（toast/confirm/pickFile/saveFile）免声明。
+`network`：局域网联机（`egg.net.createRoom/findRooms/joinRoom`，房间抽象，宿主封装全部网络细节）。
 
 ## 免费可用的 Web 能力
 

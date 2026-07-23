@@ -83,6 +83,50 @@ interface EggUi {
   saveFile(content: string, defaultName?: string): Promise<{ saved: boolean }>
 }
 
+/** 局域网房间发现信息 */
+interface EggRoomInfo {
+  id: string
+  /** 4 位房间码（防混淆字符集） */
+  code: string
+  name: string
+  peerCount: number
+}
+
+/** 已加入的房间。事件通过函数注册式订阅（room.onMessage(fn)）。 */
+interface EggRoom {
+  id: string
+  code: string
+  /** 本机在此房间的身份 */
+  peerId: string
+  isHost: boolean
+  /** 当前已连接的其它成员（实时维护） */
+  peers: string[]
+  /** 广播 JSON 可序列化消息给房间所有成员（含自己回显）。单条 ≤64KB */
+  broadcast(msg: unknown): Promise<void>
+  /** 关闭/离开房间。房主关闭 = 房间解散 */
+  close(): Promise<void>
+  /** 注册「收到他人广播的消息」回调 */
+  onMessage(fn: (msg: unknown, peerId: string) => void): void
+  /** 注册「新成员加入」回调 */
+  onPeerJoin(fn: (peerId: string) => void): void
+  /** 注册「成员离开」回调 */
+  onPeerLeave(fn: (peerId: string) => void): void
+  /** 注册「房间关闭」回调：host-left=房主解散，closed=自己关闭，network=连接断开 */
+  onClosed(fn: (reason: 'host-left' | 'closed' | 'network') => void): void
+}
+
+interface EggNet {
+  /**
+   * 创建房间（本机为房主）。房间自动对局域网可见。
+   * 权限域: network。每房最多 8 人。
+   */
+  createRoom(name: string): Promise<EggRoom>
+  /** 发现局域网内的房间列表。权限域: network */
+  findRooms(): Promise<EggRoomInfo[]>
+  /** 加入房间（房间 id 或 4 位房间码均可）。权限域: network */
+  joinRoom(idOrCode: string): Promise<EggRoom>
+}
+
 interface EggBridge {
   hostApiVersion: '1'
   storage: EggStorage
@@ -93,6 +137,7 @@ interface EggBridge {
   schedule: EggSchedule
   window: EggWindow
   ui: EggUi
+  net: EggNet
 }
 
 declare const egg: EggBridge

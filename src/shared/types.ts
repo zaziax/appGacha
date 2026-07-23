@@ -6,9 +6,10 @@ export type Permission =
   | 'notify'
   | 'schedule'
   | 'window'
+  | 'network'
 
 export const KNOWN_PERMISSIONS: Permission[] = [
-  'ai', 'db', 'storage', 'fs', 'notify', 'schedule', 'window'
+  'ai', 'db', 'storage', 'fs', 'notify', 'schedule', 'window', 'network'
 ]
 
 export interface EggWindowSpec {

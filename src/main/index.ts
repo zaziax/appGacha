@@ -9,6 +9,7 @@ import { dataRoot } from './paths'
 import { initLogging } from './log'
 import { runSmoke, runShelfSmoke, runPipelineFailSmoke, runUpgradeSmoke } from './smoke'
 import { sweepStaging } from './pipeline'
+import * as net from './net/coordinator'
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'egg', privileges: { standard: true, secure: true, supportFetchAPI: true } }
@@ -23,6 +24,9 @@ app.whenReady().then(async () => {
   registerWindowControls()
   registerWidgetControlEvents()
   sweepStaging()
+
+  // P2 局域网联机：UDP 发现 + 隐藏 WebRTC 宿主窗（smoke 模式不启动，避免干扰测试）
+  if (!isSmoke) net.init().catch(e => console.error('[net] init failed:', e.message))
 
   const eggs = discoverEggs(dataRoot('eggs'))
   console.log(`[appgacha] loaded ${eggs.length} egg(s): ${eggs.map(e => e.manifest.name).join(', ') || '(none)'}`)
@@ -46,3 +50,5 @@ app.whenReady().then(async () => {
 
 // smoke 模式会反复开关离屏窗口，不能因窗口清零而退出
 app.on('window-all-closed', () => { if (!isSmoke) app.quit() })
+
+app.on('before-quit', () => { net.shutdown() })
