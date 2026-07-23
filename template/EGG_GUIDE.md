@@ -186,6 +186,17 @@ import * as THREE from './vendor/three.module.js'   // 3D 场景
 ——按需最小声明；`egg.ui`（toast/confirm/pickFile/saveFile）免声明。
 `network`：局域网联机（`egg.net.createRoom/findRooms/joinRoom`，房间抽象，宿主封装全部网络细节）。
 
+## 能力指南（read_guide）
+
+复杂能力有专属深度指南，**实现前必须先调用 `read_guide` 读取**，否则极易写错架构：
+
+| 能力 | 指南路径 | 何时读 |
+|---|---|---|
+| 局域网联机 | `net-lan` | 愿望涉及多人、对战、联机、局域网、房间 |
+
+用法：`read_guide('net-lan')` 读总纲，`read_guide('net-lan/sync-pattern')` 读具体章节。
+**如果愿望涉及上表中的能力，第一个工具调用就应该是 read_guide，而不是 write_file。**
+
 ## 免费可用的 Web 能力
 
 - Web Speech API：`speechSynthesis.speak(new SpeechSynthesisUtterance('hello'))`（TTS 发音）

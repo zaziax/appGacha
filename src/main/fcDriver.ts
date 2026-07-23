@@ -91,8 +91,45 @@ const TOOLS = [
         required: ['summary']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_guide',
+      description: '读取能力指南。复杂能力（如联机、AI、3D widget）有专属深度指南，实现前必须先读取。参数示例："net-lan"（总纲）或 "net-lan/sync-pattern"（具体章节）',
+      parameters: {
+        type: 'object',
+        properties: { topic: { type: 'string', description: '指南路径，如 net-lan 或 net-lan/sync-pattern' } },
+        required: ['topic']
+      }
+    }
   }
 ]
+
+/** 根据 wish 关键词检测是否需要强制读取指南 */
+function detectGuideHint(wish: string): string | null {
+  const netKeywords = /联机|对战|多人|局域网|房间|双人对|在线|PvP|多人游戏|实时同步/
+  if (netKeywords.test(wish)) {
+    return '❗ 本愿望涉及局域网联机能力。你必须先调用 read_guide(\'net-lan\') 读取联机指南总纲，再根据需要读取具体章节（sync-pattern / handshake / disconnect），然后才能开始写代码。'
+  }
+  return null
+}
+
+/** 递归列出 guides/ 下所有可用指南路径（不含 .md 后缀） */
+function listGuides(dir: string, prefix = ''): string[] {
+  if (!fs.existsSync(dir)) return []
+  const out: string[] = []
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      const sub = path.join(dir, entry.name)
+      if (fs.existsSync(path.join(sub, 'index.md'))) out.push(prefix + entry.name)
+      out.push(...listGuides(sub, prefix + entry.name + '/'))
+    } else if (entry.name.endsWith('.md') && entry.name !== 'index.md') {
+      out.push(prefix + entry.name.replace(/\.md$/, ''))
+    }
+  }
+  return out
+}
 
 function resolveSafe(root: string, rel: string): string {
   const abs = path.normalize(path.join(root, rel))
@@ -260,9 +297,13 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
       ].join('\n')
     : `用户的愿望：${job.wish}\n\n请开始制造这颗扭蛋。`
 
+  // 管线预判：wish 关键词命中复杂能力时，追加强制读指南提示
+  const guideHint = detectGuideHint(job.wish)
+  const userContent = guideHint ? `${opening}\n\n${guideHint}` : opening
+
   const messages: unknown[] = [
     { role: 'system', content: buildSystemPrompt(job.templateDir) },
-    { role: 'user', content: opening }
+    { role: 'user', content: userContent }
   ]
 
   const runCheck = async (): Promise<{ pass: boolean; report: string }> => {
@@ -309,6 +350,21 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
         const { pass, report } = await runCheck()
         job.onActivity?.('check', pass ? `自检通过（第 ${rounds} 轮）` : `自检发现问题（第 ${rounds} 轮），准备修复…`)
         return report
+      }
+      case 'read_guide': {
+        const topic = String(args.topic || '').replace(/\\/g, '/').replace(/\.\./g, '')
+        const guidesDir = path.join(job.templateDir, 'guides')
+        // topic 可以是 "net-lan"（读 index.md）或 "net-lan/sync-pattern"（读具体章节）
+        const file = topic.includes('/') ? `${topic}.md` : path.join(topic, 'index.md')
+        const abs = path.join(guidesDir, file)
+        if (!abs.startsWith(guidesDir)) throw new Error('非法指南路径')
+        if (!fs.existsSync(abs)) {
+          // 列出可用指南帮助 AI 自纠
+          const available = listGuides(guidesDir)
+          return `指南不存在：${topic}\n可用指南：\n${available.join('\n')}`
+        }
+        job.onActivity?.('tool', `读取指南 ${topic}`)
+        return fs.readFileSync(abs, 'utf-8')
       }
       default:
         throw new Error(`未知工具 ${name}`)
