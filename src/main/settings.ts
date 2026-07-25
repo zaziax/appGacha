@@ -6,6 +6,8 @@ export interface AiSettings {
   baseURL: string
   model: string
   apiKey: string
+  /** 模型上下文窗口大小（token）。未配置时默认 128000。影响机芯上下文压缩策略。 */
+  contextTokens?: number
 }
 
 interface SettingsFile {
@@ -14,6 +16,7 @@ interface SettingsFile {
     model: string
     apiKeyEnc?: string   // safeStorage 加密后的 base64
     apiKeyPlain?: string // 系统不支持加密时的降级（提示用户知情）
+    contextTokens?: number
   }
 }
 
@@ -49,7 +52,7 @@ export function getAiSettings(): AiSettings | null {
   } else if (f.ai.apiKeyPlain) {
     apiKey = f.ai.apiKeyPlain
   }
-  return { baseURL: f.ai.baseURL, model: f.ai.model, apiKey }
+  return { baseURL: f.ai.baseURL, model: f.ai.model, apiKey, contextTokens: f.ai.contextTokens }
 }
 
 export function setAiSettings(s: AiSettings): void {
@@ -59,10 +62,11 @@ export function setAiSettings(s: AiSettings): void {
     f.ai = {
       baseURL,
       model: s.model.trim(),
-      apiKeyEnc: safeStorage.encryptString(s.apiKey.trim()).toString('base64')
+      apiKeyEnc: safeStorage.encryptString(s.apiKey.trim()).toString('base64'),
+      contextTokens: s.contextTokens
     }
   } else {
-    f.ai = { baseURL, model: s.model.trim(), apiKeyPlain: s.apiKey.trim() }
+    f.ai = { baseURL, model: s.model.trim(), apiKeyPlain: s.apiKey.trim(), contextTokens: s.contextTokens }
   }
   writeFile(f)
 }

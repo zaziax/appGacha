@@ -33,6 +33,32 @@ const STALL_TIMEOUT_MS = 60_000        // 流式断流检测：60 秒收不到�
 const REQUEST_HARD_CAP_MS = 8 * 60_000 // 单次请求硬上限（防模型无限吐字）
 const MAX_RETRIES = 2
 
+// ─── 上下文窗口管理 ───
+const DEFAULT_CONTEXT_TOKENS = 128_000 // 未配置时的默认上下文窗口
+const CONTEXT_USAGE_RATIO = 0.7        // 消息体占上下文窗口的比例（剩余给 system prompt + 模型回复）
+const KEEP_RECENT = 12                 // 压缩时保留最近 N 条消息不动
+const OLD_TOOL_KEEP = 6_000            // 旧工具输出压缩后最多保留字符
+
+/**
+ * 上下文压缩：当消息体超过字符预算时，截断旧的工具输出和 assistant 思考。
+ * 保留：system(0) + 第一条 user(1) + 最近 KEEP_RECENT 条消息完整不动。
+ * 中间区域：tool 输出截断、assistant content 只保留首 200 字。
+ */
+function compactMessages(messages: unknown[], charBudget: number): void {
+  const totalChars = messages.reduce((s: number, m) => s + JSON.stringify(m).length, 0)
+  if (totalChars <= charBudget) return
+
+  const compactEnd = messages.length - KEEP_RECENT
+  for (let i = 2; i < compactEnd; i++) {
+    const m = messages[i] as Record<string, unknown>
+    if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > OLD_TOOL_KEEP) {
+      m.content = m.content.slice(0, OLD_TOOL_KEEP) + `\n…[已压缩，原 ${m.content.length} 字]`
+    } else if (m.role === 'assistant' && typeof m.content === 'string' && m.content.length > 300) {
+      m.content = m.content.slice(0, 200) + '…[思考已压缩]'
+    }
+  }
+}
+
 interface ToolCall { id: string; type: 'function'; function: { name: string; arguments: string } }
 interface AssistantMessage { role: 'assistant'; content: string | null; tool_calls?: ToolCall[] }
 
@@ -155,7 +181,12 @@ function buildSystemPrompt(templateDir: string): string {
   const dts = fs.readFileSync(path.join(templateDir, 'egg.d.ts'), 'utf-8')
   return [
     '你是 appGacha 的扭蛋机芯——一个把用户愿望制造成桌面小应用（扭蛋）的工程智能体。',
-    '装配舱里已放好模板文件，你通过工具读写文件完成制造。做法：先规划功能并为应用选择合适的窗口形态（大方窗 standard 还是悬浮组件 widget，见 EGG_GUIDE 「窗口形态」节），然后整文件写出 manifest.json（只改 name/permissions/window）、index.html、style.css、app.js，随后调用 check_egg 自检，修完所有问题后调用 finish。',
+    '装配舱里已放好模板文件，你通过工具读写文件完成制造。',
+    '',
+    '制造流程（严格遵守）：',
+    '1.【规划】收到愿望后先输出制造方案（窗口形态、文件结构、核心模块、permissions），不调工具。',
+    '2.【执行】按方案依次写出 manifest.json、index.html、style.css、app.js（及 src/ 子模块）。',
+    '3.【验收】调用 check_egg 自检，修完所有问题后调用 finish。',
     '',
     '=== 制造规范（EGG_GUIDE.md） ===',
     guide,
@@ -280,10 +311,15 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
   const cfg = getAiSettings()
   if (!cfg || !cfg.apiKey) return { ok: false, rounds: 0, turns: 0, error: 'AI_NOT_CONFIGURED: 请先在设置里配置模型' }
 
+  // 从配置的模型上下文窗口派生字符预算（token × 3 ≈ 字符，取 70% 作为消息体上限）
+  const contextTokens = cfg.contextTokens || DEFAULT_CONTEXT_TOKENS
+  const charBudget = Math.floor(contextTokens * 3 * CONTEXT_USAGE_RATIO)
+
   const deadline = Date.now() + OVERALL_TIMEOUT_MS
   let totalTokens = 0
   let rounds = 1
   let turns = 0
+  let planDone = false  // P1 规划守卫：AI 输出过规划文本后才允许 write_file
 
   const opening = job.upgrade
     ? [
@@ -336,6 +372,7 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
         job.onActivity?.('tool', `读取 ${args.path}`)
         return fs.readFileSync(resolveSafe(job.stagingDir, String(args.path)), 'utf-8')
       case 'write_file': {
+        if (!planDone) return '✘ 请先输出制造方案（窗口形态、文件结构、核心模块设计）再开始写文件。'
         const abs = resolveSafe(job.stagingDir, String(args.path))
         if (typeof args.content !== 'string') throw new Error('content 必须是字符串')
         job.onStage('crank', `正在写 ${args.path}…`)
@@ -377,6 +414,9 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
     turns++
     job.onStage('crank', `第 ${turns} 回合，模型思考中…`)
 
+    // 上下文压缩：消息体超过预算时截断旧工具输出
+    compactMessages(messages, charBudget)
+
     let stream: StreamResult | undefined
     let lastError = ''
     let lastThinkEmit = 0
@@ -409,6 +449,9 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
     totalTokens += stream.estimatedTokens
     const msg = stream.message
     messages.push(msg)
+
+    // P1 规划守卫：检测 AI 是否已输出规划（content 超过 80 字即视为规划完成）
+    if (msg.content && msg.content.trim().length > 80) planDone = true
 
     // 机芯实况：AI 的完整思考（替换流式片段）
     if (msg.content && msg.content.trim()) {
