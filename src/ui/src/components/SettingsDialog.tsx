@@ -10,9 +10,12 @@ export function SettingsDialog({ onClose, onToast }: Props) {
   const [apiKey, setApiKey] = useState('')
   const [hasKey, setHasKey] = useState(false)
   const [status, setStatus] = useState<{ text: string; cls: '' | 'ok' | 'err' }>({ text: '', cls: '' })
+  const [autoStartApp, setAutoStartApp] = useState(false)
+  const [minimizeToTray, setMinimizeToTray] = useState(true)
 
   useEffect(() => {
     shelf.getAiSettings().then(s => { if (s) { setBaseURL(s.baseURL); setModel(s.model); setHasKey(s.hasKey) } }).catch(() => {})
+    shelf.getAppSettings().then(s => { setAutoStartApp(s.autoStartApp); setMinimizeToTray(s.minimizeToTray) }).catch(() => {})
   }, [])
 
   const inputCls = 'block w-full mt-1.5 px-4 py-3 border-[3px] border-text rounded-2xl text-[14px] font-bold outline-none focus:border-brand transition-colors bg-white'
@@ -30,6 +33,19 @@ export function SettingsDialog({ onClose, onToast }: Props) {
           </button>
         </div>
         <p className="text-xs font-bold text-muted mb-5">OpenAI 兼容接口（DeepSeek / Kimi / Qwen 等均可）。Key 加密存储在本机，蛋永远接触不到。</p>
+
+        {/* P3 应用设置 */}
+        <div className="flex gap-4 mb-5">
+          <Toggle label="登录自启动" checked={autoStartApp} onChange={async v => {
+            setAutoStartApp(v)
+            await shelf.setAppSettings({ autoStartApp: v })
+            onToast(v ? '开机自启动已开启' : '开机自启动已关闭')
+          }} />
+          <Toggle label="关窗缩到托盘" checked={minimizeToTray} onChange={async v => {
+            setMinimizeToTray(v)
+            await shelf.setAppSettings({ minimizeToTray: v })
+          }} />
+        </div>
 
         <label className="block text-xs font-extrabold text-text mb-4">
           接口地址 Base URL
@@ -70,5 +86,19 @@ function Btn({ children, primary, onClick }: { children: React.ReactNode; primar
         color: primary ? '#fff' : '#5C4033',
         boxShadow: '3px 3px 0 rgba(92,64,51,0.18)'
       }}>{children}</button>
+  )
+}
+
+function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex items-center gap-2 cursor-pointer select-none">
+      <div
+        className={`w-10 h-6 rounded-full border-[2.5px] border-text relative transition-colors ${checked ? 'bg-emerald-400' : 'bg-gray-200'}`}
+        onClick={() => onChange(!checked)}
+      >
+        <div className={`absolute top-[2px] w-4 h-4 rounded-full bg-white border-2 border-text transition-all ${checked ? 'left-[20px]' : 'left-[2px]'}`} />
+      </div>
+      <span className="text-xs font-extrabold text-text">{label}</span>
+    </label>
   )
 }

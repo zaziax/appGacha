@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { X } from 'lucide-react'
 import { EggInfo, shelf } from '../shelf'
@@ -15,8 +15,15 @@ interface Props { egg: EggInfo; onToast: (msg: string) => void; onChanged: () =>
 export function EggCard({ egg, onToast, onChanged, onUpgrade }: Props) {
   const [detailOpen, setDetailOpen] = useState(false)
   const [confirmState, setConfirmState] = useState<null | { title: string; message: string; confirmText: string; danger: boolean; action: () => Promise<void> }>(null)
+  const [autoStart, setAutoStart] = useState(false)
   const c = eggColor(egg.eggId)
   const openEgg = () => shelf.open(egg.eggId).catch(err => onToast(err.message))
+
+  useEffect(() => {
+    if (detailOpen) {
+      shelf.getEggAutoStart(egg.eggId).then(setAutoStart).catch(() => {})
+    }
+  }, [detailOpen, egg.eggId])
 
   return (
     <>
@@ -72,6 +79,22 @@ export function EggCard({ egg, onToast, onChanged, onUpgrade }: Props) {
                   ))}
                 </div>
               )}
+
+              {/* P3 开机自启动开关 */}
+              <label className="flex items-center gap-2 cursor-pointer select-none mb-4">
+                <div
+                  className={`w-10 h-6 rounded-full border-[2.5px] border-text relative transition-colors ${autoStart ? 'bg-emerald-400' : 'bg-gray-200'}`}
+                  onClick={async () => {
+                    const v = !autoStart
+                    setAutoStart(v)
+                    await shelf.setEggAutoStart(egg.eggId, v)
+                    onToast(v ? `「${egg.name}」开机自启动已开启` : `「${egg.name}」开机自启动已关闭`)
+                  }}
+                >
+                  <div className={`absolute top-[2px] w-4 h-4 rounded-full bg-white border-2 border-text transition-all ${autoStart ? 'left-[20px]' : 'left-[2px]'}`} />
+                </div>
+                <span className="text-xs font-extrabold text-text">开机自启动</span>
+              </label>
 
               {/* Actions — buttons, no top divider */}
               <div className="flex gap-2 flex-wrap pt-2">

@@ -40,6 +40,11 @@ export interface WindowState { maximized: boolean }
 export interface WishQuestion { text: string; options: string[] }
 export interface WishChatResult { done: boolean; questions: WishQuestion[] }
 
+export interface AppSettings {
+  autoStartApp: boolean
+  minimizeToTray: boolean
+}
+
 export interface ShelfBridge {
   list(): Promise<EggInfo[]>
   open(eggId: string): Promise<void>
@@ -53,6 +58,10 @@ export interface ShelfBridge {
   getAiSettings(): Promise<AiSettingsMasked | null>
   saveAiSettings(s: { baseURL: string; model: string; apiKey: string }): Promise<void>
   testAi(): Promise<{ reply: string }>
+  getAppSettings(): Promise<AppSettings>
+  setAppSettings(s: { autoStartApp?: boolean; minimizeToTray?: boolean }): Promise<void>
+  getEggAutoStart(eggId: string): Promise<boolean>
+  setEggAutoStart(eggId: string, enabled: boolean): Promise<void>
   onGachaProgress(cb: (p: GachaProgress) => void): void
   onGachaDone(cb: (r: GachaResult) => void): void
   minimize(): void

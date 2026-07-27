@@ -25,6 +25,10 @@ contextBridge.exposeInMainWorld('shelf', {
   upgrade: (eggId: string, text: string) => invoke('shelf:upgrade', eggId, text),
   rollback: (eggId: string) => invoke('shelf:rollback', eggId),
   wishChat: (messages: { role: string; content: string }[]) => invoke('shelf:wishChat', messages),
+  getAppSettings: () => invoke('shelf:getAppSettings'),
+  setAppSettings: (s: { autoStartApp?: boolean; minimizeToTray?: boolean }) => invoke('shelf:setAppSettings', s),
+  getEggAutoStart: (eggId: string) => invoke('shelf:getEggAutoStart', eggId),
+  setEggAutoStart: (eggId: string, enabled: boolean) => invoke('shelf:setEggAutoStart', eggId, enabled),
   onGachaProgress: (cb: (p: unknown) => void) => {
     ipcRenderer.on('gacha:progress', (_e, p) => cb(p))
   },
