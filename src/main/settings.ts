@@ -18,6 +18,15 @@ interface SettingsFile {
     apiKeyPlain?: string // 系统不支持加密时的降级（提示用户知情）
     contextTokens?: number
   }
+  /** 应用级设置 */
+  app?: {
+    /** 登录时自动启动主应用 */
+    autoStartApp?: boolean
+    /** 关窗口时最小化到托盘（而非退出） */
+    minimizeToTray?: boolean
+  }
+  /** 逐蛋自启动覆盖（eggId → bool）。未列出的蛋用 manifest.window.autoStart 出厂默认值 */
+  eggAutoStart?: Record<string, boolean>
 }
 
 function settingsPath(): string {
@@ -76,4 +85,50 @@ export function getAiSettingsMasked(): { baseURL: string; model: string; hasKey:
   const s = getAiSettings()
   if (!s) return null
   return { baseURL: s.baseURL, model: s.model, hasKey: s.apiKey.length > 0 }
+}
+
+// ─── 应用级设置（P3 生命周期） ───
+
+export interface AppSettings {
+  autoStartApp: boolean
+  minimizeToTray: boolean
+}
+
+export function getAppSettings(): AppSettings {
+  const f = readFile()
+  return {
+    autoStartApp: f.app?.autoStartApp ?? false,
+    minimizeToTray: f.app?.minimizeToTray ?? true  // 默认开启托盘常驻
+  }
+}
+
+export function setAppSettings(s: Partial<AppSettings>): void {
+  const f = readFile()
+  f.app = { ...f.app, ...s }
+  writeFile(f)
+  // 同步系统级登录自启动
+  if (s.autoStartApp !== undefined) {
+    app.setLoginItemSettings({ openAtLogin: s.autoStartApp })
+  }
+}
+
+// ─── 逐蛋自启动覆盖 ───
+
+/** 获取某蛋的有效自启动状态：用户覆盖 > manifest 出厂默认 */
+export function getEggAutoStart(eggId: string, manifestDefault: boolean): boolean {
+  const f = readFile()
+  return f.eggAutoStart?.[eggId] ?? manifestDefault
+}
+
+/** 设置某蛋的自启动覆盖 */
+export function setEggAutoStart(eggId: string, enabled: boolean): void {
+  const f = readFile()
+  if (!f.eggAutoStart) f.eggAutoStart = {}
+  f.eggAutoStart[eggId] = enabled
+  writeFile(f)
+}
+
+/** 获取所有蛋的自启动覆盖表 */
+export function getAllEggAutoStart(): Record<string, boolean> {
+  return readFile().eggAutoStart ?? {}
 }

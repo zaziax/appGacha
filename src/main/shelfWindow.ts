@@ -21,6 +21,7 @@ function loadShelfUi(win: BrowserWindow): void {
 
 export function createShelfWindow(opts?: { show?: boolean }): BrowserWindow {
   if (shelfWindow && !shelfWindow.isDestroyed()) {
+    shelfWindow.show()
     shelfWindow.focus()
     return shelfWindow
   }
@@ -57,4 +58,19 @@ export function isShelfSender(webContentsId: number): boolean {
 
 export function sendToShelf(channel: string, payload: unknown): void {
   if (shelfWindow && !shelfWindow.isDestroyed()) shelfWindow.webContents.send(channel, payload)
+}
+
+/** 托盘菜单/双击调用：显示收藏柜（已隐藏则恢复，已销毁则重建） */
+export function showShelfWindow(): void {
+  if (shelfWindow && !shelfWindow.isDestroyed()) {
+    shelfWindow.show()
+    shelfWindow.focus()
+  } else {
+    createShelfWindow()
+  }
+}
+
+/** 收藏柜是否存活（未销毁） */
+export function isShelfAlive(): boolean {
+  return !!shelfWindow && !shelfWindow.isDestroyed()
 }

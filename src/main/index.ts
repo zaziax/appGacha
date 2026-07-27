@@ -10,6 +10,9 @@ import { initLogging } from './log'
 import { runSmoke, runShelfSmoke, runPipelineFailSmoke, runUpgradeSmoke } from './smoke'
 import { sweepStaging } from './pipeline'
 import * as net from './net/coordinator'
+import { initTray, destroyTray } from './tray'
+import { openEgg } from './eggWindow'
+import { getAppSettings, getEggAutoStart } from './settings'
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'egg', privileges: { standard: true, secure: true, supportFetchAPI: true } }
@@ -46,9 +49,26 @@ app.whenReady().then(async () => {
 
   const shelfWin = createShelfWindow()
   bindWindowStateEvents(shelfWin.webContents.id)
+
+  // P3 生命周期：托盘常驻 + 蛋自启动
+  const appSettings = getAppSettings()
+  if (appSettings.minimizeToTray) initTray()
+
+  // 蛋自启动：扫描所有蛋，用户覆盖 > manifest 出厂默认
+  for (const egg of eggs) {
+    const manifestDefault = egg.manifest.window?.autoStart ?? false
+    if (getEggAutoStart(egg.eggId, manifestDefault)) {
+      openEgg(egg)
+    }
+  }
 })
 
-// smoke 模式会反复开关离屏窗口，不能因窗口清零而退出
-app.on('window-all-closed', () => { if (!isSmoke) app.quit() })
+// P3 托盘常驻：关窗口 ≠ 退出，只有托盘菜单“退出”才真正 quit
+app.on('window-all-closed', () => {
+  if (isSmoke) return
+  const { minimizeToTray } = getAppSettings()
+  if (!minimizeToTray) app.quit()
+  // minimizeToTray=true 时不做任何事，应用继续在托盘运行
+})
 
-app.on('before-quit', () => { net.shutdown() })
+app.on('before-quit', () => { destroyTray(); net.shutdown() })

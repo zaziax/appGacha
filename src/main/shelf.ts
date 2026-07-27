@@ -5,7 +5,7 @@ import { allEggs, getEgg, loadManifest, registerEgg, removeEgg } from './eggs'
 import { openEgg, closeEggWindow } from './eggWindow'
 import { isShelfSender, sendToShelf } from './shelfWindow'
 import { cancelAllForEgg, initSchedules } from './schedule'
-import { getAiSettings, getAiSettingsMasked, setAiSettings } from './settings'
+import { getAiSettings, getAiSettingsMasked, setAiSettings, getAppSettings, setAppSettings, getEggAutoStart, setEggAutoStart } from './settings'
 import { dataRoot } from './paths'
 import { copyDir } from './fsutil'
 import { logLine } from './log'
@@ -255,6 +255,24 @@ export function registerShelfChannels(): void {
     } finally {
       clearTimeout(timer)
     }
+  })
+
+  // ─── P3 生命周期设置 ───
+
+  handle('shelf:getAppSettings', () => getAppSettings())
+
+  handle('shelf:setAppSettings', (s) => {
+    setAppSettings(s as { autoStartApp?: boolean; minimizeToTray?: boolean })
+  })
+
+  handle('shelf:getEggAutoStart', (eggId) => {
+    const egg = getEgg(eggId as string)
+    if (!egg) throw new Error('egg not found')
+    return getEggAutoStart(egg.eggId, egg.manifest.window?.autoStart ?? false)
+  })
+
+  handle('shelf:setEggAutoStart', (eggId, enabled) => {
+    setEggAutoStart(eggId as string, enabled === true)
   })
 }
 
