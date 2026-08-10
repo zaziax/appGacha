@@ -335,7 +335,7 @@ async function streamCompletion(
       `msgCount=${messages.length}`, `lastMsg=${JSON.stringify(messages[messages.length - 1]).slice(0, 200)}`)
 
     const res = await chatCompletionFetch(endpoint, {
-      messages, tools: TOOLS, temperature: 0.3, stream: true
+      messages, tools: TOOLS, temperature: 0.5, stream: true
     }, { signal: controller.signal, timeout: REQUEST_HARD_CAP_MS + 30_000 })
     if (!res.ok) {
       const text = (await res.text().catch(() => '')).slice(0, 300)

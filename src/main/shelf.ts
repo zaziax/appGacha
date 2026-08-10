@@ -81,7 +81,7 @@ async function wishChatAi(messages: { role: string; content: string }[], systemP
       const res = await chatCompletionFetch(endpoint, {
         messages: [{ role: 'system', content: systemPrompt }, ...messages],
         response_format: { type: 'json_object' },
-        temperature: 0.3,
+        temperature: 0.8,
         max_tokens: 800,
         stream: false  // 关流式 — 代理可能忽略"非流式"语义但仍能减少 SSE 截断风险
       }, { signal: controller.signal, timeout: 35_000 })
@@ -101,16 +101,32 @@ async function wishChatAi(messages: { role: string; content: string }[], systemP
         throw new Error(`AI HTTP ${res.status}: ${text}`)
       }
 
-      // 读取响应体：可能是纯 JSON，也可能被代理包装为 SSE (text/event-stream)
+      // 读取响应体：先取原文再判断格式（代理可能无视 Content-Type 返回 SSE）
+      const rawText = await res.text()
       let content: string
       if (ct.includes('text/event-stream') || ct.includes('application/x-ndjson')) {
-        // SSE 格式：逐行读取 "data: <json>"，合并所有 delta
-        const rawText = await res.text()
         logLine('[wishChat] SSE response:', `len=${rawText.length}`, `first=${rawText.slice(0, 200)}`)
         content = parseSseContent(rawText)
       } else {
-        const data = (await res.json()) as { choices?: { message?: { content?: string } }[] }
-        content = data.choices?.[0]?.message?.content ?? ''
+        logLine('[wishChat] JSON response:', `len=${rawText.length}`, `first=${rawText.slice(0, 200)}`)
+        // 空响应体：服务端临时故障，包装为可重试错误
+        if (rawText.trim().length === 0) {
+          throw Object.assign(new Error('Empty response body from AI'), { code: 'ERR_EMPTY_RESPONSE' })
+        }
+        // 代理可能返回 SSE 格式但不设正确的 Content-Type
+        if (rawText.startsWith('data:')) {
+          logLine('[wishChat] Response looks like SSE despite Content-Type, falling back')
+          content = parseSseContent(rawText)
+        } else {
+          try {
+            const data = JSON.parse(rawText) as { choices?: { message?: { content?: string } }[] }
+            content = data.choices?.[0]?.message?.content ?? ''
+          } catch {
+            // JSON 解析失败最后尝试 SSE 回退
+            logLine('[wishChat] JSON parse failed, trying SSE fallback')
+            content = parseSseContent(rawText)
+          }
+        }
       }
       logLine('[wishChat] raw:', content.slice(0, 300))
       const stripped = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
@@ -137,7 +153,9 @@ async function wishChatAi(messages: { role: string; content: string }[], systemP
       const isRetryable = RETRYABLE.has((e as { code?: string }).code ?? '') ||
         msg.includes('chunked') || msg.includes('Chunked') ||
         msg.includes('ERR_INCOMPLETE') || msg.includes('ERR_CONNECTION') ||
-        msg.includes('ERR_EMPTY') || msg.includes('ERR_SOCKET')
+        msg.includes('ERR_EMPTY') || msg.includes('ERR_SOCKET') ||
+        msg.includes('Unexpected end of JSON input') || msg.includes('Unexpected token') ||
+        msg.includes('Empty response body')
 
       logLine('[wishChat] error:',
         `attempt=${attempt}/${MAX_RETRIES}`,

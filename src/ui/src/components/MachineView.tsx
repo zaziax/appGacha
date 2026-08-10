@@ -71,7 +71,7 @@ export function MachineView({ onToast, onEggCreated }: Props) {
   const [styleNote, setStyleNote] = useState<string | null>(null) // AI 风格建议
   const [styleOverride, setStyleOverride] = useState('') // 用户补充/覆盖
   const [hue, setHue] = useState<number | null>(null)
-  const [scheme, setScheme] = useState<SchemeId>('mono')
+  const [scheme, setScheme] = useState<SchemeId>('analogous')
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [suggestLoading, setSuggestLoading] = useState(false)
 
@@ -230,7 +230,15 @@ export function MachineView({ onToast, onEggCreated }: Props) {
           const hh = ((hue + o) % 360 + 360) % 360
           return `${hslToHex(hh, 55, 52)}（色相 ${hh}°）`
         })
-        wish += `\n【主色调】${hex}（色相 ${hue}°），配色=${t(`wish.schemes.${scheme}`)}${derived.length > 0 ? `：辅色 ${derived.join('、')}，${sc.roles}` : `，${sc.roles}`}；浅色派生 hsl(${hue},40%,96%)、深色派生 hsl(${hue},55%,32%)`
+        const schemeLabel = t(`wish.schemes.${scheme}`)
+        wish += `\n【主色调】强调色 ${hex}（色相 ${hue}°）— 用于按钮/链接/焦点，占比 ≤25%`
+        if (derived.length > 0) {
+          wish += `\n  配色=${schemeLabel}：辅色 ${derived.join('、')} — ${sc.roles}`
+        } else {
+          wish += `\n  配色=${schemeLabel}，${sc.roles}`
+        }
+        wish += `\n  浅色派生 hsl(${hue},40%,96%)、深色派生 hsl(${hue},55%,32%)`
+        wish += `\n  中性色使用 base.css 变量（--bg/--card/--text等），中性色构成 UI 主体，强调色只做点睛之笔`
       }
     }
     return wish
