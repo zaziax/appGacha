@@ -24,9 +24,13 @@ export interface DriverJob {
   lang: 'zh' | 'en'
   /** 升级模式：舱里是现有蛋的代码而非空白模板 */
   upgrade?: { baseWish: string }
+  /** 取消信号：管线触发取消时 abort，驱动循环检测到后立即退出 */
+  signal?: AbortSignal
   onStage: (stage: string, detail?: IpcText) => void
   /** 机芯实况：AI 思考、工具调用、文件写入、自检结果等。id 相同的条目原地替换（用于流式思考实时更新） */
   onActivity?: (type: ActivityType, text: IpcText, id?: string) => void
+  /** 进度量化：每轮循环开始时回调当前回合/轮次，供 UI 展示剩余时间感知 */
+  onMetrics?: (m: { turn: number; maxTurns: number; round: number; maxRounds: number }) => void
 }
 
 export interface DriverResult {
@@ -304,9 +308,13 @@ interface StreamResult { message: AssistantMessage; estimatedTokens: number }
 async function streamCompletion(
   endpoint: AiEndpoint,
   messages: unknown[],
-  onDelta: (accumulatedText: string) => void
+  onDelta: (accumulatedText: string) => void,
+  externalSignal?: AbortSignal
 ): Promise<StreamResult> {
   const controller = new AbortController()
+  // 外部取消信号 → 同步中断当前流式请求
+  const onExternalAbort = () => { controller.abort(new Error('已取消')) }
+  externalSignal?.addEventListener('abort', onExternalAbort, { once: true })
   const hardTimer = setTimeout(
     () => controller.abort(new Error('单次生成超过 8 分钟上限')),
     REQUEST_HARD_CAP_MS
@@ -414,6 +422,7 @@ async function streamCompletion(
   } finally {
     clearTimeout(hardTimer)
     clearTimeout(stallTimer)
+    if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort)
   }
 }
 
@@ -580,6 +589,10 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
   }
 
   while (turns < MAX_TURNS) {
+    if (job.signal?.aborted) {
+      logLine(`[fc] RESULT: cancelled`, `turns=${turns}, rounds=${rounds}`)
+      return { ok: false, rounds, turns, error: { key: 'err.cancelled' } }
+    }
     if (Date.now() > deadline) {
       logLine(`[fc] RESULT: timeout`, `turns=${turns}, rounds=${rounds}, tokens=${totalTokens}`)
       return { ok: false, rounds, turns, error: { key: 'err.timeout' } }
@@ -590,6 +603,7 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
     }
     turns++
     job.onStage('crank', { key: 'feed.turn', params: { n: turns } })
+    job.onMetrics?.({ turn: turns, maxTurns: MAX_TURNS, round: rounds, maxRounds: job.maxRounds })
 
     // ─── 调试日志：回合开始 ───
     const countChars = (arr: unknown[]) => arr.reduce((s: number, m) => s + JSON.stringify(m).length, 0)
@@ -616,7 +630,7 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
           if (now - lastThinkEmit < 1200) return
           lastThinkEmit = now
           job.onActivity?.('think', partial.trim().slice(0, 200), `think-${turns}`)
-        })
+        }, job.signal)
         break
       } catch (e) {
         if (e instanceof HttpError) {

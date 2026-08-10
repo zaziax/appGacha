@@ -20,9 +20,11 @@ export interface GachaActivity {
 }
 
 export interface GachaProgress {
-  stage: 'coin' | 'crank' | 'clack' | 'pop' | 'fail'
+  stage: 'coin' | 'crank' | 'clack' | 'pop' | 'fail' | 'cancelled'
   detail?: IpcText
   activity?: GachaActivity
+  /** 进度量化：当前回合/总回合 + 当前轮次/总轮次 */
+  metrics?: { turn: number; maxTurns: number; round: number; maxRounds: number }
 }
 
 export interface GachaResult {
@@ -35,9 +37,23 @@ export interface GachaResult {
 }
 
 let busy = false
+let currentAbort: AbortController | null = null
 
 export function isGachaBusy(): boolean {
   return busy
+}
+
+/** 取消当前正在进行的扭蛋/升级。安全幂等：无在途任务时调用无副作用。 */
+export function cancelGacha(): void {
+  if (currentAbort) {
+    currentAbort.abort()
+    currentAbort = null
+  }
+}
+
+function cancelledResult(onProgress?: (p: GachaProgress) => void): GachaResult {
+  onProgress?.({ stage: 'cancelled' })
+  return { ok: false, error: { key: 'err.cancelled' } }
 }
 
 // 启动时调用：应用刚启动不可能有在途扭蛋，舱内一切（中断残留目录、自检截图）都是遗留物
@@ -61,6 +77,8 @@ export async function runGacha(
   if (busy) return { ok: false, error: { key: 'err.busy' } }
   if (typeof wish !== 'string' || wish.trim().length < 2) return { ok: false, error: { key: 'err.wishTooShort' } }
   busy = true
+  currentAbort = new AbortController()
+  const signal = currentAbort.signal
 
   const eggId = randomUUID().toLowerCase()
   const stagingDir = dataRoot('staging', eggId)
@@ -68,6 +86,7 @@ export async function runGacha(
   try {
     // ① 投币：备舱——模板落位，manifest 由管线写入（wish 不经智能体之手）
     onProgress({ stage: 'coin', detail: { key: 'pipe.coin' } })
+    if (signal.aborted) return cancelledResult(onProgress)
     fs.mkdirSync(stagingDir, { recursive: true })
     copyDir(appRoot('template'), stagingDir)
     fs.rmSync(path.join(stagingDir, 'EGG_GUIDE.md'), { force: true })
@@ -76,14 +95,17 @@ export async function runGacha(
 
     // ② 旋钮转动：驱动智能体制造
     onProgress({ stage: 'crank', detail: { key: 'pipe.crank' } })
-    const result: DriverResult = await runDriverSafely(driver, wish.trim(), lang, stagingDir, onProgress)
+    if (signal.aborted) return cancelledResult(onProgress)
+    const result: DriverResult = await runDriverSafely(driver, wish.trim(), lang, stagingDir, onProgress, signal)
 
     if (!result.ok) {
+      if (signal.aborted) return cancelledResult(onProgress)
       archiveFailure(stagingDir, eggId, wish, result)
       onProgress({ stage: 'fail', detail: result.error })
       return { ok: false, error: result.error }
     }
 
+    if (signal.aborted) return cancelledResult(onProgress)
     // ③ 咔哒：剥离未用 vendor，管线复写受保护字段（防智能体篡改），原子入柜
     stripUnusedVendor(stagingDir)
     const manifest = writeManifestFields(stagingDir, { eggId, wish: wish.trim() })
@@ -94,12 +116,14 @@ export async function runGacha(
     onProgress({ stage: 'pop', detail: { key: 'pipe.pop', params: { name: manifest.name } } })
     return { ok: true, eggId: ctx.eggId, name: manifest.name, icon: readIconSvg(dest) }
   } catch (e) {
+    if (signal.aborted) return cancelledResult(onProgress)
     const error = (e as Error).message
     try { archiveFailure(stagingDir, eggId, wish, { ok: false, rounds: 0, turns: 0, error }) } catch { /* 尽力而为 */ }
     onProgress({ stage: 'fail', detail: error })
     return { ok: false, error }
   } finally {
     busy = false
+    currentAbort = null
   }
 }
 
@@ -118,6 +142,8 @@ export async function runUpgrade(
   const egg = getEgg(eggId)
   if (!egg || egg.ephemeral) return { ok: false, error: 'egg not found' }
   busy = true
+  currentAbort = new AbortController()
+  const signal = currentAbort.signal
 
   // 舱内用临时身份：正主还在柜里营业，同 eggId 会撞注册表；换装时管线写回真身
   const tempId = randomUUID().toLowerCase()
@@ -146,6 +172,7 @@ export async function runUpgrade(
 
     // ② 旋钮转动：增量进化（驱动自检走的是"无数据全新安装"路径）
     onProgress({ stage: 'crank', detail: { key: 'pipe.crankUpgrade' } })
+    if (signal.aborted) return cancelledResult(onProgress)
     const result = await driver({
       wish: upgradeWish,
       stagingDir,
@@ -153,10 +180,12 @@ export async function runUpgrade(
       maxRounds: MAX_ROUNDS,
       lang,
       upgrade: { baseWish: egg.manifest.wish ?? '（未留档）' },
+      signal,
       onStage: (stage, detail) => onProgress({ stage: stage === 'clack' ? 'clack' : 'crank', detail }),
       onActivity: (type, text, id) => onProgress({ stage: 'crank', activity: { type, text, id } })
     })
     if (!result.ok) {
+      if (signal.aborted) return cancelledResult(onProgress)
       archiveFailure(stagingDir, tempId, upgradeWish, result)
       onProgress({ stage: 'fail', detail: result.error })
       return { ok: false, error: result.error }
@@ -203,12 +232,14 @@ export async function runUpgrade(
     onProgress({ stage: 'pop', detail: { key: 'pipe.popUpgraded', params: { name: egg.manifest.name } } })
     return { ok: true, eggId, name: egg.manifest.name, icon: readIconSvg(egg.dir) }
   } catch (e) {
+    if (signal.aborted) return cancelledResult(onProgress)
     const error = (e as Error).message
     try { archiveFailure(stagingDir, tempId, upgradeWish, { ok: false, rounds: 0, turns: 0, error }) } catch { /* 尽力而为 */ }
     onProgress({ stage: 'fail', detail: error })
     return { ok: false, error }
   } finally {
     busy = false
+    currentAbort = null
   }
 }
 
@@ -282,19 +313,23 @@ async function runDriverSafely(
   wish: string,
   lang: 'zh' | 'en',
   stagingDir: string,
-  onProgress: (p: GachaProgress) => void
+  onProgress: (p: GachaProgress) => void,
+  signal: AbortSignal
 ): Promise<DriverResult> {
+  let latestMetrics: GachaProgress['metrics'] = undefined
   return driver({
     wish,
     stagingDir,
     templateDir: appRoot('template'),
     maxRounds: MAX_ROUNDS,
     lang,
+    signal,
     onStage: (stage, detail) => {
       // 驱动的实况全部转发：crank 是工作动作，clack 是自检
-      onProgress({ stage: stage === 'clack' ? 'clack' : 'crank', detail })
+      onProgress({ stage: stage === 'clack' ? 'clack' : 'crank', detail, metrics: latestMetrics })
     },
-    onActivity: (type, text, id) => onProgress({ stage: 'crank', activity: { type, text, id } })
+    onActivity: (type, text, id) => onProgress({ stage: 'crank', activity: { type, text, id }, metrics: latestMetrics }),
+    onMetrics: (m) => { latestMetrics = m }
   })
 }
 

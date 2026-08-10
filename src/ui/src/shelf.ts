@@ -60,9 +60,11 @@ export interface GachaActivity {
 }
 
 export interface GachaProgress {
-  stage: 'coin' | 'crank' | 'clack' | 'pop' | 'fail'
+  stage: 'coin' | 'crank' | 'clack' | 'pop' | 'fail' | 'cancelled'
   detail?: IpcText
   activity?: GachaActivity
+  /** 进度量化：当前回合/总回合 + 当前轮次/总轮次 */
+  metrics?: { turn: number; maxTurns: number; round: number; maxRounds: number }
 }
 
 export interface GachaResult {
@@ -160,6 +162,8 @@ export interface ShelfBridge {
   rollback(eggId: string): Promise<{ name: string }>
   wish(text: string, lang: string): Promise<{ started: boolean }>
   upgrade(eggId: string, text: string, lang: string): Promise<{ started: boolean }>
+  /** 取消正在进行的扭蛋/升级生成 */
+  cancelGacha(): Promise<void>
   wishChat(messages: { role: string; content: string }[], context?: { upgradeEggId?: string }): Promise<WishChatResult>
   wishSuggest(lang: string): Promise<{ suggestions: string[] }>
   getAiSettings(): Promise<AiSettingsMasked | null>

@@ -101,7 +101,7 @@ interface EggRoom {
   isHost: boolean
   /** 当前已连接的其它成员（实时维护） */
   peers: string[]
-  /** 广播 JSON 可序列化消息给房间所有成员（含自己回显）。单条 ≤64KB */
+  /** 广播 JSON 可序列化消息给房间所有其他成员（不含自己回显）。单条 ≤64KB */
   broadcast(msg: unknown): Promise<void>
   /** 关闭/离开房间。房主关闭 = 房间解散 */
   close(): Promise<void>

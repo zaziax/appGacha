@@ -11,11 +11,15 @@ export interface GachaState {
   upgrade: { eggId: string; name: string } | null
   /** 机芯实况流 */
   activities: GachaActivity[]
+  /** 进度量化：当前回合/总回合 + 当前轮次/总轮次 */
+  metrics?: { turn: number; maxTurns: number; round: number; maxRounds: number }
+  /** 扭蛋开始时间戳（用于计算已用时间） */
+  startedAt: number
 }
 
 const MAX_ACTIVITIES = 80
 
-let state: GachaState = { running: false, stage: null, detail: '', result: null, upgrade: null, activities: [] }
+let state: GachaState = { running: false, stage: null, detail: '', result: null, upgrade: null, activities: [], startedAt: 0 }
 const listeners = new Set<() => void>()
 
 function setState(patch: Partial<GachaState>): void {
@@ -33,7 +37,7 @@ export function getGachaState(): GachaState {
 }
 
 export function beginGacha(upgrade: GachaState['upgrade']): void {
-  setState({ running: true, stage: 'coin', detail: '', result: null, upgrade, activities: [] })
+  setState({ running: true, stage: 'coin', detail: '', result: null, upgrade, activities: [], metrics: undefined, startedAt: Date.now() })
 }
 
 export function clearGachaResult(): void {
@@ -58,6 +62,8 @@ export function onGachaDone(cb: DoneCallback): () => void {
 }
 
 shelf.onGachaProgress(p => {
+  const patch: Partial<GachaState> = { running: true, stage: p.stage, detail: p.detail ?? state.detail }
+  if (p.metrics) patch.metrics = p.metrics
   if (p.activity) {
     const act = p.activity
     let activities: GachaActivity[]
@@ -70,10 +76,9 @@ shelf.onGachaProgress(p => {
     } else {
       activities = [...state.activities, act]
     }
-    setState({ running: true, stage: p.stage, detail: p.detail ?? state.detail, activities: activities.slice(-MAX_ACTIVITIES) })
-  } else {
-    setState({ running: true, stage: p.stage, detail: p.detail ?? '' })
+    patch.activities = activities.slice(-MAX_ACTIVITIES)
   }
+  setState(patch)
 })
 
 shelf.onGachaDone(r => {

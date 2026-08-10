@@ -11,9 +11,12 @@ import { getAccessToken, getRefreshToken, updateTokens, logout } from './auth'
 import { logLine } from './log'
 
 // API 地址：开发 → localhost，打包 → 线上
-export const API_BASE = app.isPackaged
-  ? 'https://api.appgacha.com'
-  : (process.env.APPGACHA_API_BASE || 'http://localhost:8000')
+// 注意：不在模块顶层访问 app.isPackaged —— Electron 37 在模块初始化时 app 可能未就绪
+function getApiBase(): string {
+  return app.isPackaged
+    ? 'https://api.appgacha.com'
+    : (process.env.APPGACHA_API_BASE || 'http://localhost:8000')
+}
 
 interface ApiOptions {
   method?: string
@@ -51,7 +54,7 @@ export async function apiFetch<T = unknown>(path: string, opts: ApiOptions = {})
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeout)
     try {
-      return await net.fetch(`${API_BASE}${path}`, {
+      return await net.fetch(`${getApiBase()}${path}`, {
         method,
         headers: {
           'Content-Type': 'application/json',
@@ -106,7 +109,7 @@ async function tryRefresh(): Promise<boolean> {
   if (!refreshToken) return false
 
   try {
-    const res = await net.fetch(`${API_BASE}/auth/refresh`, {
+    const res = await net.fetch(`${getApiBase()}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: refreshToken })
@@ -138,7 +141,7 @@ export async function apiFetchRaw(path: string, opts: ApiOptions = {}): Promise<
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeout)
     try {
-      return await net.fetch(`${API_BASE}${path}`, {
+      return await net.fetch(`${getApiBase()}${path}`, {
         method,
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -219,7 +222,7 @@ export async function apiDownloadStream(
  */
 export async function checkHealth(): Promise<boolean> {
   try {
-    const res = await net.fetch(`${API_BASE}/health`, { method: 'GET' })
+    const res = await net.fetch(`${getApiBase()}/health`, { method: 'GET' })
     return res.ok
   } catch {
     return false

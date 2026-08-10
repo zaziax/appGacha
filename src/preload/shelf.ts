@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('shelf', {
   clearProviderKey: (providerId: string) => invoke('shelf:clearProviderKey', providerId),
   wish: (text: string, lang: string) => invoke('shelf:wish', text, lang),
   upgrade: (eggId: string, text: string, lang: string) => invoke('shelf:upgrade', eggId, text, lang),
+  cancelGacha: () => invoke('shelf:cancelGacha'),
   rollback: (eggId: string) => invoke('shelf:rollback', eggId),
   wishChat: (messages: { role: string; content: string }[], context?: { upgradeEggId?: string }) => invoke('shelf:wishChat', messages, context),
   wishSuggest: (lang: string) => invoke('shelf:wishSuggest', lang),

@@ -14,7 +14,7 @@ import { createEggShortcut } from './assoc'
 import { writeEggIco } from './ico'
 import { apiFetchRaw } from './api'
 import { logLine } from './log'
-import { runGacha, runUpgrade, isGachaBusy, hasBackup, restoreLatestBackup } from './pipeline'
+import { runGacha, runUpgrade, isGachaBusy, cancelGacha, hasBackup, restoreLatestBackup } from './pipeline'
 import { buildWishGuideSystem, buildWishSuggestPrompt, type WishGuideContext } from './wishGuide'
 import type { IpcText } from './fcDriver'
 import { startLogin, logout, getAuthStatus, sendEmailCode, verifyEmailCode, loginWithPassword, setPassword, resetPassword, openWebPage } from './auth'
@@ -36,46 +36,128 @@ function proxyErrText(e: unknown): string | null {
   return null
 }
 
+/** 解析 SSE 格式的 AI 响应：逐行读 "data: <json>"，拼接所有 content 片段 */
+function parseSseContent(raw: string): string {
+  const parts: string[] = []
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith(':')) continue
+    if (!trimmed.startsWith('data:')) continue
+    const json = trimmed.slice(5).trim()
+    if (json === '[DONE]') break
+    try {
+      const obj = JSON.parse(json) as { choices?: { delta?: { content?: string }; message?: { content?: string } }[] }
+      for (const c of obj.choices ?? []) {
+        const text = c.delta?.content ?? c.message?.content ?? ''
+        if (text) parts.push(text)
+      }
+    } catch { /* 跳过无法解析的行 */ }
+  }
+  return parts.join('')
+}
+
 async function wishChatAi(messages: { role: string; content: string }[], systemPrompt: string): Promise<WishChatResult> {
   const endpoint = await resolveAiEndpoint()
-  if (!endpoint) throw new AiNotConfiguredError()
-
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 30_000)
-  try {
-    const res = await chatCompletionFetch(endpoint, {
-      messages: [{ role: 'system', content: systemPrompt }, ...messages],
-      response_format: { type: 'json_object' },
-      temperature: 0.3,
-      max_tokens: 800
-    }, { signal: controller.signal, timeout: 35_000 })
-    if (!res.ok) {
-      await throwForProxyStatus(res)
-      const text = (await res.text().catch(() => '')).slice(0, 200)
-      throw new Error(`AI HTTP ${res.status}: ${text}`)
-    }
-    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] }
-    const content = data.choices?.[0]?.message?.content ?? ''
-    const stripped = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
-    const parsed = JSON.parse(stripped) as WishChatResult
-    // 基本校验
-    if (typeof parsed.done !== 'boolean') parsed.done = true
-    if (!Array.isArray(parsed.questions)) parsed.questions = []
-    parsed.questions = parsed.questions.slice(0, 3).map(q => ({
-      text: String(q.text ?? ''),
-      options: Array.isArray(q.options) ? q.options.slice(0, 4).map(String) : []
-    }))
-    if (typeof parsed.styleNote !== 'string' || parsed.styleNote.trim().length === 0) delete parsed.styleNote
-    return parsed
-  } catch (e) {
-    const friendly = proxyErrText(e)
-    if (friendly) throw new Error(friendly)
-    if (e instanceof AiNotConfiguredError) throw new Error('尚未配置模型，请先在设置里填写 API 或登录账号')
-    if ((e as Error).name === 'AbortError') throw new Error('AI 响应超时，请重试')
-    throw e
-  } finally {
-    clearTimeout(timer)
+  if (!endpoint) {
+    logLine('[wishChat] AI not configured')
+    throw new AiNotConfiguredError()
   }
+
+  const epLabel = endpoint.kind === 'direct' ? `${endpoint.kind}/${endpoint.model}` : endpoint.kind
+  logLine('[wishChat] req:', `endpoint=${epLabel}`, `msgCount=${messages.length}`, `lastMsg=${messages[messages.length - 1]?.content?.slice(0, 120)}`)
+
+  const MAX_RETRIES = 2
+  // 这些网络错误属于临时性故障，重试可恢复
+  const RETRYABLE = new Set(['ERR_INCOMPLETE_CHUNKED_ENCODING', 'ERR_CONNECTION_RESET',
+    'ERR_SOCKET_NOT_CONNECTED', 'ERR_HTTP2_SERVER_REFUSED_STREAM',
+    'ERR_EMPTY_RESPONSE', 'ERR_NETWORK_CHANGED', 'ERR_CONTENT_LENGTH_MISMATCH'])
+
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const t0 = Date.now()
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 30_000)
+    try {
+      const res = await chatCompletionFetch(endpoint, {
+        messages: [{ role: 'system', content: systemPrompt }, ...messages],
+        response_format: { type: 'json_object' },
+        temperature: 0.3,
+        max_tokens: 800,
+        stream: false  // 关流式 — 代理可能忽略"非流式"语义但仍能减少 SSE 截断风险
+      }, { signal: controller.signal, timeout: 35_000 })
+
+      // 记录响应头用于诊断
+      const ct = res.headers.get('content-type') || '-'
+      const te = res.headers.get('transfer-encoding') || '-'
+      if (attempt > 0) {
+        logLine('[wishChat] retry OK:', `attempt=${attempt}`, `elapsed=${Date.now() - t0}ms`,
+          `status=${res.status}`, `contentType=${ct}`, `transferEnc=${te}`)
+      }
+
+      if (!res.ok) {
+        await throwForProxyStatus(res)
+        const text = (await res.text().catch(() => '')).slice(0, 200)
+        logLine('[wishChat] HTTP error:', res.status, text)
+        throw new Error(`AI HTTP ${res.status}: ${text}`)
+      }
+
+      // 读取响应体：可能是纯 JSON，也可能被代理包装为 SSE (text/event-stream)
+      let content: string
+      if (ct.includes('text/event-stream') || ct.includes('application/x-ndjson')) {
+        // SSE 格式：逐行读取 "data: <json>"，合并所有 delta
+        const rawText = await res.text()
+        logLine('[wishChat] SSE response:', `len=${rawText.length}`, `first=${rawText.slice(0, 200)}`)
+        content = parseSseContent(rawText)
+      } else {
+        const data = (await res.json()) as { choices?: { message?: { content?: string } }[] }
+        content = data.choices?.[0]?.message?.content ?? ''
+      }
+      logLine('[wishChat] raw:', content.slice(0, 300))
+      const stripped = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
+      const parsed = JSON.parse(stripped) as WishChatResult
+      // 基本校验
+      if (typeof parsed.done !== 'boolean') parsed.done = true
+      if (!Array.isArray(parsed.questions)) parsed.questions = []
+      parsed.questions = parsed.questions.slice(0, 3).map(q => ({
+        text: String(q.text ?? ''),
+        options: Array.isArray(q.options) ? q.options.slice(0, 4).map(String) : []
+      }))
+      if (typeof parsed.styleNote !== 'string' || parsed.styleNote.trim().length === 0) delete parsed.styleNote
+      logLine('[wishChat] parsed:', `done=${parsed.done}`, `questions=${parsed.questions.length}`,
+        `hasStyleNote=${!!parsed.styleNote}`, `elapsed=${Date.now() - t0}ms`)
+      if (parsed.questions.length === 0 && !parsed.done) {
+        logLine('[wishChat] ⚠ AI returned done=false but zero questions — forcing done=true')
+        parsed.done = true
+      }
+      return parsed
+    } catch (e) {
+      clearTimeout(timer)
+      lastError = e as Error
+      const msg = lastError.message
+      const isRetryable = RETRYABLE.has((e as { code?: string }).code ?? '') ||
+        msg.includes('chunked') || msg.includes('Chunked') ||
+        msg.includes('ERR_INCOMPLETE') || msg.includes('ERR_CONNECTION') ||
+        msg.includes('ERR_EMPTY') || msg.includes('ERR_SOCKET')
+
+      logLine('[wishChat] error:',
+        `attempt=${attempt}/${MAX_RETRIES}`,
+        `code=${(e as { code?: string }).code || '-'}`,
+        `msg=${msg}`,
+        `elapsed=${Date.now() - t0}ms`,
+        isRetryable && attempt < MAX_RETRIES ? '(will retry)' : '(final)')
+
+      if (!isRetryable || attempt >= MAX_RETRIES) break
+      // 退避延迟：第 1 次重试等 600ms，第 2 次等 1200ms
+      await new Promise(r => setTimeout(r, 600 * (attempt + 1)))
+    }
+  }
+
+  // 所有重试都失败 — 抛出友好错误
+  const friendly = proxyErrText(lastError!)
+  if (friendly) throw new Error(friendly)
+  if (lastError instanceof AiNotConfiguredError) throw new Error('尚未配置模型，请先在设置里填写 API 或登录账号')
+  if (lastError!.name === 'AbortError') throw new Error('AI 响应超时，请重试')
+  throw new Error(`AI 通信失败（已重试${MAX_RETRIES}次）: ${lastError!.message}`)
 }
 
 export function eggsRoot(): string {
@@ -324,6 +406,11 @@ export function registerShelfChannels(): void {
     const l = lang === 'en' ? 'en' : 'zh'
     launchGacha(runUpgrade(String(eggId), String(wish ?? ''), l, reportProgress), true)
     return { started: true }
+  })
+
+  handle('shelf:cancelGacha', async () => {
+    cancelGacha()
+    return { ok: true }
   })
 
   handle('shelf:rollback', async (eggId) => {

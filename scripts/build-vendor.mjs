@@ -27,12 +27,8 @@ const bundle = (entry, outfile, opts = {}) => {
 
 console.log('Building vendor ESM libraries...')
 
-// three.js — 已有原生 ESM，直接复制（不 minify，保留可读性供 AI 参考）
-copyFileSync(
-  join(ROOT, 'node_modules/three/build/three.module.js'),
-  join(OUT, 'three.module.js')
-)
-console.log('  ✓ three.module.js (copy)')
+// three.js — ESM bundle + minify（AI 不读 vendor 文件，可读性无收益）
+bundle('three/build/three.module.js', 'three.module.js')
 
 // chart.js — 必须用 auto 入口：自动注册全部 controllers/elements/scales + 提供 default export
 // （dist/chart.js 是裸入口，new Chart({type:'doughnut'}) 会报 "not a registered controller"）

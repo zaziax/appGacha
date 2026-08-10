@@ -131,6 +131,7 @@
     "stepWishTitleUpgrade": "想怎么改进它？",
     "stepWishHint": "用一句话描述你的想法，细节我来帮你确认",
     "stepWishHintUpgrade": "描述你想添加或修改的功能",
+    "aiUnavailable": "AI 暂不可用，请手动回答以下问题",
     "stepWishPlaceholder": "例如：我想要一个记账本，能分类记录每笔支出，月底自动帮我统计花销…",
     "stepWishPlaceholderUpgrade": "例如：加个夜间模式、增加数据导出…",
     "thinking": "正在理解你的需求…",
@@ -189,7 +190,11 @@
     "default": "扭蛋中…",
     "done": "蛋扭好了！",
     "turnKnob": "转动左侧旋钮，看看扭出了什么",
-    "starting": "机芯启动中…"
+    "starting": "机芯启动中…",
+    "cancelled": "已取消",
+    "cancel": "取消",
+    "step": "第{{turn}}/{{maxTurns}}步",
+    "round": "第{{round}}/{{maxRounds}}轮"
   },
   "result": {
     "ok": "咔哒！「{{name}}」出蛋了",

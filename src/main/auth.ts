@@ -16,16 +16,22 @@ import path from 'node:path'
 import { logLine } from './log'
 
 // ─── 配置 ───
+// 注意：不放在模块顶层直接访问 app.isPackaged —— Electron 37 在模块初始化阶段
+// app 对象可能尚未就绪，导致启动即崩溃，日志初始化都没机会执行。
 
 // 官网地址：开发 → localhost，打包 → 线上
-const WEB_BASE = app.isPackaged
-  ? 'https://appgacha.com'
-  : (process.env.APPGACHA_WEB_BASE || 'http://localhost:5173')
+function getWebBase(): string {
+  return app.isPackaged
+    ? 'https://appgacha.com'
+    : (process.env.APPGACHA_WEB_BASE || 'http://localhost:5173')
+}
 
 // API 地址：开发 → localhost，打包 → 线上
-const API_BASE = app.isPackaged
-  ? 'https://api.appgacha.com'
-  : (process.env.APPGACHA_API_BASE || 'http://localhost:8000')
+function getApiBase(): string {
+  return app.isPackaged
+    ? 'https://api.appgacha.com'
+    : (process.env.APPGACHA_API_BASE || 'http://localhost:8000')
+}
 
 // ─── Token 存储 ───
 
@@ -136,7 +142,7 @@ export function updateTokens(accessToken: string, refreshToken: string): void {
  * 官网完成 OAuth 后会 deep link 回 appgacha://callback?link_code=xxx
  */
 export async function startLogin(): Promise<{ started: boolean; error?: string }> {
-  const url = `${WEB_BASE}/login?from=desktop`
+  const url = `${getWebBase()}/login?from=desktop`
   logLine('[auth] opening website login:', url)
   try {
     await shell.openExternal(url)
@@ -148,7 +154,7 @@ export async function startLogin(): Promise<{ started: boolean; error?: string }
 
 /** 打开官网指定页面（如定价页 /pricing），用于升级引导 */
 export async function openWebPage(path: string): Promise<void> {
-  const url = `${WEB_BASE}${path}`
+  const url = `${getWebBase()}${path}`
   logLine('[auth] opening website page:', url)
   await shell.openExternal(url)
 }
@@ -168,7 +174,7 @@ export async function handleCallback(callbackUrl: string): Promise<{ ok: boolean
     logLine('[auth] exchanging link_code for tokens...')
 
     // 用一次性短码向后端换取 JWT
-    const res = await net.fetch(`${API_BASE}/auth/device-exchange`, {
+    const res = await net.fetch(`${getApiBase()}/auth/device-exchange`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ link_code: linkCode })
@@ -206,7 +212,7 @@ export async function logout(): Promise<void> {
   if (tokens) {
     // 尽力通知服务端吊销（失败不阻塞）
     try {
-      await net.fetch(`${API_BASE}/auth/logout`, {
+      await net.fetch(`${getApiBase()}/auth/logout`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${tokens.accessToken}` }
       })
@@ -220,7 +226,7 @@ export async function logout(): Promise<void> {
 /** 发送验证码 */
 export async function sendEmailCode(email: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await net.fetch(`${API_BASE}/auth/send-code`, {
+    const res = await net.fetch(`${getApiBase()}/auth/send-code`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email })
@@ -238,7 +244,7 @@ export async function sendEmailCode(email: string): Promise<{ ok: boolean; error
 /** 验证邮箱验证码并登录 */
 export async function verifyEmailCode(email: string, code: string): Promise<{ ok: boolean; error?: string; hasPassword?: boolean }> {
   try {
-    const res = await net.fetch(`${API_BASE}/auth/verify-code`, {
+    const res = await net.fetch(`${getApiBase()}/auth/verify-code`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, code })
@@ -267,7 +273,7 @@ export async function verifyEmailCode(email: string, code: string): Promise<{ ok
 /** 邮箱 + 密码登录 */
 export async function loginWithPassword(email: string, password: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await net.fetch(`${API_BASE}/auth/login-password`, {
+    const res = await net.fetch(`${getApiBase()}/auth/login-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
@@ -298,7 +304,7 @@ export async function setPassword(password: string, oldPassword?: string): Promi
   try {
     const token = getAccessToken()
     if (!token) return { ok: false, error: '未登录' }
-    const res = await net.fetch(`${API_BASE}/auth/set-password`, {
+    const res = await net.fetch(`${getApiBase()}/auth/set-password`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -319,7 +325,7 @@ export async function setPassword(password: string, oldPassword?: string): Promi
 /** 忘记密码：邮箱验证码 + 新密码重置 */
 export async function resetPassword(email: string, code: string, newPassword: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await net.fetch(`${API_BASE}/auth/reset-password`, {
+    const res = await net.fetch(`${getApiBase()}/auth/reset-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, code, new_password: newPassword })

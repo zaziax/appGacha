@@ -145,9 +145,10 @@ export function MachineView({ onToast, onEggCreated }: Props) {
         setClarifyRound(1)
         setStep('clarify')
       }
-    } catch {
-      // AI 不可用时跳过追问，直接进下一步
-      setStep(isUpgrade ? 'confirm' : 'visual')
+    } catch (e) {
+      // AI 不可用：提示用户，留在愿望输入步骤不跳过
+      console.error('[wishChat] submitWish failed:', e)
+      onToast((e as Error).message || t('wish.aiUnavailable'))
     } finally {
       setAiLoading(false)
     }
@@ -201,7 +202,11 @@ export function MachineView({ onToast, onEggCreated }: Props) {
         return
       }
       if (result.styleNote) setStyleNote(result.styleNote)
-    } catch { /* 追问失败不阻塞 */ }
+    } catch (e) {
+      // 追问失败：提示用户但不阻塞流程
+      console.error('[wishChat] followUpRound failed:', e)
+      onToast((e as Error).message || t('wish.aiUnavailable'))
+    }
     setAiLoading(false)
     setStep(isUpgrade ? 'confirm' : 'visual')
   }
@@ -902,7 +907,28 @@ function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose 
 }) {
   const { t } = useTranslation()
   const feedEnd = useRef<HTMLDivElement>(null)
+  const [elapsed, setElapsed] = useState(0)
   useEffect(() => { feedEnd.current?.scrollIntoView({ behavior: 'smooth' }) }, [gacha.activities.length])
+
+  // 耗时计时器：每秒刷新
+  useEffect(() => {
+    if (!gacha.running || !gacha.startedAt) { setElapsed(0); return }
+    const tick = () => setElapsed(Math.floor((Date.now() - gacha.startedAt) / 1000))
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [gacha.running, gacha.startedAt])
+
+  const fmtElapsed = (s: number): string => {
+    if (s < 60) return `${s}s`
+    const m = Math.floor(s / 60)
+    const sec = s % 60
+    return `${m}m ${sec}s`
+  }
+
+  const handleCancel = () => {
+    shelf.cancelGacha().catch(() => {})
+  }
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -915,17 +941,34 @@ function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose 
         ) : (
           <Egg className="w-5 h-5 text-brand" strokeWidth={2.5} />
         )}
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="text-[15px] font-extrabold text-text leading-tight">
             {gacha.running ? progressLabel(gacha.stage, t) : resultReady ? t('progress.done') : ''}
           </p>
           {gacha.running && gacha.detail && (
             <p className="text-[12px] font-bold text-muted truncate mt-0.5">{tr(t, gacha.detail)}</p>
           )}
+          {/* 进度量化：步骤 + 轮次 + 耗时 */}
+          {gacha.running && gacha.metrics && (
+            <p className="text-[11px] font-bold text-muted/60 mt-0.5">
+              {t('progress.step', { turn: gacha.metrics.turn, maxTurns: gacha.metrics.maxTurns })} · {t('progress.round', { round: gacha.metrics.round, maxRounds: gacha.metrics.maxRounds })} · {fmtElapsed(elapsed)}
+            </p>
+          )}
+          {gacha.running && !gacha.metrics && elapsed > 0 && (
+            <p className="text-[11px] font-bold text-muted/60 mt-0.5">{fmtElapsed(elapsed)}</p>
+          )}
           {resultReady && (
             <p className="text-[12px] font-bold text-muted mt-0.5">{t('progress.turnKnob')}</p>
           )}
         </div>
+        {/* 取消按钮 */}
+        {gacha.running && (
+          <button onClick={handleCancel}
+            className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-xl text-[12px] font-extrabold border-2 border-red-200 bg-white text-red-500 hover:bg-red-50 hover:border-red-400 active:translate-y-0.5 transition-all"
+            style={{ boxShadow: '2px 2px 0 rgba(220,80,60,0.12)' }}>
+            <X className="w-3.5 h-3.5" strokeWidth={2.8} /> {t('progress.cancel')}
+          </button>
+        )}
       </div>
 
       {/* Live feed */}
@@ -1024,6 +1067,7 @@ function progressLabel(s: GachaProgress['stage'] | null, t: (key: string) => str
     case 'clack': return t('progress.clack')
     case 'pop': return t('progress.pop')
     case 'fail': return t('progress.fail')
+    case 'cancelled': return t('progress.cancelled')
     default: return t('progress.default')
   }
 }

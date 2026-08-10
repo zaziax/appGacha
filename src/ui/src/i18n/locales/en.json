@@ -131,6 +131,7 @@
     "stepWishTitleUpgrade": "How would you improve it?",
     "stepWishHint": "Describe your idea in one sentence — I'll confirm the details with you",
     "stepWishHintUpgrade": "Describe the features you want to add or change",
+    "aiUnavailable": "AI unavailable — please answer these questions manually",
     "stepWishPlaceholder": "e.g. I want an expense tracker that sorts every purchase by category and sums up my spending each month…",
     "stepWishPlaceholderUpgrade": "e.g. add dark mode, export my data…",
     "thinking": "Understanding your wish…",
@@ -189,7 +190,11 @@
     "default": "Gaching…",
     "done": "Your egg is ready!",
     "turnKnob": "Turn the knob on the left to see what you got",
-    "starting": "Mechanism warming up…"
+    "starting": "Mechanism warming up…",
+    "cancelled": "Cancelled",
+    "cancel": "Cancel",
+    "step": "Step {{turn}}/{{maxTurns}}",
+    "round": "Round {{round}}/{{maxRounds}}"
   },
   "result": {
     "ok": "Click! \"{{name}}\" is ready",
