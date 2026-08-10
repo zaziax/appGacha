@@ -105,7 +105,23 @@
     "testKeyOk": "连接成功",
     "save": "保存",
     "saved": "已保存",
-    "savedToast": "模型配置已保存"
+    "savedToast": "模型配置已保存",
+    "updates": "更新",
+    "version": "版本",
+    "autoUpdate": "自动检查更新",
+    "checkUpdates": "检查更新",
+    "checking": "检查中…",
+    "updateDownloading": "下载中",
+    "restartToInstall": "重启安装",
+    "upToDate": "AppGacha 已是最新版本",
+    "updateAvailable": "发现新版本 v{{version}}，正在下载…",
+    "updateFailed": "更新检查失败：{{message}}"
+  },
+  "update": {
+    "title": "更新已就绪",
+    "body": "AppGacha v{{version}} 已下载完成，是否立即重启安装？",
+    "install": "重启安装",
+    "later": "稍后提醒"
   },
   "wish": {
     "upgradeTitle": "升级「{{name}}」",
@@ -242,6 +258,7 @@
     "cloudOnly": "云端未下载",
     "downloadEgg": "下载到本地",
     "downloadingEgg": "下载中…",
+    "downloadQueued": "排队第 {{pos}} 位",
     "eggDownloaded": "{{name}} 已下载到本地",
     "downloadFailed": "下载失败：{{msg}}"
   },

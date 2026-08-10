@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Canvas } from '@react-three/fiber'
 import { View as DreiView } from '@react-three/drei'
 import { useTranslation } from 'react-i18next'
-import { shelf, EggInfo, CategoryData, AuthStatus, SyncStatus, CloudEggInfo } from './shelf'
+import { shelf, EggInfo, CategoryData, AuthStatus, SyncStatus, CloudEggInfo, UpdateStatus, DownloadProgress } from './shelf'
 import { tr } from './i18n'
 import { getGachaState, subscribeGacha, onGachaDone, setGachaUpgrade } from './gachaStore'
 import { TitleBar } from './components/TitleBar'
@@ -13,6 +13,7 @@ import { EggCard } from './components/EggCard'
 import { CloudEggCard } from './components/CloudEggCard'
 import { SettingsDialog } from './components/SettingsDialog'
 import { ClosePromptDialog } from './components/ClosePromptDialog'
+import { UpdateDialog } from './components/UpdateDialog'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { ShelfToolbar, SortMode } from './components/ShelfToolbar'
 import { Toast, useToast } from './components/Toast'
@@ -37,7 +38,11 @@ export default function App() {
   const { toast, showToast } = useToast()
   const [syncStatuses, setSyncStatuses] = useState<Record<string, SyncStatus>>({})
   const [cloudOnlyEggs, setCloudOnlyEggs] = useState<CloudEggInfo[]>([])
-  const [downloadingCloud, setDownloadingCloud] = useState<Set<string>>(new Set())
+  const [downloadQueue, setDownloadQueue] = useState<string[]>([])
+  const [activeDownload, setActiveDownload] = useState<string | null>(null)
+  const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({})
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ stage: 'idle' })
+  const [showUpdateDialog, setShowUpdateDialog] = useState(false)
   const [hasSyncAccess, setHasSyncAccess] = useState(false)
   const [auth, setAuth] = useState<AuthStatus>({ loggedIn: false })
   const gacha = useSyncExternalStore(subscribeGacha, getGachaState)
@@ -152,6 +157,40 @@ export default function App() {
     return () => { shelf.spaceSetVisible(viewRef.current === 'space') }
   }, [modalOpen])
 
+  // ─── 下载队列处理器（串行） ───
+  useEffect(() => {
+    if (activeDownload) return // 正忙
+    if (downloadQueue.length === 0) return // 无事可做
+    const [next, ...rest] = downloadQueue
+    setDownloadQueue(rest)
+    setActiveDownload(next)
+    setDownloadProgress(prev => ({ ...prev, [next]: 0 }))
+    shelf.syncDownload(next).then(result => {
+      showToast(t('shelf.eggDownloaded', { name: result.name }))
+      refresh()
+    }).catch(err => {
+      const msg = (err as Error).message
+      showToast(t('shelf.downloadFailed', { msg: msg === 'SYNC_PRO_REQUIRED' ? t('shelf.syncNeedPro') : msg }))
+    }).finally(() => {
+      setActiveDownload(null)
+      setDownloadProgress(prev => { const n = { ...prev }; delete n[next]; return n })
+    })
+  }, [activeDownload, downloadQueue])
+
+  // ─── 下载进度监听 ───
+  useEffect(() => shelf.onDownloadProgress((p: DownloadProgress) => {
+    setDownloadProgress(prev => ({ ...prev, [p.eggId]: p.percent }))
+  }), [])
+
+  // ─── 更新状态监听 ───
+  useEffect(() => {
+    shelf.getUpdateStatus().then(setUpdateStatus).catch(() => {})
+    shelf.onUpdateStateChanged(s => {
+      setUpdateStatus(s as UpdateStatus)
+      if ((s as UpdateStatus).stage === 'downloaded') setShowUpdateDialog(true)
+    })
+  }, [])
+
   // 关闭拦截后由主进程推送询问，这里弹出项目风格弹窗，回传用户选择
   useEffect(() => shelf.onClosePrompt(() => setClosePromptOpen(true)), [])
 
@@ -191,23 +230,10 @@ export default function App() {
     }
   }
 
-  // ─── 云端蛋下载 ───
-  const handleDownloadCloudEgg = async (eggId: string) => {
-    setDownloadingCloud(prev => new Set(prev).add(eggId))
-    try {
-      const result = await shelf.syncDownload(eggId)
-      showToast(t('shelf.eggDownloaded', { name: result.name }))
-      refresh()
-    } catch (err) {
-      const msg = (err as Error).message
-      showToast(t('shelf.downloadFailed', { msg: msg === 'SYNC_PRO_REQUIRED' ? t('shelf.syncNeedPro') : msg }))
-    } finally {
-      setDownloadingCloud(prev => {
-        const next = new Set(prev)
-        next.delete(eggId)
-        return next
-      })
-    }
+  // ─── 云端蛋下载（队列模式：已排队/下载中的忽略） ───
+  const handleDownloadCloudEgg = (eggId: string) => {
+    if (activeDownload === eggId || downloadQueue.includes(eggId)) return
+    setDownloadQueue(prev => [...prev, eggId])
   }
 
   // ─── 分类操作（乐观更新，失败提示不阻断） ───
@@ -400,14 +426,20 @@ export default function App() {
                           <div className="flex-1 h-px bg-text/10" />
                         </div>
                       )}
-                      {filteredCloudEggs.map(ce => (
-                        <CloudEggCard
-                          key={ce.egg_id}
-                          egg={ce}
-                          downloading={downloadingCloud.has(ce.egg_id)}
-                          onDownload={() => handleDownloadCloudEgg(ce.egg_id)}
-                        />
-                      ))}
+                      {filteredCloudEggs.map(ce => {
+                        const qIdx = ce.egg_id === activeDownload ? 0
+                          : downloadQueue.indexOf(ce.egg_id)
+                        const qPos = qIdx >= 0 ? qIdx : -1
+                        return (
+                          <CloudEggCard
+                            key={ce.egg_id}
+                            egg={ce}
+                            queuePosition={qPos}
+                            progress={qPos === 0 ? (downloadProgress[ce.egg_id] ?? 0) : undefined}
+                            onDownload={() => handleDownloadCloudEgg(ce.egg_id)}
+                          />
+                        )
+                      })}
                     </>
                   )}
                 </div>
@@ -453,6 +485,13 @@ export default function App() {
             shelf.resolveImportConflict(importConflict.file, importConflict.eggId, 'open')
             setImportConflict(null)
           }}
+        />
+      )}
+      {showUpdateDialog && updateStatus.stage === 'downloaded' && (
+        <UpdateDialog
+          version={updateStatus.version ?? ''}
+          onInstall={() => { shelf.installUpdate(); setShowUpdateDialog(false) }}
+          onDismiss={() => setShowUpdateDialog(false)}
         />
       )}
       {closePromptOpen && (

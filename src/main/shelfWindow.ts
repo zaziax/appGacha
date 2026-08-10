@@ -33,7 +33,7 @@ export function createShelfWindow(opts?: { show?: boolean }): BrowserWindow {
     height: 620,
     minWidth: 560,
     minHeight: 420,
-    frame: !isMac,                               // macOS: 用原生 titleBarStyle 替代 frameless
+    frame: false,                                 // 无边框：自定义 TitleBar 提供拖拽 + 窗口控件
     ...(isMac ? {
       titleBarStyle: 'hidden' as const,
       trafficLightPosition: { x: 14, y: 16 },   // 46px 标题栏垂直居中

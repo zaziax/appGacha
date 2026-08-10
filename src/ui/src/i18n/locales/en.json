@@ -105,7 +105,23 @@
     "testKeyOk": "Connected",
     "save": "Save",
     "saved": "Saved",
-    "savedToast": "Model settings saved"
+    "savedToast": "Model settings saved",
+    "updates": "Updates",
+    "version": "Version",
+    "autoUpdate": "Auto-check for updates",
+    "checkUpdates": "Check for updates",
+    "checking": "Checking…",
+    "updateDownloading": "Downloading",
+    "restartToInstall": "Restart to install",
+    "upToDate": "AppGacha is up to date",
+    "updateAvailable": "v{{version}} available — downloading…",
+    "updateFailed": "Update check failed: {{message}}"
+  },
+  "update": {
+    "title": "Update Ready",
+    "body": "AppGacha v{{version}} has been downloaded and is ready to install. Restart now?",
+    "install": "Restart & install",
+    "later": "Later"
   },
   "wish": {
     "upgradeTitle": "Upgrade \"{{name}}\"",
@@ -242,6 +258,7 @@
     "cloudOnly": "In cloud — not downloaded",
     "downloadEgg": "Download to this device",
     "downloadingEgg": "Downloading…",
+    "downloadQueued": "#{{pos}} in queue",
     "eggDownloaded": "{{name}} downloaded",
     "downloadFailed": "Download failed: {{msg}}"
   },

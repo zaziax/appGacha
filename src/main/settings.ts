@@ -40,6 +40,8 @@ interface SettingsFile {
     soundEnabled?: boolean
     /** UI 语言（en / zh），默认跟随系统 */
     lang?: 'en' | 'zh'
+    /** 自动检查更新（默认开） */
+    autoUpdate?: boolean
   }
   /** 逐蛋自启动覆盖（eggId → bool）。未列出的蛋用 manifest.window.autoStart 出厂默认值 */
   eggAutoStart?: Record<string, boolean>
@@ -161,10 +163,14 @@ export function clearProviderKey(providerId: string): void {
 export interface AppSettings {
   autoStartApp: boolean
   minimizeToTray: boolean
-  /** 用户是否已明确选择过关闭行为（关闭时询问框的“记住选择”或设置面板改动后置 true） */
+  /** 用户是否已明确选择过关闭行为（关闭时询问框的”记住选择”或设置面板改动后置 true） */
   closeActionKnown?: boolean
   /** 界面音效（默认开） */
   soundEnabled: boolean
+  /** 自动检查更新（默认开） */
+  autoUpdate: boolean
+  /** 应用版本号（只读，由 getAppSettings 填入） */
+  version?: string
 }
 
 export function getAppSettings(): AppSettings {
@@ -173,7 +179,9 @@ export function getAppSettings(): AppSettings {
     autoStartApp: f.app?.autoStartApp ?? false,
     minimizeToTray: f.app?.minimizeToTray ?? (process.platform !== 'darwin'),  // Windows 默认托盘；macOS 默认 Dock
     closeActionKnown: f.app?.closeActionKnown ?? false,
-    soundEnabled: f.app?.soundEnabled ?? true
+    soundEnabled: f.app?.soundEnabled ?? true,
+    autoUpdate: f.app?.autoUpdate ?? true,
+    version: app.getVersion()
   }
 }
 

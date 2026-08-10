@@ -9,11 +9,10 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { net } from 'electron'
-import { getAccessToken, getRefreshToken, updateTokens, logout } from './auth'
-import { API_BASE } from './api'
+import { apiFetchRaw, apiDownloadStream } from './api'
 import { packGacha, unpackGacha } from './gachaPkg'
 import { dataRoot } from './paths'
+import { copyDir } from './fsutil'
 import { getEgg, registerEgg, loadManifest } from './eggs'
 import { initSchedules } from './schedule'
 import { isSyncDisabledForEgg } from './settings'
@@ -59,10 +58,11 @@ export async function syncEgg(eggId: string): Promise<SyncEggResult> {
     tmpFile = tf
 
     // ② 请求单蛋同步计划
-    const res = await authFetch('/sync/plan', {
+    const res = await apiFetchRaw('/sync/plan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ eggs: [{ egg_id: eggId, hash }] }),
+      logoutOnAuthFail: true,
     })
     if (!res.ok) await throwSyncError(res, '同步计划失败')
     const plan = await res.json() as SyncPlan
@@ -99,48 +99,6 @@ export async function syncEgg(eggId: string): Promise<SyncEggResult> {
     }
   }
 }
-export async function authFetch(pathname: string, opts: RequestInit = {}): Promise<Response> {
-  const token = getAccessToken()
-  const headers: Record<string, string> = {
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(opts.headers as Record<string, string> || {}),
-  }
-
-  let res = await net.fetch(`${API_BASE}${pathname}`, { ...opts, headers })
-
-  // 401 → refresh 一次
-  if (res.status === 401) {
-    const refreshed = await tryRefreshToken()
-    if (refreshed) {
-      const newToken = getAccessToken()
-      headers.Authorization = `Bearer ${newToken}`
-      res = await net.fetch(`${API_BASE}${pathname}`, { ...opts, headers })
-    } else {
-      await logout()
-    }
-  }
-
-  return res
-}
-
-async function tryRefreshToken(): Promise<boolean> {
-  const rt = getRefreshToken()
-  if (!rt) return false
-  try {
-    const res = await net.fetch(`${API_BASE}/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: rt }),
-    })
-    if (!res.ok) return false
-    const data = await res.json() as { access_token: string; refresh_token: string }
-    updateTokens(data.access_token, data.refresh_token)
-    return true
-  } catch {
-    return false
-  }
-}
-
 /** 云同步错误归一：403 → Pro 门禁标记（渲染端映射本地化文案）；其余透传后端 detail */
 async function throwSyncError(res: Response, fallback: string): Promise<never> {
   if (res.status === 403) throw new Error('SYNC_PRO_REQUIRED')
@@ -154,7 +112,7 @@ async function throwSyncError(res: Response, fallback: string): Promise<never> {
 
 /** 获取云端蛋列表 */
 export async function listCloudEggs(): Promise<CloudEggInfo[]> {
-  const res = await authFetch('/sync/eggs')
+  const res = await apiFetchRaw('/sync/eggs', { logoutOnAuthFail: true })
   if (!res.ok) await throwSyncError(res, '获取云端列表失败')
   const data = await res.json() as { eggs: CloudEggInfo[] }
   return data.eggs
@@ -163,7 +121,7 @@ export async function listCloudEggs(): Promise<CloudEggInfo[]> {
 /** 从云端删除蛋（不抛错：网络/权限问题均静默返回 false，不影响本地操作） */
 export async function deleteCloudEgg(eggId: string): Promise<boolean> {
   try {
-    const res = await authFetch(`/sync/eggs/${encodeURIComponent(eggId)}`, { method: 'DELETE' })
+    const res = await apiFetchRaw(`/sync/eggs/${encodeURIComponent(eggId)}`, { method: 'DELETE', logoutOnAuthFail: true })
     if (res.status === 404) {
       logLine(`[sync] cloud egg already gone: ${eggId}`)
       return true
@@ -214,25 +172,31 @@ export async function uploadPackedFile(eggId: string, eggName: string, filePath:
   parts.push(Buffer.from(`\r\n--${boundary}--\r\n`, 'utf-8'))
   const body = Buffer.concat(parts)
 
-  const res = await authFetch(`/sync/eggs/${eggId}`, {
+  const res = await apiFetchRaw(`/sync/eggs/${eggId}`, {
     method: 'PUT',
     headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
-    body: body as unknown as BodyInit,
+    body,
+    logoutOnAuthFail: true,
   })
 
   if (!res.ok) await throwSyncError(res, '上传失败')
   logLine(`[sync] uploaded ${eggName}`)
 }
 
-/** 从云端下载蛋并安装到本地 */
-export async function downloadEgg(eggId: string): Promise<{ name: string; eggId: string }> {
-  const res = await authFetch(`/sync/eggs/${eggId}`)
-  if (!res.ok) await throwSyncError(res, '下载失败')
+/** 从云端下载蛋并安装到本地。onProgress 可选：回调 (0-100, stage)。 */
+export async function downloadEgg(
+  eggId: string,
+  onProgress?: (percent: number, stage: 'downloading' | 'installing') => void
+): Promise<{ name: string; eggId: string }> {
+  // 流式下载 + 进度回调
+  const buf = await apiDownloadStream(
+    `/sync/eggs/${eggId}`,
+    (p) => onProgress?.(p.percent, 'downloading')
+  )
 
-  const arrayBuf = await res.arrayBuffer()
-  const buf = Buffer.from(arrayBuf)
+  // 安装阶段
+  onProgress?.(100, 'installing')
 
-  // 写入临时 .gacha 文件
   const tmpFile = path.join(dataRoot('staging'), `__dl-${eggId}-${Date.now()}.gacha`)
   fs.mkdirSync(path.dirname(tmpFile), { recursive: true })
   try {
@@ -248,20 +212,33 @@ export async function downloadEgg(eggId: string): Promise<{ name: string; eggId:
     if (existing) {
       // 已存在 → 覆盖（保留蛋目录名不变）
       fs.rmSync(existing.dir, { recursive: true, force: true })
-      fs.renameSync(tmpDir, existing.dir)
+      safeRename(tmpDir, existing.dir)
       existing.manifest = loadManifest(existing.dir)
       return { name: existing.manifest.name, eggId: existing.eggId }
     }
 
-    // 新蛋 → 入柜
+    // 新蛋 → 入柜（目录名必须以 .gacha 结尾，discoverEggs 只认这种）
     const eggsRoot = dataRoot('eggs')
     fs.mkdirSync(eggsRoot, { recursive: true })
-    const dest = path.join(eggsRoot, manifest.name.replace(/[<>:"/\\|?*]/g, '_'))
-    fs.renameSync(tmpDir, dest)
+    const base = manifest.name.replace(/[<>:"/\\|?*]/g, '_')
+    let dest = path.join(eggsRoot, `${base}.gacha`)
+    let i = 2
+    while (fs.existsSync(dest)) dest = path.join(eggsRoot, `${base}-${i++}.gacha`)
+    safeRename(tmpDir, dest)
     const ctx = registerEgg(dest)
     initSchedules([ctx])
     return { name: manifest.name, eggId: manifest.eggId }
   } finally {
     fs.rmSync(tmpFile, { force: true })
+  }
+}
+
+/** Windows rename 可能因文件被占用（杀软/索引）失败，降级为 copy+delete */
+function safeRename(src: string, dest: string): void {
+  try {
+    fs.renameSync(src, dest)
+  } catch {
+    copyDir(src, dest)
+    fs.rmSync(src, { recursive: true, force: true })
   }
 }

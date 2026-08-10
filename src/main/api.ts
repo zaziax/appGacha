@@ -18,11 +18,19 @@ export const API_BASE = app.isPackaged
 interface ApiOptions {
   method?: string
   headers?: Record<string, string>
-  body?: string | FormData
+  body?: string | FormData | Buffer | Uint8Array
   /** 跳过自动 refresh（用于 refresh 请求本身） */
   skipRefresh?: boolean
   /** 超时毫秒数，默认 30s */
   timeout?: number
+  /** refresh 失败时是否触发 logout（默认 false，仅 apiFetch 会 logout） */
+  logoutOnAuthFail?: boolean
+}
+
+export interface DownloadStreamProgress {
+  bytesReceived: number
+  totalBytes: number
+  percent: number
 }
 
 interface ApiResult<T = unknown> {
@@ -50,7 +58,7 @@ export async function apiFetch<T = unknown>(path: string, opts: ApiOptions = {})
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
           ...headers
         },
-        body,
+        body: body as BodyInit | undefined,
         signal: controller.signal
       })
     } finally {
@@ -124,7 +132,7 @@ async function tryRefresh(): Promise<boolean> {
  * 与 apiFetch 同款 401 自动 refresh，但不消费响应体。
  */
 export async function apiFetchRaw(path: string, opts: ApiOptions = {}): Promise<Response> {
-  const { method = 'GET', headers = {}, body, skipRefresh = false, timeout = 30_000 } = opts
+  const { method = 'GET', headers = {}, body, skipRefresh = false, timeout = 30_000, logoutOnAuthFail = false } = opts
 
   const doFetch = async (token: string | null): Promise<Response> => {
     const controller = new AbortController()
@@ -136,7 +144,7 @@ export async function apiFetchRaw(path: string, opts: ApiOptions = {}): Promise<
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
           ...headers
         },
-        body,
+        body: body as BodyInit | undefined,
         signal: controller.signal
       })
     } finally {
@@ -151,9 +159,59 @@ export async function apiFetchRaw(path: string, opts: ApiOptions = {}): Promise<
     if (refreshed) {
       token = getAccessToken()
       res = await doFetch(token)
+    } else if (logoutOnAuthFail) {
+      await logout()
     }
   }
   return res
+}
+
+/**
+ * 流式下载二进制文件，带进度回调。
+ * 内部调用 apiFetchRaw 处理鉴权，然后流式读取 response.body 逐 chunk 报告进度。
+ * 返回完整 Buffer——大文件注意内存。超时默认 5 分钟。
+ */
+export async function apiDownloadStream(
+  path: string,
+  onProgress?: (p: DownloadStreamProgress) => void,
+  opts: ApiOptions = {}
+): Promise<Buffer> {
+  const res = await apiFetchRaw(path, { ...opts, logoutOnAuthFail: true, timeout: opts.timeout ?? 300_000 })
+  if (!res.ok) {
+    const text = (await res.text().catch(() => '')).slice(0, 300)
+    throw new Error(text || `HTTP ${res.status}`)
+  }
+
+  const contentLength = Number(res.headers.get('content-length') || '0')
+  const body = res.body as ReadableStream<Uint8Array> | null
+
+  if (!body) {
+    // 降级：ReadableStream 不可用时一次性读取
+    const arrayBuf = await res.arrayBuffer()
+    const buf = Buffer.from(arrayBuf)
+    onProgress?.({ bytesReceived: buf.length, totalBytes: buf.length, percent: 100 })
+    return buf
+  }
+
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let bytesReceived = 0
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+    bytesReceived += value.length
+    if (onProgress && contentLength > 0) {
+      onProgress({
+        bytesReceived,
+        totalBytes: contentLength,
+        percent: Math.round((bytesReceived / contentLength) * 100)
+      })
+    }
+  }
+
+  return Buffer.concat(chunks)
 }
 
 /**

@@ -22,6 +22,7 @@ import { checkHealth, apiFetch } from './api'
 import { resolveAiEndpoint, chatCompletionFetch, throwForProxyStatus, AiNotConfiguredError, AiProxyError } from './aiChannel'
 import { randomUUID } from 'node:crypto'
 import { listCloudEggs, syncEgg, downloadEgg, deleteCloudEgg, setSyncEnabled } from './sync'
+import { initAutoUpdater, stopAutoUpdater, checkForUpdatesNow, installUpdateNow, getCurrentUpdateStatus } from './updater'
 
 // ---- 许愿引导 AI ----
 
@@ -466,7 +467,7 @@ export function registerShelfChannels(): void {
   })
 
   handle('shelf:setAppSettings', (s) => {
-    const patch = s as { autoStartApp?: boolean; minimizeToTray?: boolean }
+    const patch = s as { autoStartApp?: boolean; minimizeToTray?: boolean; soundEnabled?: boolean; autoUpdate?: boolean }
     // 设置面板手动改动关闭行为 = 用户已明确选择，关闭时不再询问
     setAppSettings({
       ...patch,
@@ -646,11 +647,28 @@ export function registerShelfChannels(): void {
   })
 
   handle('shelf:syncDownload', async (eggId) => {
-    return await downloadEgg(String(eggId))
+    const id = String(eggId)
+    return await downloadEgg(id, (percent, stage) => {
+      sendToShelf('sync:downloadProgress', { eggId: id, percent, stage })
+    })
   })
 
   handle('shelf:setSyncEnabled', async (v) => {
     setSyncEnabled(Boolean(v))
+  })
+
+  // ─── 自动更新 ───
+
+  handle('shelf:checkUpdate', async () => {
+    await checkForUpdatesNow()
+  })
+
+  handle('shelf:getUpdateStatus', async () => {
+    return getCurrentUpdateStatus()
+  })
+
+  handle('shelf:installUpdate', async () => {
+    installUpdateNow()
   })
 }
 

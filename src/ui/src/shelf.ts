@@ -93,6 +93,24 @@ export interface AppSettings {
   minimizeToTray: boolean
   /** 界面音效（默认开） */
   soundEnabled: boolean
+  /** 自动检查更新（默认开） */
+  autoUpdate: boolean
+  /** 应用版本号（只读） */
+  version?: string
+}
+
+export interface DownloadProgress {
+  eggId: string
+  percent: number
+  stage: 'downloading' | 'installing' | 'done'
+  error?: string
+}
+
+export interface UpdateStatus {
+  stage: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'
+  version?: string
+  percent?: number
+  error?: string
 }
 
 export interface AuthStatus {
@@ -150,7 +168,7 @@ export interface ShelfBridge {
   hasProviderKey(providerId: string): Promise<{ hasKey: boolean }>
   clearProviderKey(providerId: string): Promise<{ ok: boolean }>
   getAppSettings(): Promise<AppSettings>
-  setAppSettings(s: { autoStartApp?: boolean; minimizeToTray?: boolean; soundEnabled?: boolean }): Promise<void>
+  setAppSettings(s: { autoStartApp?: boolean; minimizeToTray?: boolean; soundEnabled?: boolean; autoUpdate?: boolean }): Promise<void>
   setLang(lang: 'en' | 'zh'): Promise<void>
   getEggAutoStart(eggId: string): Promise<boolean>
   setEggAutoStart(eggId: string, enabled: boolean): Promise<void>
@@ -199,6 +217,8 @@ export interface ShelfBridge {
   onGachaDone(cb: (r: GachaResult) => void): void
   /** 平台通道构建完成后的积分结算通知（本次消耗 + 剩余余额） */
   onBillingSettled(cb: (p: { spent: number; balance: number }) => void): void
+  /** 下载进度推送 */
+  onDownloadProgress(cb: (p: DownloadProgress) => void): void
   /** 蛋柜变动（双击 .gacha 热导入等）：重拉列表 */
   onEggsChanged(cb: () => void): void
   /** .gacha 导入冲突：主进程推送后 UI 弹窗询问 */
@@ -212,6 +232,11 @@ export interface ShelfBridge {
   close(): void
   isMaximized(): Promise<boolean>
   onWindowState(cb: (s: WindowState) => void): void
+  // ─── 自动更新 ───
+  checkUpdate(): Promise<void>
+  getUpdateStatus(): Promise<UpdateStatus>
+  installUpdate(): Promise<void>
+  onUpdateStateChanged(cb: (s: UpdateStatus) => void): void
 }
 
 declare global {

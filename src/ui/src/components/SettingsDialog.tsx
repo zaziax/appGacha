@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
-import { X, ExternalLink, Plug, Settings2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { X, ExternalLink, Plug, Settings2, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { shelf } from '../shelf'
+import { shelf, type UpdateStatus } from '../shelf'
 import { sfx, setSoundEnabled } from '../sound'
 import { getLangPref, setLangPref, type LangPref } from '../i18n'
 import { providerIcon } from '../config/providerIcons'
@@ -42,6 +42,10 @@ export function SettingsDialog({ onClose, onToast }: Props) {
   const [autoStartApp, setAutoStartApp] = useState(false)
   const [minimizeToTray, setMinimizeToTray] = useState(true)
   const [soundOn, setSoundOn] = useState(true)
+  const [autoUpdate, setAutoUpdate] = useState(true)
+  const [appVersion, setAppVersion] = useState('')
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ stage: 'idle' })
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [lang, setLang] = useState<LangPref>(getLangPref)
 
   /* ─── AI 模型 state ─── */
@@ -85,8 +89,14 @@ export function SettingsDialog({ onClose, onToast }: Props) {
         setNav(id)
       }
     }).catch(() => {})
-    shelf.getAppSettings().then(s => { setAutoStartApp(s.autoStartApp); setMinimizeToTray(s.minimizeToTray); setSoundOn(s.soundEnabled) }).catch(() => {})
+    shelf.getAppSettings().then(s => { setAutoStartApp(s.autoStartApp); setMinimizeToTray(s.minimizeToTray); setSoundOn(s.soundEnabled); setAutoUpdate(s.autoUpdate); setAppVersion(s.version ?? '') }).catch(() => {})
     shelf.authStatus().then(s => setLoggedUser(s.loggedIn ? (s.user?.name || s.user?.email || '') : null)).catch(() => {})
+    // 更新状态
+    shelf.getUpdateStatus().then(setUpdateStatus).catch(() => {})
+    shelf.onUpdateStateChanged(s => {
+      setUpdateStatus(s as UpdateStatus)
+      setCheckingUpdate(false)
+    })
   }, [])
 
   /** 切换左侧导航 */
@@ -165,6 +175,11 @@ export function SettingsDialog({ onClose, onToast }: Props) {
                   autoStartApp={autoStartApp} setAutoStartApp={setAutoStartApp}
                   minimizeToTray={minimizeToTray} setMinimizeToTray={setMinimizeToTray}
                   soundOn={soundOn} setSoundOn={setSoundOn}
+                  autoUpdate={autoUpdate} setAutoUpdate={setAutoUpdate}
+                  appVersion={appVersion}
+                  updateStatus={updateStatus}
+                  checkingUpdate={checkingUpdate}
+                  onCheckUpdate={() => { setCheckingUpdate(true); shelf.checkUpdate() }}
                   lang={lang} setLang={setLang}
                   onToast={onToast}
                 />
@@ -321,10 +336,15 @@ function NavBtn({ children, active, onClick }: { children: React.ReactNode; acti
 }
 
 /* ─── 通用面板 ─── */
-function GeneralPanel({ autoStartApp, setAutoStartApp, minimizeToTray, setMinimizeToTray, soundOn, setSoundOn, lang, setLang, onToast }: {
+function GeneralPanel({ autoStartApp, setAutoStartApp, minimizeToTray, setMinimizeToTray, soundOn, setSoundOn, autoUpdate, setAutoUpdate, appVersion, updateStatus, checkingUpdate, onCheckUpdate, lang, setLang, onToast }: {
   autoStartApp: boolean; setAutoStartApp: (v: boolean) => void
   minimizeToTray: boolean; setMinimizeToTray: (v: boolean) => void
   soundOn: boolean; setSoundOn: (v: boolean) => void
+  autoUpdate: boolean; setAutoUpdate: (v: boolean) => void
+  appVersion: string
+  updateStatus: UpdateStatus
+  checkingUpdate: boolean
+  onCheckUpdate: () => void
   lang: LangPref; setLang: (v: LangPref) => void
   onToast: (msg: string) => void
 }) {
@@ -348,7 +368,7 @@ function GeneralPanel({ autoStartApp, setAutoStartApp, minimizeToTray, setMinimi
           await shelf.setAppSettings({ soundEnabled: v })
         }} />
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 mb-7">
         <span className="text-sm font-extrabold text-text">{t('settings.language')}</span>
         <div className="flex gap-1 bg-cream rounded-full p-1 border-2 border-text/10">
           {(['auto', 'en', 'zh'] as const).map(v => (
@@ -359,6 +379,52 @@ function GeneralPanel({ autoStartApp, setAutoStartApp, minimizeToTray, setMinimi
               {v === 'auto' ? t('settings.langAuto') : v === 'en' ? 'English' : '中文'}
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* ─── 更新区块 ─── */}
+      <div className="border-t-[3px] border-text/10 pt-4 mt-2">
+        <h3 className="text-sm font-extrabold text-text mb-3">{t('settings.updates')}</h3>
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-extrabold text-text">{t('settings.version')}</span>
+            <span className="text-xs font-bold text-muted">v{appVersion || '—'}</span>
+          </div>
+          <Toggle label={t('settings.autoUpdate')} checked={autoUpdate} onChange={async v => {
+            setAutoUpdate(v)
+            await shelf.setAppSettings({ autoUpdate: v })
+          }} />
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onCheckUpdate}
+              disabled={checkingUpdate || updateStatus.stage === 'checking' || updateStatus.stage === 'downloading'}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-extrabold text-text border-[2.5px] border-text active:translate-y-0.5 transition-all disabled:opacity-50"
+              style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.12)' }}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${checkingUpdate || updateStatus.stage === 'checking' || updateStatus.stage === 'downloading' ? 'animate-spin' : ''}`} strokeWidth={3} />
+              {checkingUpdate || updateStatus.stage === 'checking' ? t('settings.checking')
+                : updateStatus.stage === 'downloading' ? `${t('settings.updateDownloading')} ${updateStatus.percent ?? 0}%`
+                : t('settings.checkUpdates')}
+            </button>
+            {updateStatus.stage === 'downloaded' && (
+              <button
+                onClick={() => shelf.installUpdate()}
+                className="px-4 py-2 rounded-xl text-xs font-extrabold text-white border-[2.5px] border-text active:translate-y-0.5 transition-all"
+                style={{ background: '#D9534F', boxShadow: '2px 2px 0 rgba(92,64,51,0.18)' }}
+              >
+                {t('settings.restartToInstall')}
+              </button>
+            )}
+          </div>
+          {updateStatus.stage === 'error' && (
+            <span className="text-xs font-bold text-danger">{updateStatus.error}</span>
+          )}
+          {updateStatus.stage === 'idle' && (
+            <span className="text-xs font-bold text-emerald-600">{t('settings.upToDate')}</span>
+          )}
+          {updateStatus.stage === 'available' && (
+            <span className="text-xs font-bold text-brand">{t('settings.updateAvailable', { version: updateStatus.version ?? '' })}</span>
+          )}
         </div>
       </div>
     </>

@@ -5,6 +5,10 @@
   "author": "AppGacha",
   "main": "dist/main/index.js",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zaziax/appGacha"
+  },
   "scripts": {
     "build": "tsc && vite build --config src/ui/vite.config.ts",
     "start": "npm run build && electron .",
@@ -46,7 +50,13 @@
     "appId": "com.appgacha.desktop",
     "productName": "AppGacha",
     "electronDist": "node_modules/electron/dist",
-    "publish": [],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "zaziax",
+        "repo": "appGacha"
+      }
+    ],
     "directories": {
       "output": "release"
     },

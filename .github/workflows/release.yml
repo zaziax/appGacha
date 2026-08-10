@@ -7,7 +7,10 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
@@ -24,11 +27,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run dist
 
-      - name: Upload Release
+      # electron-builder 的 GitHub publisher 已自动上传 latest.yml + 安装包到 Release。
+      # 这里再补传一份 artifacts 作为冗余备份。
+      - name: Upload Release Artifacts
         uses: softprops/action-gh-release@v2
         with:
           files: |
             release/*.exe
+            release/*.dmg
+            release/*.AppImage
+            release/*.deb
             release/*.yml
             release/*.blockmap
         env:

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Download, Loader2 } from 'lucide-react'
+import { Download } from 'lucide-react'
 import { View } from '@react-three/drei'
 import { useTranslation } from 'react-i18next'
 import type { CloudEggInfo } from '../shelf'
@@ -7,7 +7,10 @@ import { CapsuleScene } from './Capsule3D'
 
 interface Props {
   egg: CloudEggInfo
-  downloading: boolean
+  /** -1 = idle, 0 = active downloading, >0 = position in queue */
+  queuePosition: number
+  /** 0-100, only meaningful when queuePosition === 0 */
+  progress?: number
   onDownload: () => void
 }
 
@@ -43,7 +46,7 @@ const SPHERE = 88
  * 云端未下载蛋卡片 —— 同款 3D 扭蛋球体 + 灰度滤镜 + 下载遮罩。
  * 对应游戏库中"未安装"状态，视觉上像一个褪色的蛋等着被点亮。
  */
-export function CloudEggCard({ egg, downloading, onDownload }: Props) {
+export function CloudEggCard({ egg, queuePosition, progress, onDownload }: Props) {
   const { t } = useTranslation()
   const sphereRef = useRef<HTMLDivElement>(null)
   const [hovered, setHovered] = useState(false)
@@ -56,6 +59,8 @@ export function CloudEggCard({ egg, downloading, onDownload }: Props) {
 
   const hasIcon = !!(egg.icon && egg.icon.trim().startsWith('<'))
 
+  const isActive = queuePosition >= 0  // 下载中或排队中 → 始终可见
+
   return (
     <div className="relative flex flex-col items-center select-none group">
       {/* 落影（搁板感，比正常蛋更淡） */}
@@ -67,8 +72,8 @@ export function CloudEggCard({ egg, downloading, onDownload }: Props) {
       {/* 3D 扭蛋球体（灰度滤镜：褪色但保留立体感） */}
       <div
         ref={sphereRef}
-        className="relative cursor-pointer grayscale"
-        style={{ width: SPHERE, height: SPHERE, filter: 'grayscale(1) brightness(0.75)' }}
+        className="relative cursor-pointer"
+        style={{ width: SPHERE, height: SPHERE, filter: 'grayscale(1) brightness(0.7)' }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
@@ -83,20 +88,39 @@ export function CloudEggCard({ egg, downloading, onDownload }: Props) {
           />
         </View>
 
-        {/* 下载遮罩覆盖层：hover 时浮现，点击触发下载 */}
+        {/* 下载遮罩覆盖层：下载/排队中始终可见，idle 时 hover 浮现 */}
         <button
           onClick={(e) => { e.stopPropagation(); onDownload() }}
-          className="absolute inset-0 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer z-10"
+          className={`absolute inset-0 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer z-10 ${
+            isActive ? 'opacity-100 scale-100' : 'opacity-0 group-hover:opacity-100 group-hover:scale-100 scale-90'
+          }`}
           title={t('shelf.downloadEgg')}
           aria-label={t('shelf.downloadEgg')}
         >
-          {downloading ? (
-            <div className="w-full h-full rounded-full bg-black/20 flex items-center justify-center">
-              <Loader2 size={28} className="animate-spin text-white" />
+          {queuePosition === 0 ? (
+            /* 下载中：白底 + 红色进度环 + 深色数字 */
+            <div className="w-full h-full rounded-full flex items-center justify-center"
+              style={{ background: 'rgba(255,255,255,0.85)', border: '3px solid #5C4033', boxShadow: '2px 2px 0 rgba(92,64,51,0.25)' }}>
+              <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 88 88">
+                <circle cx="44" cy="44" r="37" fill="none" stroke="#E8DED1" strokeWidth="5" />
+                <circle cx="44" cy="44" r="37" fill="none" stroke="#D9534F" strokeWidth="5"
+                  strokeDasharray={`${2 * Math.PI * 37}`}
+                  strokeDashoffset={`${2 * Math.PI * 37 * (1 - (progress ?? 0) / 100)}`}
+                  strokeLinecap="round" />
+              </svg>
+              <span className="text-[15px] font-extrabold text-[#5C4033] z-10">{(progress ?? 0)}%</span>
+            </div>
+          ) : queuePosition > 0 ? (
+            /* 排队中：白底 + 红色序号 */
+            <div className="w-full h-full rounded-full flex items-center justify-center"
+              style={{ background: 'rgba(255,255,255,0.9)', border: '3px solid #5C4033', boxShadow: '2px 2px 0 rgba(92,64,51,0.25)' }}>
+              <span className="text-[15px] font-extrabold text-[#D9534F]">#{queuePosition}</span>
             </div>
           ) : (
-            <div className="w-full h-full rounded-full bg-black/15 flex items-center justify-center">
-              <Download size={26} className="text-white drop-shadow-md" />
+            /* idle：hover 时出现下载按钮 */
+            <div className="w-full h-full rounded-full flex items-center justify-center"
+              style={{ background: 'rgba(255,255,255,0.8)', border: '3px solid #5C4033', boxShadow: '2px 2px 0 rgba(92,64,51,0.2)' }}>
+              <Download size={28} className="text-[#D9534F]" strokeWidth={3} />
             </div>
           )}
         </button>

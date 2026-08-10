@@ -30,7 +30,7 @@ contextBridge.exposeInMainWorld('shelf', {
   wishChat: (messages: { role: string; content: string }[], context?: { upgradeEggId?: string }) => invoke('shelf:wishChat', messages, context),
   wishSuggest: (lang: string) => invoke('shelf:wishSuggest', lang),
   getAppSettings: () => invoke('shelf:getAppSettings'),
-  setAppSettings: (s: { autoStartApp?: boolean; minimizeToTray?: boolean; soundEnabled?: boolean }) => invoke('shelf:setAppSettings', s),
+  setAppSettings: (s: { autoStartApp?: boolean; minimizeToTray?: boolean; soundEnabled?: boolean; autoUpdate?: boolean }) => invoke('shelf:setAppSettings', s),
   setLang: (lang: 'en' | 'zh') => invoke('shelf:setLang', lang),
   getEggAutoStart: (eggId: string) => invoke('shelf:getEggAutoStart', eggId),
   setEggAutoStart: (eggId: string, enabled: boolean) => invoke('shelf:setEggAutoStart', eggId, enabled),
@@ -88,6 +88,9 @@ contextBridge.exposeInMainWorld('shelf', {
   onBillingSettled: (cb: (p: { spent: number; balance: number }) => void) => {
     ipcRenderer.on('billing:settled', (_e, p) => cb(p as { spent: number; balance: number }))
   },
+  onDownloadProgress: (cb: (p: { eggId: string; percent: number; stage: string; error?: string }) => void) => {
+    ipcRenderer.on('sync:downloadProgress', (_e, p) => cb(p as { eggId: string; percent: number; stage: string; error?: string }))
+  },
   // 蛋柜变动（双击 .gacha 热导入等）：主进程推送，UI 重拉列表
   onEggsChanged: (cb: () => void) => {
     ipcRenderer.on('shelf:eggsChanged', () => cb())
@@ -110,5 +113,12 @@ contextBridge.exposeInMainWorld('shelf', {
   isMaximized: () => ipcRenderer.invoke('win:isMaximized'),
   onWindowState: (cb: (s: { maximized: boolean }) => void) => {
     ipcRenderer.on('win:stateChanged', (_e, s) => cb(s))
+  },
+  // ─── 自动更新 ───
+  checkUpdate: () => invoke('shelf:checkUpdate'),
+  getUpdateStatus: () => invoke('shelf:getUpdateStatus'),
+  installUpdate: () => invoke('shelf:installUpdate'),
+  onUpdateStateChanged: (cb: (s: unknown) => void) => {
+    ipcRenderer.on('update:stateChanged', (_e, s) => cb(s))
   }
 })

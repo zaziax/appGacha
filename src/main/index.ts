@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import { app, protocol, BrowserWindow } from 'electron'
+import { app, protocol, BrowserWindow, Menu } from 'electron'
 import fs from 'node:fs'
 import { discoverEggs, getEgg } from './eggs'
 import { registerCapabilities } from './capabilities'
@@ -103,6 +103,9 @@ async function routeLaunchArgs(argv: string[]): Promise<void> {
 }
 
 app.whenReady().then(async () => {
+  // 移除默认菜单栏（Windows/Linux 上 Electron 默认显示 File/Edit/View 等菜单）
+  Menu.setApplicationMenu(null)
+
   registerCapabilities()
   registerShelfChannels()
   registerWindowControls()
