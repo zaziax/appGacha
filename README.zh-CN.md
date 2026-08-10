@@ -6,9 +6,9 @@
 <h3 align="center">许愿即得、可迁移的桌面小应用</h3>
 
 <p align="center">
-  <a href="README.md">🇺🇸 English</a>
+  <a href="README.md">EN</a>
   &nbsp;·&nbsp;
-  <a href="README.zh-CN.md">🇨🇳 中文</a>
+  <a href="README.zh-CN.md">CN</a>
 </p>
 
 <p align="center">
