@@ -1,62 +1,52 @@
 import { Tray, Menu, nativeImage, app } from 'electron'
-import { showShelfWindow } from './shelfWindow'
+import path from 'node:path'
+import { showShelfWindow, markQuitting } from './shelfWindow'
+import { t } from './i18n'
 
 let tray: Tray | null = null
 
-/** 16×16 简约扭蛋机图标（橙色圆 + 白槽），后续可替换为设计稿 .ico/.png */
-function createTrayIcon(): Electron.NativeImage {
-  // 16x16 RGBA 手绘：橙色圆形底 + 白色横槽
-  const size = 16
-  const canvas = Buffer.alloc(size * size * 4, 0)
-  const cx = 7.5, cy = 7.5, r = 7
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const dx = x - cx, dy = y - cy
-      const dist = Math.sqrt(dx * dx + dy * dy)
-      const idx = (y * size + x) * 4
-      if (dist <= r) {
-        // 橙色底 #FF8C42
-        canvas[idx] = 0xFF
-        canvas[idx + 1] = 0x8C
-        canvas[idx + 2] = 0x42
-        canvas[idx + 3] = 0xFF
-        // 白色横槽（y=7~8, x=3~12）
-        if (y >= 7 && y <= 8 && x >= 3 && x <= 12) {
-          canvas[idx] = 0xFF
-          canvas[idx + 1] = 0xFF
-          canvas[idx + 2] = 0xFF
-        }
-      }
-    }
+function trayIconPath(): string {
+  // 打包后 extraResources 复制到 resources/，dev 模式直接用 assets/
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'assets', 'icon.png')
   }
-  return nativeImage.createFromBuffer(canvas, { width: size, height: size })
+  return path.join(app.getAppPath(), 'assets', 'icon.png')
 }
 
-export function initTray(): void {
-  if (tray) return
-
-  tray = new Tray(createTrayIcon())
-  tray.setToolTip('appGacha 扭蛋机')
-
-  const menu = Menu.buildFromTemplate([
+function buildTrayMenu(): Electron.Menu {
+  return Menu.buildFromTemplate([
     {
-      label: '显示收藏柜',
+      label: t('showShelf'),
       click: () => showShelfWindow()
     },
     { type: 'separator' },
     {
-      label: '退出',
+      label: t('quit'),
       click: () => {
+        markQuitting()
         tray?.destroy()
         tray = null
         app.quit()
       }
     }
   ])
-  tray.setContextMenu(menu)
+}
 
-  // 双击托盘图标 = 显示主窗口
+export function initTray(): void {
+  if (tray) return
+
+  const icon = nativeImage.createFromPath(trayIconPath())
+  tray = new Tray(icon.resize({ width: 16, height: 16 }))
+  tray.setToolTip(t('trayTooltip'))
+  tray.setContextMenu(buildTrayMenu())
   tray.on('double-click', () => showShelfWindow())
+}
+
+/** 语言变更后重建托盘菜单（标签刷新） */
+export function rebuildTrayMenu(): void {
+  if (!tray) return
+  tray.setToolTip(t('trayTooltip'))
+  tray.setContextMenu(buildTrayMenu())
 }
 
 export function destroyTray(): void {

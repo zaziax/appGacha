@@ -40,7 +40,7 @@ export function discoverEggs(eggsRoot: string): EggContext[] {
   if (!fs.existsSync(eggsRoot)) return []
   const found: EggContext[] = []
   for (const entry of fs.readdirSync(eggsRoot, { withFileTypes: true })) {
-    if (!entry.isDirectory() || !entry.name.endsWith('.egg')) continue
+    if (!entry.isDirectory() || !entry.name.endsWith('.gacha')) continue
     try {
       found.push(registerEgg(path.join(eggsRoot, entry.name)))
     } catch (e) {

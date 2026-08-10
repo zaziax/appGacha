@@ -6,4 +6,8 @@ failed/
 staging/
 backups/
 app.log
+.env
 .qoder
+.workbuddy
+release
+_build.log

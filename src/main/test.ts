@@ -41,6 +41,8 @@ export async function testEgg(dir: string, opts?: { screenshotTo?: string }): Pr
   const win = createEggWindow(ctx, { show: false })
   win.webContents.on('console-message', (_e, level, message) => {
     if (level >= 3) result.consoleErrors.push(message)
+    // vendor 依赖加载失败的 warn 视同错误——静默降级不能骗过验收
+    else if (level === 2 && /vendor\/[\w.-]+/.test(message)) result.consoleErrors.push(`[依赖降级] ${message}`)
   })
   win.webContents.on('render-process-gone', (_e, details) => {
     result.crashed = true

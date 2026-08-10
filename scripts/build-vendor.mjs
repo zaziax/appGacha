@@ -34,8 +34,9 @@ copyFileSync(
 )
 console.log('  ✓ three.module.js (copy)')
 
-// chart.js — dist/chart.js 是 ESM
-bundle('chart.js/dist/chart.js', 'chart.esm.js')
+// chart.js — 必须用 auto 入口：自动注册全部 controllers/elements/scales + 提供 default export
+// （dist/chart.js 是裸入口，new Chart({type:'doughnut'}) 会报 "not a registered controller"）
+bundle('chart.js/auto/auto.js', 'chart.esm.js')
 
 // dayjs — CJS → ESM
 bundle('dayjs/dayjs.min.js', 'dayjs.esm.js')

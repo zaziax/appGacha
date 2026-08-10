@@ -9,7 +9,8 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: {
     outDir: path.resolve(__dirname, '../../dist/ui'),
-    emptyOutDir: true
+    emptyOutDir: true,
+    chunkSizeWarningLimit: 1200  // three.js 体积大，桌面应用本地加载无需分包
   },
   server: { port: 5173, strictPort: true }
 })

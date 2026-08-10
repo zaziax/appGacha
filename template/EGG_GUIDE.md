@@ -11,6 +11,7 @@
 4. 数据只能落在两处：`egg.storage`（KV）/ `egg.db`（SQLite）；文件用 `egg.fs`（限 data/ 目录）。不要用 localStorage（迁移时会丢）。
 5. CSP 禁止内联 `<script>`，所有 JS 必须放外部文件。内联 style 属性可用。
 6. **禁止使用 emoji**。所有图标一律使用内置 Lucide 图标库（见下文）。
+7. **语言**：蛋内所有用户可见文案（`<title>`、界面文字、提示语、按钮）必须使用**愿望的语言**——用户用英文许愿就生成英文应用，中文许愿就生成中文应用。代码内部（变量名、注释）不受此限。
 
 ## 文件布局
 
@@ -20,6 +21,7 @@ index.html           ← 入口，<script type="module" src="app.js">
 app.js               ← 主模块（ES Module），可 import 其他模块
 src/                 ← 可选，复杂应用自行拆分（视图、工具、状态）
 style.css            ← 你的自定义样式写这里（永远单文件）
+icon.svg             ← 应用图标（必须创建，收藏柜展示用）
 base.css             ← 宿主设计系统，不要修改，直接用它的变量和组件 class
 icons.svg            ← 宿主图标库（Lucide sprite），不要修改
 icons-manifest.json  ← 全部可用图标名清单
@@ -29,12 +31,35 @@ vendor/              ← 宿主预置的第三方 ESM 库（不要修改，按�
 - 模块一律 ES Module（`import` / `export`），禁止全局变量挂载式伪模块化
 - 简单应用（<500 行逻辑）鼓励单 app.js，复杂应用可拆 src/ 子模块
 
+## 应用图标（icon.svg）——必须创建
+
+每颗蛋必须附带一个 `icon.svg`，展示在收藏柜的扭蛋球体内，是用户区分不同应用的视觉标识。
+
+**规格：**
+
+- `viewBox="0 0 48 48"`，无固定 width/height（宿主控制尺寸）
+- 扁平简洁的几何图形，**2~3 色以内**，主色取自应用配色（与 style.css 的 --accent 一致）
+- 图形必须与应用主题相关（记账→钱袋、时钟→表盘、宠物→爪印……）
+- 24px 缩小后仍可辨认——细节少、轮廓粗、留白足
+- **禁止**：文字、emoji、位图嵌入（<image>）、滤镜、动画、外部引用
+- 背景透明，图形居中，四周留 4px 安全边距
+
+**示例（番茄钟）：**
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <circle cx="24" cy="26" r="16" fill="#E53935"/>
+  <path d="M24 10c-2-4 2-7 2-7s6 2 4 7" fill="#43A047"/>
+  <rect x="22" y="18" width="4" height="10" rx="2" fill="#fff"/>
+  <rect x="22" y="24" width="8" height="4" rx="2" fill="#fff"/>
+</svg>
+```
+
 ## 应用壳布局（index.html 结构）
 
 ```html
 <body class="app-shell">
-  <div class="toolbar">              ← 顶栏：标题 + 操作按钮
-    <h1 id="appTitle">应用名</h1>
+  <div class="toolbar">              ← 工具栏：导航/标签页/操作按钮（禁止放应用名标题）
     <div class="spacer"></div>
     <button class="icon-btn">…</button>
   </div>
@@ -47,7 +72,7 @@ vendor/              ← 宿主预置的第三方 ESM 库（不要修改，按�
 </body>
 ```
 
-宿主会在顶部注入 38px 标题栏（含最小化/最大化/关闭），你的 toolbar 在它下方。**仅 standard 窗口如此；widget 窗口不注入标题栏。**
+宿主会在顶部注入 38px 标题栏（含应用名 + 最小化/最大化/关闭），应用名取自 `<title>`——**`<title>` 必须写应用名；toolbar 里禁止再放 h1 应用名，名字出现两次是低级错误。** 你的 toolbar 在宿主栏下方，只承载导航与操作。**仅 standard 窗口如此；widget 窗口不注入标题栏。**
 
 ## 窗口形态（manifest.window）—— 桌面应用的核心差异
 
@@ -121,19 +146,25 @@ three.js 避坑（你看不见渲染结果，以下每条都要靠数学在生�
 3. **悬浮类应用建议 `alwaysOnTop: true`**（时钟/计时器/宠物/星体）
 4. 尺寸钳制 240~1600，越界声明会被自动纠正；widget 宁小勿大
 5. widget 内容精简，一屏内呈现核心信息，不要滚动条
+6. **透明度只用于「窗口的洞」，绝不用于「内容」**：
+   - body/容器背景可以透明——那是让桌面透出来的洞
+   - 容器型底板可以半透明毛玻璃，但 alpha 不低于 0.55（再低文字就没有承托了）
+   - 文字、数字、图标、实体本身必须 `opacity: 1`（rgba 的 alpha ≥ 0.9），禁止把「透明悬浮」的设计风格泛化到内容上
+   - 验收标准：把 widget 想象成放在纯黑和纯白两张壁纸上，内容都必须清晰可读
 
 ## 桌面应用设计准则（核心）
 
 **你不是在排版网页，你是在设计一个桌面应用。** 遵守以下准则：
 
-1. **撑满窗口**：布局占满整个视口（base.css 的 app-shell 已处理），绝不居中窄栏
-2. **层次分明**：toolbar（标题/导航）→ content（主内容）→ actionbar（主操作），像原生应用
-3. **图标代替文字**：操作按钮用图标（+、设置、返回），不要写"添加""设置"等纯文字按钮
-4. **禁止 emoji**：任何场景都不允许出现 emoji 字符，用 `<svg class="icon"><use href="icons.svg#name">` 代替
-5. **即时反馈**：按钮点击有 :active 缩放、加载有 spinner、操作有 toast
-6. **空状态有温度**：没有数据时展示引导插画（用图标组合）+ 行动按钮，不要白屏
-7. **暗色模式兼容**：使用 base.css 的 CSS 变量（--bg、--card、--text 等），不要硬编码颜色值
-8. **紧凑信息密度**：桌面应用比网页信息密度更高，善用 list-item、card、badge 组织内容
+1. **撑满窗口**：布局占满整个视口（base.css 的 app-shell 已处理），绝不居中窄栏；toolbar/actionbar 必须矩形贴边，禁止给它们加 margin/圆角做成浮动卡片
+2. **层次分明**：toolbar（导航/操作）→ content（主内容）→ actionbar（主操作），像原生应用
+3. **禁止重复标题**：应用名只出现在 `<title>` 和宿主标题栏，toolbar 内不得再放 h1 应用名
+4. **图标代替文字**：操作按钮用图标（+、设置、返回），不要写"添加""设置"等纯文字按钮
+5. **禁止 emoji**：任何场景都不允许出现 emoji 字符，用 `<svg class="icon"><use href="icons.svg#name">` 代替
+6. **即时反馈**：按钮点击有 :active 缩放、加载有 spinner、操作有 toast
+7. **空状态有温度**：没有数据时展示引导插画（用图标组合）+ 行动按钮，不要白屏
+8. **暗色模式兼容**：使用 base.css 的 CSS 变量（--bg、--card、--text 等），不要硬编码颜色值
+9. **紧凑信息密度**：桌面应用比网页信息密度更高，善用 list-item、card、badge 组织内容
 
 ## 图标库（Lucide SVG sprite）
 
@@ -147,7 +178,7 @@ three.js 避坑（你看不见渲染结果，以下每条都要靠数学在生�
 
 class 尺寸：`.icon`（20px）`.icon.sm`（16px）`.icon.lg`（24px）`.icon.xl`（32px）
 
-高频图标（完整清单见 icons-manifest.json，可 read_file 查询）：
+高频图标（优先使用此处列表，覆盖 90% 场景。如需特殊图标，在一次 search_icon 调用中批量搜索所有关键词，如 search_icon({ keywords: ["fingerprint", "cloud-moon", "badge-check"] })；不要逐词分多次调用，不要 read_file 读 icons-manifest.json）：
 
 - 导航：home settings menu arrow-left arrow-right chevron-down chevron-up external-link
 - 操作：plus minus x check pencil trash-2 copy download upload search refresh-cw
@@ -165,7 +196,7 @@ class 尺寸：`.icon`（20px）`.icon.sm`（16px）`.icon.lg`（24px）`.icon.x
 按需 import，未使用的库不会打包进最终蛋：
 
 ```js
-import Chart from './vendor/chart.esm.js'           // 数据可视化
+import Chart from './vendor/chart.esm.js'           // 数据可视化（全部图表类型已自动注册，new Chart 直接可用）
 import dayjs from './vendor/dayjs.esm.js'           // 日期计算（替代原生 Date）
 import { marked } from './vendor/marked.esm.js'     // Markdown → HTML
 import QRCode from './vendor/qrcode.esm.js'         // 二维码生成
@@ -174,7 +205,12 @@ import * as THREE from './vendor/three.module.js'   // 3D 场景
 ```
 
 使用原则：
-- **禁止 read_file 读取 vendor/ 下的库文件**：它们体积巨大（数百 KB 至 MB 级），读取会耗尽你的上下文窗口。import 路径见上方示例，API 用法以官方文档为准
+- **禁止 read_file 读取 vendor/ 下的库文件**：它们体积巨大（数百 KB 至 MB 级），读取会耗尽你的上下文窗口。上方导入写法已经宿主验证、保证可用——如果运行报错，问题在你自己的代码，不要试图通过读 vendor 文件来“研究导出模式”
+- Chart.js 已自动注册所有 controllers/elements/scales，`new Chart(canvas, { type: 'doughnut' | 'bar' | 'line' | 'pie' | 'radar' | ... })` 直接生效，**不需要任何 register 调用**
+- Chart.js 宿主壳内高频坑（每条都曾导致线上空白）：
+  - canvas 的父容器必须有显式高度（如 `height: 220px`），否则 Chart.js 渲染 0px——页面有内容但图表区域空白
+  - 切换 tab / 重绘前先 `chartInstance.destroy()`，再 new 新实例；重复 new 会抛 canvas 占用错误
+  - 数据为空时不要渲染空图表——展示空状态提示（图表区域全白会被用户认为 bug）
 - 日期计算**永远用 dayjs**，不要用原生 Date（月份从 0 开始、无 addDays 等坑）
 - 需要图表时**永远用 Chart.js**，不要手画 canvas 图表
 - 3D 场景注意性能：widget 类帧率目标 30fps，面数 ≤ 5 万，避免后处理特效栈
@@ -219,12 +255,12 @@ import * as THREE from './vendor/three.module.js'   // 3D 场景
 用户愿望可能包含以下标记，**必须严格遵循**：
 
 - `【需求细节】xxx；yyy` —— 用户确认过的功能要求，视为硬性需求，逐条实现
-- `【视觉风格】xxx` —— 视觉调性（如"清爽简约""活泼可爱""深色沉浸""纸质手账"），整体 UI 必须匹配该风格
-- `【主色调】xxx系（#hex）` —— 主色必须用指定色值，覆盖 base.css 的 `--accent` 变量（在 style.css 中 `:root { --accent: #hex; }`）
+- `【视觉风格】xxx` —— 视觉调性建议（可能包含圆角/边框/阴影/色彩浓度等具体参数），整体 UI 必须匹配该风格描述
+- `【主色调】#hex（色相 N°），配色=配方名：辅色…；派生规则` —— 主色必须用指定色值，覆盖 base.css 的 `--accent` 变量（在 style.css 中 `:root { --accent: #hex; }`）；若指定了辅色，将其用于次要元素/图标点缀/强调色（按括号内角色说明）；浅色/深色派生按分号后规则生成
 
 ## 验收标准（不达标会被打回）
 
 1. validate：manifest 合法、无禁用 API（require/process/node:）、无外部 http(s) 引用、JS 语法正确、**无 emoji 字符**
 2. test：加载零 console 错误、页面非空白
 3. 用户愿望的核心功能真实可用
-4. 界面像桌面应用而非网页（有 toolbar、撑满窗口、使用图标而非 emoji）
+4. 界面像桌面应用而非网页（toolbar 贴边无重复标题、撑满窗口、使用图标而非 emoji）

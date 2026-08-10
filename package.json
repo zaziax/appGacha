@@ -2,15 +2,18 @@
   "name": "appgacha",
   "version": "0.1.0",
   "description": "应用扭蛋机——许愿即得、可迁移的桌面小应用",
+  "author": "AppGacha",
   "main": "dist/main/index.js",
   "private": true,
   "scripts": {
     "build": "tsc && vite build --config src/ui/vite.config.ts",
     "start": "npm run build && electron .",
-    "start:legacy": "tsc && set APPGACHA_UI=legacy&& electron .",
+    "start:legacy": "tsc && cross-env APPGACHA_UI=legacy electron .",
     "dev:ui": "vite --config src/ui/vite.config.ts",
-    "dev": "tsc && set APPGACHA_UI_DEV_URL=http://localhost:5173&& electron .",
+    "dev": "tsc && cross-env APPGACHA_UI_DEV_URL=http://localhost:5173 electron .",
     "smoke": "npm run build && electron . --smoke",
+    "pack": "npm run build && node -e \"try{require('fs').rmSync('release',{recursive:true,force:true})}catch(e){}\" && cross-env ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --dir",
+    "dist": "npm run build && node -e \"try{require('fs').rmSync('release',{recursive:true,force:true})}catch(e){}\" && cross-env ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder",
     "rebuild": "electron-rebuild -f -w better-sqlite3"
   },
   "devDependencies": {
@@ -20,11 +23,16 @@
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@types/three": "^0.185.1",
+    "@types/yauzl": "^3.4.0",
+    "@types/yazl": "^3.3.1",
     "@vitejs/plugin-react": "^6.0.3",
     "canvas-confetti": "^1.9.4",
     "chart.js": "^4.5.1",
+    "cross-env": "^10.1.0",
     "dayjs": "^1.11.21",
     "electron": "37.2.0",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.28.1",
     "lucide-static": "^1.25.0",
     "marked": "^18.0.7",
@@ -34,12 +42,96 @@
     "typescript": "^5.5.0",
     "vite": "^8.1.5"
   },
+  "build": {
+    "appId": "com.appgacha.desktop",
+    "productName": "AppGacha",
+    "electronDist": "node_modules/electron/dist",
+    "publish": [],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "template",
+        "to": "template"
+      },
+      {
+        "from": "assets",
+        "to": "assets"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "AppGacha"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.png",
+      "category": "public.app-category.utilities",
+      "bundleVersion": "0.1.0",
+      "protocols": [
+        {
+          "name": "AppGacha",
+          "schemes": ["appgacha"]
+        }
+      ],
+      "extendInfo": {
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "AppGacha Egg",
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Owner",
+            "LSItemContentTypes": ["com.appgacha.egg"],
+            "CFBundleTypeExtensions": ["gacha"]
+          }
+        ],
+        "UTExportedTypeDeclarations": [
+          {
+            "UTTypeIdentifier": "com.appgacha.egg",
+            "UTTypeTagSpecification": {
+              "public.filename-extension": ["gacha"],
+              "public.mime-type": "application/x-appgacha-egg"
+            }
+          }
+        ]
+      }
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "icon": "assets/icon.png",
+      "category": "Utility"
+    },
+    "protocols": [
+      {
+        "name": "AppGacha",
+        "schemes": ["appgacha"]
+      }
+    ]
+  },
   "dependencies": {
+    "@lobehub/icons-static-svg": "^1.94.0",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
     "better-sqlite3": "^12.0.0",
     "cron-parser": "^5.6.2",
+    "dotenv": "^17.4.2",
+    "electron-updater": "^6.8.9",
+    "i18next": "^26.3.6",
     "lucide-react": "^1.25.0",
     "motion": "^12.42.2",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "react-i18next": "^17.0.11",
+    "yauzl": "^3.4.0",
+    "yazl": "^3.3.1"
   }
 }

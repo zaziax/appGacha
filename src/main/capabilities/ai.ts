@@ -1,6 +1,5 @@
-import { net } from 'electron'
 import { EggContext } from '../eggs'
-import { getAiSettings } from '../settings'
+import { resolveAiEndpoint, chatCompletionFetch, throwForProxyStatus } from '../aiChannel'
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -46,24 +45,17 @@ function validateMessages(messages: unknown): asserts messages is ChatMessage[] 
 }
 
 async function completions(body: Record<string, unknown>): Promise<string> {
-  const cfg = getAiSettings()
-  if (!cfg || !cfg.apiKey) {
-    throw new Error('AI_NOT_CONFIGURED: 主应用还没有配置模型，请在收藏柜右上角「设置」里填写')
+  // 双通道：自有 Key 直连；无 Key 且平台代理启用 → 走平台通道耗积分
+  const endpoint = await resolveAiEndpoint()
+  if (!endpoint) {
+    throw new Error('AI_NOT_CONFIGURED: 主应用还没有配置模型，请在收藏柜右上角「设置」里填写，或登录账号使用平台积分')
   }
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   let res: Response
   try {
-    res = await net.fetch(`${cfg.baseURL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${cfg.apiKey}`
-      },
-      body: JSON.stringify({ model: cfg.model, ...body }),
-      signal: controller.signal
-    })
+    res = await chatCompletionFetch(endpoint, body, { signal: controller.signal, timeout: TIMEOUT_MS + 5_000 })
   } catch (e) {
     throw new Error(`AI_NETWORK: ${(e as Error).message}`)
   } finally {
@@ -71,6 +63,13 @@ async function completions(body: Record<string, unknown>): Promise<string> {
   }
 
   if (!res.ok) {
+    try {
+      await throwForProxyStatus(res)
+    } catch (e) {
+      const msg = (e as Error).message
+      if (res.status === 402) throw new Error(`AI_CREDITS: 积分不足，请充值后再使用蛋内 AI（${msg}）`)
+      throw new Error(`AI_PROXY: 平台 AI 通道暂不可用（${msg}）`)
+    }
     const text = (await res.text().catch(() => '')).slice(0, 300)
     throw new Error(`AI_HTTP_${res.status}: ${text}`)
   }

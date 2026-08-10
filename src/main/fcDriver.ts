@@ -1,29 +1,39 @@
-import { net } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { getAiSettings } from './settings'
 import { validateEgg } from './validate'
 import { testEgg } from './test'
+import { resolveAiEndpoint, chatCompletionFetch, type AiEndpoint } from './aiChannel'
+import { logLine } from './log'
 
 export type ActivityType = 'think' | 'tool' | 'write' | 'check' | 'retry' | 'error'
+
+/**
+ * 主进程→渲染进程的文案载体：
+ * i18n 键 + 插值参数（翻译在渲染进程做，主进程不持有任何语言包）；
+ * 或裸字符串（AI 原始输出、技术性错误诊断，前端原样展示）。
+ */
+export type IpcText = { key: string; params?: Record<string, string | number> } | string
 
 export interface DriverJob {
   wish: string
   stagingDir: string
   templateDir: string
   maxRounds: number
+  /** 用户界面语言：生成物文案 + AI 实况解说的输出语言 */
+  lang: 'zh' | 'en'
   /** 升级模式：舱里是现有蛋的代码而非空白模板 */
   upgrade?: { baseWish: string }
-  onStage: (stage: string, detail?: string) => void
+  onStage: (stage: string, detail?: IpcText) => void
   /** 机芯实况：AI 思考、工具调用、文件写入、自检结果等。id 相同的条目原地替换（用于流式思考实时更新） */
-  onActivity?: (type: ActivityType, text: string, id?: string) => void
+  onActivity?: (type: ActivityType, text: IpcText, id?: string) => void
 }
 
 export interface DriverResult {
   ok: boolean
   rounds: number
   turns: number
-  error?: string
+  error?: IpcText
 }
 
 const MAX_TURNS = 60
@@ -34,27 +44,88 @@ const REQUEST_HARD_CAP_MS = 8 * 60_000 // 单次请求硬上限（防模型无�
 const MAX_RETRIES = 2
 
 // ─── 上下文窗口管理 ───
-const DEFAULT_CONTEXT_TOKENS = 128_000 // 未配置时的默认上下文窗口
-const CONTEXT_USAGE_RATIO = 0.7        // 消息体占上下文窗口的比例（剩余给 system prompt + 模型回复）
-const KEEP_RECENT = 12                 // 压缩时保留最近 N 条消息不动
-const OLD_TOOL_KEEP = 6_000            // 旧工具输出压缩后最多保留字符
+const DEFAULT_CONTEXT_TOKENS = 256_000 // ↑ 128K→256K，现代模型普遍支持 128K–1M 上下文
+const CONTEXT_USAGE_RATIO = 0.85       // ↑ 0.7→0.85，现代模型近满上下文处理能力大幅提升
+const KEEP_RECENT = 16                 // ↑ 12→16，保留更多最近消息
+const CRITICAL_TOOL_KEEP = 24_000      // 验收报告/指南：修 bug 的唯一依据，尽可能保留
+const NORMAL_TOOL_KEEP = 4_000         //  文件内容/读取结果：旧版本价值递减
+const STRUCTURAL_KEEP = 3_000          //  文件列表：旧快照只要骨架
+const OLD_ASSISTANT_KEEP = 400         //  旧思考：保留开头供上下文连贯
+
+/** 工具重要性分级：验收与指南是修 bug 的唯一依据，压缩时必须优先保护 */
+const CRITICAL_TOOLS = new Set(['check_egg', 'read_guide'])
 
 /**
- * 上下文压缩：当消息体超过字符预算时，截断旧的工具输出和 assistant 思考。
- * 保留：system(0) + 第一条 user(1) + 最近 KEEP_RECENT 条消息完整不动。
- * 中间区域：tool 输出截断、assistant content 只保留首 200 字。
+ * 上下文压缩（v2——重要性分级）：
+ *   保留：system(0) + 第一条 user(1) + 最近 KEEP_RECENT 条完整不动。
+ *   中间区域：
+ *     - check_egg / finish 失败反馈 / read_guide → 关键级（最多保留 CRITICAL_TOOL_KEEP）
+ *     - list_files → 结构级（最多保留 STRUCTURAL_KEEP）
+ *     - read_file / write_file → 普通级（最多保留 NORMAL_TOOL_KEEP）
+ *     - assistant → 保留首 OLD_ASSISTANT_KEEP 字
+ *
+ *   额外：已被后续 write_file 覆盖的旧 read_file 结果只保留路径标记（1KB），
+ *   避免智能体引用已过时的代码片段。
  */
-function compactMessages(messages: unknown[], charBudget: number): void {
+function compactMessages(messages: unknown[], charBudget: number, lang: 'zh' | 'en'): void {
   const totalChars = messages.reduce((s: number, m) => s + JSON.stringify(m).length, 0)
   if (totalChars <= charBudget) return
 
+  // 收集被写过的文件路径：旧 read_file 结果对它们已失效
+  const writtenPaths = new Set<string>()
+  for (let i = messages.length - 1; i >= 2; i--) {
+    const m = messages[i] as Record<string, unknown>
+    const toolName = m._tool as string | undefined
+    if (toolName === 'write_file' && typeof m.content === 'string') {
+      const match = m.content.match(/^已写入 (.+?)（/)
+      if (match) writtenPaths.add(match[1])
+    }
+  }
+
   const compactEnd = messages.length - KEEP_RECENT
+  const marker = lang === 'zh'
+    ? { critical: (n: number) => `\n…[关键记录已压缩，原 ${n} 字]`, normal: (n: number) => `\n…[已压缩，原 ${n} 字]`, stale: (path: string, n: number) => `\n[此文件已被后续 write_file 覆盖，原内容 ${n} 字已丢弃]`, think: '…[思考已压缩]' }
+    : { critical: (n: number) => `\n…[critical record compressed, was ${n} chars]`, normal: (n: number) => `\n…[compressed, was ${n} chars]`, stale: (path: string, n: number) => `\n[this file was overwritten by a later write_file, ${n} chars discarded]`, think: '…[thinking compressed]' }
+
   for (let i = 2; i < compactEnd; i++) {
     const m = messages[i] as Record<string, unknown>
-    if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > OLD_TOOL_KEEP) {
-      m.content = m.content.slice(0, OLD_TOOL_KEEP) + `\n…[已压缩，原 ${m.content.length} 字]`
-    } else if (m.role === 'assistant' && typeof m.content === 'string' && m.content.length > 300) {
-      m.content = m.content.slice(0, 200) + '…[思考已压缩]'
+
+    if (m.role === 'tool' && typeof m.content === 'string') {
+      const content = m.content as string
+      const toolName = m._tool as string | undefined
+
+      // 关键工具：验收报告、指南、finish 失败反馈
+      if (toolName && CRITICAL_TOOLS.has(toolName) || content.includes('请修复以上问题后再次 finish')) {
+        if (content.length > CRITICAL_TOOL_KEEP) {
+          m.content = content.slice(0, CRITICAL_TOOL_KEEP) + marker.critical(content.length)
+        }
+        continue
+      }
+
+      // 旧 read_file：文件已被后续写入覆盖 → 只保留路径标记
+      if (toolName === 'read_file') {
+        const readPath = m._path as string | undefined
+        if (readPath && writtenPaths.has(readPath) && content.length > 1000) {
+          m.content = marker.stale(readPath, content.length)
+          continue
+        }
+      }
+
+      // 结构级：list_files
+      if (toolName === 'list_files' && content.length > STRUCTURAL_KEEP) {
+        m.content = content.slice(0, STRUCTURAL_KEEP) + marker.normal(content.length)
+        continue
+      }
+
+      // 普通级：read_file / write_file 确认
+      if (content.length > NORMAL_TOOL_KEEP) {
+        m.content = content.slice(0, NORMAL_TOOL_KEEP) + marker.normal(content.length)
+      }
+    } else if (m.role === 'assistant' && typeof m.content === 'string') {
+      const content = m.content as string
+      if (content.length > OLD_ASSISTANT_KEEP) {
+        m.content = content.slice(0, 300) + marker.think
+      }
     }
   }
 }
@@ -129,14 +200,30 @@ const TOOLS = [
         required: ['topic']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_icon',
+      description: '批量搜索可用图标名。一次调用传入所有需要的图标关键词，返回去重后的紧凑列表（总量 ≤30），从中挑选最合适的即可。不要 read_file 读 icons-manifest.json——那文件太长会撑爆上下文。优先使用 EGG_GUIDE 中已有的图标，只在需要特殊图标时调用此工具。',
+      parameters: {
+        type: 'object',
+        properties: {
+          keywords: { type: 'array', items: { type: 'string' }, description: '所有需要搜索的图标关键词一次性传入，如 ["chart", "bell", "wand", "send"]。不要逐词分多次调用' }
+        },
+        required: ['keywords']
+      }
+    }
   }
 ]
 
 /** 根据 wish 关键词检测是否需要强制读取指南 */
-function detectGuideHint(wish: string): string | null {
-  const netKeywords = /联机|对战|多人|局域网|房间|双人对|在线|PvP|多人游戏|实时同步/
+function detectGuideHint(wish: string, lang: 'zh' | 'en'): string | null {
+  const netKeywords = /联机|对战|多人|局域网|房间|双人对|在线|PvP|多人游戏|实时同步|multiplayer|online|LAN|co-op|versus|two.?player/i
   if (netKeywords.test(wish)) {
-    return '❗ 本愿望涉及局域网联机能力。你必须先调用 read_guide(\'net-lan\') 读取联机指南总纲，再根据需要读取具体章节（sync-pattern / handshake / disconnect），然后才能开始写代码。'
+    return lang === 'zh'
+      ? '❗ 本愿望涉及局域网联机能力。你必须先调用 read_guide(\'net-lan\') 读取联机指南总纲，再根据需要读取具体章节（sync-pattern / handshake / disconnect），然后才能开始写代码。'
+      : "❗ This wish involves LAN multiplayer capability. You MUST first call read_guide('net-lan') to read the networking guide overview, then read specific chapters (sync-pattern / handshake / disconnect) as needed, before writing any code."
   }
   return null
 }
@@ -176,23 +263,29 @@ function listAllFiles(root: string, rel = ''): string[] {
   return out
 }
 
-function buildSystemPrompt(templateDir: string): string {
+function buildSystemPrompt(templateDir: string, lang: 'zh' | 'en'): string {
   const guide = fs.readFileSync(path.join(templateDir, 'EGG_GUIDE.md'), 'utf-8')
   const dts = fs.readFileSync(path.join(templateDir, 'egg.d.ts'), 'utf-8')
+  const langDirective = lang === 'zh'
+    ? '用户界面语言：中文。生成的应用中所有用户可见文本（manifest.name、UI 文案、按钮、提示）必须使用中文；你的所有回复与实况解说也必须使用中文。'
+    : 'User interface language: English. ALL user-visible text in the generated app (manifest.name, UI copy, buttons, hints) MUST be in English; ALL your replies and live commentary MUST also be in English.'
   return [
     '你是 appGacha 的扭蛋机芯——一个把用户愿望制造成桌面小应用（扭蛋）的工程智能体。',
     '装配舱里已放好模板文件，你通过工具读写文件完成制造。',
     '',
     '制造流程（严格遵守）：',
     '1.【规划】收到愿望后先输出制造方案（窗口形态、文件结构、核心模块、permissions），不调工具。',
-    '2.【执行】按方案依次写出 manifest.json、index.html、style.css、app.js（及 src/ 子模块）。',
+    '2.【执行】按方案依次写出 manifest.json、icon.svg、index.html、style.css、app.js（及 src/ 子模块）。icon.svg 是收藏柜里展示的应用图标，规格见 EGG_GUIDE。',
     '3.【验收】调用 check_egg 自检，修完所有问题后调用 finish。',
     '',
     '=== 制造规范（EGG_GUIDE.md） ===',
     guide,
     '',
     '=== 宿主 API 类型声明（egg.d.ts） ===',
-    dts
+    dts,
+    '',
+    '=== 输出语言（最高优先级） ===',
+    langDirective
   ].join('\n')
 }
 
@@ -204,12 +297,12 @@ class HttpError extends Error {
 interface StreamResult { message: AssistantMessage; estimatedTokens: number }
 
 /**
- * 流式请求（SSE）+ 断流检测。
+ * 流式请求（SSE）+ 断流检测，双通道（自有 Key 直连 / 平台代理耗积分）。
  * 与 Claude Code / Codex 等工具同款的超时策略：只要 token 还在流就不算超时，
  * 只有“断流”（60 秒无任何数据）才中断并重试。tool_calls 以增量 delta 拼接。
  */
 async function streamCompletion(
-  cfg: { baseURL: string; model: string; apiKey: string },
+  endpoint: AiEndpoint,
   messages: unknown[],
   onDelta: (accumulatedText: string) => void
 ): Promise<StreamResult> {
@@ -229,12 +322,13 @@ async function streamCompletion(
   feedStallWatchdog()
 
   try {
-    const res = await net.fetch(`${cfg.baseURL}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
-      body: JSON.stringify({ model: cfg.model, messages, tools: TOOLS, temperature: 0.3, stream: true }),
-      signal: controller.signal
-    })
+    // ─── 调试日志：请求概要 ───
+    logLine(`[fc] stream req:`, `endpoint=${endpoint.kind}`, `model=${endpoint.kind === 'direct' ? endpoint.model : endpoint.defaultModel}`,
+      `msgCount=${messages.length}`, `lastMsg=${JSON.stringify(messages[messages.length - 1]).slice(0, 200)}`)
+
+    const res = await chatCompletionFetch(endpoint, {
+      messages, tools: TOOLS, temperature: 0.3, stream: true
+    }, { signal: controller.signal, timeout: REQUEST_HARD_CAP_MS + 30_000 })
     if (!res.ok) {
       const text = (await res.text().catch(() => '')).slice(0, 300)
       throw new HttpError(res.status, text)
@@ -245,13 +339,18 @@ async function streamCompletion(
     const decoder = new TextDecoder()
     let buffer = ''
     let content = ''
+    let chunkCount = 0
+    let firstPayload = ''
+    let rawBody = ''  // 收集全部响应原文，0 chunk 时用于诊断
     const tcMap = new Map<number, { id: string; name: string; args: string }>()
 
     for (;;) {
       const { done, value } = await reader.read()
       if (done) break
       feedStallWatchdog()
-      buffer += decoder.decode(value, { stream: true })
+      const text = decoder.decode(value, { stream: true })
+      buffer += text
+      if (rawBody.length < 2000) rawBody += text  // 前 2000 字符用于诊断
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
       for (const line of lines) {
@@ -259,6 +358,8 @@ async function streamCompletion(
         if (!t.startsWith('data:')) continue
         const payload = t.slice(5).trim()
         if (!payload || payload === '[DONE]') continue
+        chunkCount++
+        if (!firstPayload) firstPayload = payload.slice(0, 400)
         let chunk: {
           choices?: {
             delta?: {
@@ -293,6 +394,15 @@ async function streamCompletion(
         function: { name: tc.name, arguments: tc.args }
       }))
 
+    // ─── 调试日志：流式接收统计 ───
+    logLine(`[fc] stream recv:`, `${chunkCount} SSE chunks, content="${content.slice(0, 150)}", toolCalls=${tool_calls.length}`)
+    if (firstPayload) logLine(`[fc] stream first delta:`, firstPayload)
+    if (chunkCount === 0) {
+      logLine(`[fc] stream ⚠ ZERO chunks — raw body (first 2000 chars):`, rawBody.slice(0, 2000) || '(completely empty)')
+      logLine(`[fc] stream response:`, `status=${res.status}`, `contentType=${res.headers.get('content-type')}`,
+        `contentLength=${res.headers.get('content-length')}`)
+    }
+
     const message: AssistantMessage = {
       role: 'assistant',
       content: content || null,
@@ -308,11 +418,12 @@ async function streamCompletion(
 }
 
 export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
-  const cfg = getAiSettings()
-  if (!cfg || !cfg.apiKey) return { ok: false, rounds: 0, turns: 0, error: 'AI_NOT_CONFIGURED: 请先在设置里配置模型' }
+  // 双通道：自有 Key 直连；无 Key 且登录 + 平台代理启用 → 走平台通道耗积分
+  const endpoint = await resolveAiEndpoint()
+  if (!endpoint) return { ok: false, rounds: 0, turns: 0, error: { key: 'err.aiNotConfigured' } }
 
   // 从配置的模型上下文窗口派生字符预算（token × 3 ≈ 字符，取 70% 作为消息体上限）
-  const contextTokens = cfg.contextTokens || DEFAULT_CONTEXT_TOKENS
+  const contextTokens = (endpoint.kind === 'direct' ? getAiSettings()?.contextTokens : 0) || DEFAULT_CONTEXT_TOKENS
   const charBudget = Math.floor(contextTokens * 3 * CONTEXT_USAGE_RATIO)
 
   const deadline = Date.now() + OVERALL_TIMEOUT_MS
@@ -320,27 +431,54 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
   let rounds = 1
   let turns = 0
   let planDone = false  // P1 规划守卫：AI 输出过规划文本后才允许 write_file
+  let consecutiveEmpty = 0  // 连续空响应计数：连续 3 次空响应视为模型失联
+
+  // ─── 调试日志：任务概况 ───
+  logLine('[fc] ===== 新任务开始 =====',
+    `mode=${job.upgrade ? 'upgrade' : 'create'}`,
+    `wish="${job.wish.slice(0, 120)}${job.wish.length > 120 ? '…' : ''}"`,
+    `lang=${job.lang}`,
+    `contextTokens=${contextTokens}`,
+    `charBudget=${charBudget}`)
 
   const opening = job.upgrade
-    ? [
+    ? (job.lang === 'zh' ? [
         '这是一次对现有扭蛋的升级改造，装配舱里是这颗蛋当前的完整代码（data/ 数据不在舱内，运行时会在）。',
         `蛋的原始愿望：${job.upgrade.baseWish}`,
         `本次升级愿望：${job.wish}`,
         '',
         '要求：先读现有代码，在其基础上增量修改，保留原有功能与数据。',
+        '先 list_files 确认 vendor/ 里实际有哪些库——只 import 确实存在的文件；若需要的库已在 vendor/ 中，直接用静态 import，禁止 try/catch 动态降级（功能静默死亡比报错更糟）。',
         '若改动数据库表结构，必须在启动逻辑里写好旧结构到新结构的迁移（如 try/catch 包裹 ALTER TABLE），旧数据一条都不能丢。',
         '完成后调用 finish。'
-      ].join('\n')
-    : `用户的愿望：${job.wish}\n\n请开始制造这颗扭蛋。`
+      ].join('\n') : [
+        'This is an upgrade of an existing gacha egg — the cabin contains its full current code (data/ is not in the cabin but exists at runtime).',
+        `Original wish: ${job.upgrade.baseWish}`,
+        `Upgrade wish: ${job.wish}`,
+        '',
+        'Requirements: read the existing code first, make incremental changes on top of it, preserve all existing features and data.',
+        'First list_files to check which libraries actually exist in vendor/ — only import files that exist; if a needed library is already in vendor/, use a static import directly, no try/catch dynamic fallback (silent feature death is worse than an error).',
+        'If you change the database schema, write old-to-new migration in the startup logic (e.g. ALTER TABLE wrapped in try/catch) — not a single row of old data may be lost.',
+        'Call finish when done.'
+      ].join('\n'))
+    : job.lang === 'zh'
+      ? `用户的愿望：${job.wish}\n\n请开始制造这颗扭蛋。`
+      : `User's wish: ${job.wish}\n\nStart manufacturing this gacha egg.`
 
   // 管线预判：wish 关键词命中复杂能力时，追加强制读指南提示
-  const guideHint = detectGuideHint(job.wish)
+  const guideHint = detectGuideHint(job.wish, job.lang)
   const userContent = guideHint ? `${opening}\n\n${guideHint}` : opening
 
   const messages: unknown[] = [
-    { role: 'system', content: buildSystemPrompt(job.templateDir) },
+    { role: 'system', content: buildSystemPrompt(job.templateDir, job.lang) },
     { role: 'user', content: userContent }
   ]
+
+  // ─── 调试日志：初始消息 ───
+  const sysPrompt = String((messages[0] as Record<string,unknown>).content)
+  logLine('[fc] system prompt:', `${sysPrompt.length} chars`)
+  logLine('[fc] system prompt (head 500):', sysPrompt.slice(0, 500))
+  logLine('[fc] user[0]:', userContent.slice(0, 400))
 
   const runCheck = async (): Promise<{ pass: boolean; report: string }> => {
     const issues = validateEgg(job.stagingDir)
@@ -364,28 +502,30 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
   const execTool = async (name: string, args: Record<string, unknown>): Promise<string> => {
     switch (name) {
       case 'list_files':
-        job.onStage('crank', '查看装配舱文件…')
-        job.onActivity?.('tool', '查看装配舱文件清单')
+        job.onStage('crank', { key: 'feed.listing' })
+        job.onActivity?.('tool', { key: 'feed.list' })
         return listAllFiles(job.stagingDir).join('\n')
       case 'read_file':
-        job.onStage('crank', `读取 ${args.path}…`)
-        job.onActivity?.('tool', `读取 ${args.path}`)
+        job.onStage('crank', { key: 'feed.reading', params: { path: String(args.path) } })
+        job.onActivity?.('tool', { key: 'feed.read', params: { path: String(args.path) } })
         return fs.readFileSync(resolveSafe(job.stagingDir, String(args.path)), 'utf-8')
       case 'write_file': {
         if (!planDone) return '✘ 请先输出制造方案（窗口形态、文件结构、核心模块设计）再开始写文件。'
         const abs = resolveSafe(job.stagingDir, String(args.path))
         if (typeof args.content !== 'string') throw new Error('content 必须是字符串')
-        job.onStage('crank', `正在写 ${args.path}…`)
+        job.onStage('crank', { key: 'feed.writing', params: { path: String(args.path) } })
         const lines = args.content.split('\n').length
-        job.onActivity?.('write', `写入 ${args.path}（${lines} 行）`)
+        job.onActivity?.('write', { key: 'feed.write', params: { path: String(args.path), lines } })
         fs.mkdirSync(path.dirname(abs), { recursive: true })
         fs.writeFileSync(abs, args.content, 'utf-8')
         return `已写入 ${args.path}（${Buffer.byteLength(args.content)} 字节）`
       }
       case 'check_egg': {
-        job.onStage('clack', `自检中（第 ${rounds} 轮）…`)
+        job.onStage('clack', { key: 'feed.checking', params: { n: rounds } })
         const { pass, report } = await runCheck()
-        job.onActivity?.('check', pass ? `自检通过（第 ${rounds} 轮）` : `自检发现问题（第 ${rounds} 轮），准备修复…`)
+        job.onActivity?.('check', pass
+          ? { key: 'feed.checkPass', params: { n: rounds } }
+          : { key: 'feed.checkFail', params: { n: rounds } })
         return report
       }
       case 'read_guide': {
@@ -400,8 +540,39 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
           const available = listGuides(guidesDir)
           return `指南不存在：${topic}\n可用指南：\n${available.join('\n')}`
         }
-        job.onActivity?.('tool', `读取指南 ${topic}`)
+        job.onActivity?.('tool', { key: 'feed.guide', params: { topic } })
         return fs.readFileSync(abs, 'utf-8')
+      }
+      case 'search_icon': {
+        // 批量搜索：keywords 数组（新），也兼容 keyword 单字符串（旧）
+        const raw = args.keywords ?? (args.keyword ? [args.keyword] : [])
+        if (!Array.isArray(raw) || raw.length === 0) return '请提供 keywords 参数，如 search_icon({ keywords: ["chart", "bell"] })'
+        const keywords: string[] = raw.map((k: unknown) => String(k || '').toLowerCase().trim()).filter(Boolean)
+        if (keywords.length === 0) return '请提供至少一个有效的图标关键词'
+        const manifestPath = path.join(job.templateDir, 'icons-manifest.json')
+        if (!fs.existsSync(manifestPath)) return '图标清单文件不存在，请直接使用 EGG_GUIDE 中列出的高频图标名'
+        const allIcons: string[] = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'))
+        const PER_KW = 8
+        const TOTAL = 30
+        const seen = new Set<string>()
+        const collected: string[] = []
+        for (const kw of keywords) {
+          let added = 0
+          for (const name of allIcons) {
+            if (!name.toLowerCase().includes(kw)) continue
+            if (seen.has(name)) continue
+            seen.add(name)
+            collected.push(name)
+            added++
+            if (added >= PER_KW) break
+          }
+        }
+        if (collected.length === 0) {
+          return `未找到匹配 "${keywords.join(', ')}" 的图标。请换关键词，或直接使用 EGG_GUIDE 中的高频图标。`
+        }
+        const list = collected.slice(0, TOTAL).join(', ')
+        const tail = collected.length > TOTAL ? ` … 还有 ${collected.length - TOTAL} 个省略` : ''
+        return `匹配 ${keywords.length} 个关键词的图标（${collected.length} 个，去重）：${list}${tail}`
       }
       default:
         throw new Error(`未知工具 ${name}`)
@@ -409,20 +580,37 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
   }
 
   while (turns < MAX_TURNS) {
-    if (Date.now() > deadline) return { ok: false, rounds, turns, error: '机芯超时（15 分钟）' }
-    if (totalTokens > MAX_TOTAL_TOKENS) return { ok: false, rounds, turns, error: 'token 预算耗尽' }
+    if (Date.now() > deadline) {
+      logLine(`[fc] RESULT: timeout`, `turns=${turns}, rounds=${rounds}, tokens=${totalTokens}`)
+      return { ok: false, rounds, turns, error: { key: 'err.timeout' } }
+    }
+    if (totalTokens > MAX_TOTAL_TOKENS) {
+      logLine(`[fc] RESULT: tokenBudget exceeded`, `turns=${turns}, rounds=${rounds}, tokens=${totalTokens}`)
+      return { ok: false, rounds, turns, error: { key: 'err.tokenBudget' } }
+    }
     turns++
-    job.onStage('crank', `第 ${turns} 回合，模型思考中…`)
+    job.onStage('crank', { key: 'feed.turn', params: { n: turns } })
 
-    // 上下文压缩：消息体超过预算时截断旧工具输出
-    compactMessages(messages, charBudget)
+    // ─── 调试日志：回合开始 ───
+    const countChars = (arr: unknown[]) => arr.reduce((s: number, m) => s + JSON.stringify(m).length, 0)
+    const msgChars = countChars(messages)
+    logLine(`[fc] turn ${turns} start:`, `${messages.length} msgs, ~${msgChars} chars, ~${totalTokens} tokens, round ${rounds}`)
+
+    // 上下文压缩：消息体超过预算时截断旧工具输出（v2：重要性分级）
+    const beforeCompact = countChars(messages)
+    compactMessages(messages, charBudget, job.lang)
+    const afterCompact = countChars(messages)
+    if (beforeCompact > afterCompact) {
+      logLine(`[fc] turn ${turns} compact:`, `${beforeCompact} → ${afterCompact} chars (budget=${charBudget})`)
+    }
 
     let stream: StreamResult | undefined
     let lastError = ''
     let lastThinkEmit = 0
+    const streamStart = Date.now()
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        stream = await streamCompletion(cfg, messages, partial => {
+        stream = await streamCompletion(endpoint, messages, partial => {
           // 思考内容节流上报（同 id 原地替换，前端看到文字逐字生长）
           const now = Date.now()
           if (now - lastThinkEmit < 1200) return
@@ -433,22 +621,62 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
       } catch (e) {
         if (e instanceof HttpError) {
           // HTTP 业务错误不重试（通常是配置/余额问题）
-          return { ok: false, rounds, turns, error: `模型请求失败 HTTP ${e.status}: ${e.body}` }
+          logLine(`[fc] HTTP error:`, e.status, e.body.slice(0, 300))
+          if (e.status === 402) {
+            // 积分不足：引导充值（断点续建待后续版本支持）
+            return { ok: false, rounds, turns, error: { key: 'err.insufficientCredits' } }
+          }
+          if (e.status === 503) {
+            return { ok: false, rounds, turns, error: { key: 'err.proxyUnavailable' } }
+          }
+          return { ok: false, rounds, turns, error: { key: 'err.http', params: { status: e.status, body: e.body } } }
         }
         lastError = (e as Error).message
+        logLine(`[fc] turn ${turns} stream error:`, lastError)
         if (attempt < MAX_RETRIES) {
-          job.onActivity?.('retry', `模型请求中断（${lastError}），第 ${attempt + 1} 次重试…`)
+          job.onActivity?.('retry', { key: 'feed.retry', params: { error: lastError, n: attempt + 1 } })
           await new Promise(r => setTimeout(r, 2000))
         }
       }
     }
     if (!stream) {
-      return { ok: false, rounds, turns, error: `模型请求异常（已重试 ${MAX_RETRIES} 次）: ${lastError}` }
+      logLine(`[fc] RESULT: retriesExhausted`, `turns=${turns}, error="${lastError}"`)
+      return { ok: false, rounds, turns, error: { key: 'err.retriesExhausted', params: { n: MAX_RETRIES, error: lastError } } }
     }
 
     totalTokens += stream.estimatedTokens
     const msg = stream.message
     messages.push(msg)
+
+    const streamMs = Date.now() - streamStart
+    // ─── 调试日志：AI 响应全文 ───
+    logLine(`[fc] turn ${turns} stream done in ${streamMs}ms:`, `estTokens=${stream.estimatedTokens}`, `totalTokens=${totalTokens}`,
+      `hasContent=${!!msg.content}`, `contentLen=${msg.content?.length ?? 0}`,
+      `toolCalls=${msg.tool_calls?.length ?? 0}`)
+    if (msg.content) {
+      logLine(`[fc] turn ${turns} AI full:`, msg.content)
+    }
+    if (msg.tool_calls && msg.tool_calls.length > 0) {
+      for (const tc of msg.tool_calls) {
+        const argsPreview = tc.function.arguments.length > 500
+          ? tc.function.arguments.slice(0, 500) + `… (${tc.function.arguments.length} chars total)`
+          : tc.function.arguments
+        logLine(`[fc] turn ${turns} tool_call:`, tc.function.name, argsPreview)
+      }
+    }
+
+    // ─── 空响应告警：模型既没输出文本也没调工具 → 可能是网络断流或模型拒绝响应 ───
+    if (!msg.content && (!msg.tool_calls || msg.tool_calls.length === 0)) {
+      consecutiveEmpty++
+      logLine(`[fc] turn ${turns} ⚠ EMPTY RESPONSE #${consecutiveEmpty} — no content, no tool calls. Raw msg:`,
+        JSON.stringify(msg).slice(0, 500))
+      if (consecutiveEmpty >= 3) {
+        logLine(`[fc] RESULT: emptyLoop — ${consecutiveEmpty} consecutive empty responses, model appears unresponsive`)
+        return { ok: false, rounds, turns, error: `模型连续 ${consecutiveEmpty} 次空响应，可能网络断流或模型异常` }
+      }
+    } else {
+      consecutiveEmpty = 0
+    }
 
     // P1 规划守卫：检测 AI 是否已输出规划（content 超过 80 字即视为规划完成）
     if (msg.content && msg.content.trim().length > 80) planDone = true
@@ -468,30 +696,50 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
       try {
         args = tc.function.arguments ? JSON.parse(tc.function.arguments) : {}
       } catch {
-        messages.push({ role: 'tool', tool_call_id: tc.id, content: '工具参数不是合法 JSON，请重试' })
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: '工具参数不是合法 JSON，请重试', _tool: '_error' })
         continue
       }
 
       if (tc.function.name === 'finish') {
-        job.onStage('clack', `最终验收（第 ${rounds} 轮）…`)
+        job.onStage('clack', { key: 'feed.finalCheck', params: { n: rounds } })
         const { pass, report } = await runCheck()
-        if (pass) return { ok: true, rounds, turns }
+        logLine(`[fc] turn ${turns} finish check:`, pass ? 'PASS' : 'FAIL', `round=${rounds}/${job.maxRounds}`)
+        if (!pass) {
+          logLine(`[fc] turn ${turns} finish report:`, report.slice(0, 800))
+        }
+        if (pass) {
+          logLine(`[fc] RESULT: success`, `turns=${turns}, rounds=${rounds}, tokens=${totalTokens}`)
+          return { ok: true, rounds, turns }
+        }
         if (rounds >= job.maxRounds) {
-          return { ok: false, rounds, turns, error: `${job.maxRounds} 轮自检仍未通过。最后的问题：\n${report}` }
+          logLine(`[fc] RESULT: maxRounds exceeded`, `turns=${turns}, rounds=${rounds}, tokens=${totalTokens}`)
+          return { ok: false, rounds, turns, error: { key: 'err.checksFailed', params: { n: job.maxRounds, report } } }
         }
         rounds++
-        messages.push({ role: 'tool', tool_call_id: tc.id, content: `${report}\n请修复以上问题后再次 finish。` })
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: `${report}\n请修复以上问题后再次 finish。`, _tool: 'finish' })
         continue
       }
 
       try {
         const out = await execTool(tc.function.name, args)
-        messages.push({ role: 'tool', tool_call_id: tc.id, content: out.slice(0, 30_000) })
+        // ─── 调试日志：工具结果 ───
+        const outPreview = out.length > 600
+          ? out.slice(0, 600) + `… (${out.length} chars total)`
+          : out
+        logLine(`[fc] turn ${turns} tool_result:`, tc.function.name, outPreview)
+        const toolMsg: Record<string, unknown> = { role: 'tool', tool_call_id: tc.id, content: out.slice(0, 30_000), _tool: tc.function.name }
+        // 为 read_file 记录路径，供压缩时检测过期引用（write_file 后旧 read 结果自动废弃）
+        if (tc.function.name === 'read_file') toolMsg._path = String(args.path)
+        messages.push(toolMsg)
       } catch (e) {
-        messages.push({ role: 'tool', tool_call_id: tc.id, content: `工具执行失败: ${(e as Error).message}` })
+        const errMsg = `工具执行失败: ${(e as Error).message}`
+        logLine(`[fc] turn ${turns} tool_error:`, tc.function.name, (e as Error).message)
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: errMsg, _tool: tc.function.name })
       }
     }
   }
 
-  return { ok: false, rounds, turns, error: `超过最大回合数（${MAX_TURNS}）仍未完成` }
+  // 超过最大回合数
+  logLine(`[fc] RESULT: maxTurns reached`, `turns=${turns}, rounds=${rounds}, tokens=${totalTokens}`)
+  return { ok: false, rounds, turns, error: { key: 'err.maxTurns', params: { n: MAX_TURNS } } }
 }

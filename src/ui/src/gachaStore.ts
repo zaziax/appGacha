@@ -1,11 +1,11 @@
-import { shelf, GachaProgress, GachaResult, GachaActivity } from './shelf'
+import { shelf, GachaProgress, GachaResult, GachaActivity, IpcText } from './shelf'
 
 // 扭蛋状态独立于任何组件存在（支持关掉弹窗后台挂起）。
 // preload 的 on* 只能增不能减监听，所以订阅放模块级、只做一次。
 export interface GachaState {
   running: boolean
   stage: GachaProgress['stage'] | null
-  detail: string
+  detail: IpcText
   result: GachaResult | null
   /** 非空表示当前/上次许愿是对这颗蛋的升级 */
   upgrade: { eggId: string; name: string } | null

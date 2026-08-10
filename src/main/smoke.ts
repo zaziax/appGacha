@@ -1,7 +1,7 @@
 import { BrowserWindow } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
-import { EggContext, registerEgg, removeEgg } from './eggs'
+import { EggContext, getEgg, loadManifest, registerEgg, removeEgg } from './eggs'
 import { createEggWindow } from './eggWindow'
 import { createShelfWindow } from './shelfWindow'
 import { validateEgg } from './validate'
@@ -13,7 +13,7 @@ export async function runUpgradeSmoke(): Promise<boolean> {
   console.log('[smoke] pipeline-upgrade')
   const eggId = 'a0000000-0000-4000-8000-smokeupgrade'
   // 名字带 emoji：曾因 fs.cpSync 遇非 BMP 路径原生闪退（Electron37/Node22），锁住回归
-  const dir = dataRoot('eggs', '__smoke-🍒升级蛋.egg')
+  const dir = dataRoot('eggs', '__smoke-🍒升级蛋.gacha')
   const backups = dataRoot('backups', eggId)
   const cleanup = () => {
     removeEgg(eggId)
@@ -35,7 +35,7 @@ export async function runUpgradeSmoke(): Promise<boolean> {
     registerEgg(dir)
 
     // 假驱动：改一行代码就算升级成功
-    const result = await runUpgrade(eggId, '冒烟升级愿望', () => {}, async (job) => {
+    const result = await runUpgrade(eggId, '冒烟升级愿望', 'zh', () => {}, async (job) => {
       fs.writeFileSync(path.join(job.stagingDir, 'app.js'), 'document.body.textContent = "smoke v2"', 'utf-8')
       return { ok: true, rounds: 1, turns: 1 }
     })
@@ -82,6 +82,7 @@ export async function runPipelineFailSmoke(): Promise<boolean> {
 
   const result = await runGacha(
     '冒烟测试：这颗蛋注定扭不出来',
+    'zh',
     p => stages.push(p.stage),
     async () => ({ ok: false, rounds: 3, turns: 7, error: '假驱动固定失败（冒烟）' })
   )
@@ -107,6 +108,83 @@ export async function runPipelineFailSmoke(): Promise<boolean> {
   for (const d of archived) fs.rmSync(path.join(failedRoot, d), { recursive: true, force: true })
   console.log(pass ? '[smoke] pipeline-fail PASS' : '[smoke] pipeline-fail FAIL')
   return pass
+}
+
+// 布局探针：离屏起蛋，量应用壳几何（宿主栏/toolbar/content 的 rect 与计算样式）+ 截图落盘。
+// 用于定位"窗口贴合"类问题——静态 CSS 推理破不了案时，让真实运行时的数据说话。
+export async function runLayoutProbe(dir: string): Promise<boolean> {
+  console.log(`[probe] ${dir}`)
+  let ctx: EggContext
+  let ephemeral = false
+  try {
+    const manifest = loadManifest(dir)
+    const existing = getEgg(manifest.eggId)
+    if (existing) {
+      ctx = existing
+    } else {
+      ctx = registerEgg(dir)
+      ctx.ephemeral = true
+      ephemeral = true
+    }
+  } catch (e) {
+    console.error(`[probe] FAIL: ${(e as Error).message}`)
+    return false
+  }
+
+  ctx.aiMock = true
+  console.log('[probe] creating window...')
+  const win = createEggWindow(ctx, { show: false })
+  win.webContents.on('render-process-gone', (_e, d) => console.error(`[probe] renderer gone: ${d.reason}`))
+  win.webContents.on('console-message', (_e, lv, msg) => { if (lv >= 3) console.error(`[probe] egg console: ${msg}`) })
+  try {
+    await waitForLoad(win, 15_000)
+    console.log('[probe] loaded, settling...')
+    await new Promise(r => setTimeout(r, 1200))
+    console.log('[probe] measuring...')
+
+    const probe = await win.webContents.executeJavaScript(`(() => {
+      const q = (s) => {
+        const el = document.querySelector(s)
+        if (!el) return null
+        const r = el.getBoundingClientRect()
+        const cs = getComputedStyle(el)
+        const round = (v) => Math.round(v * 10) / 10
+        return { x: round(r.x), y: round(r.y), w: round(r.width), h: round(r.height),
+          margin: cs.margin, padding: cs.padding, display: cs.display, position: cs.position,
+          background: cs.backgroundColor }
+      }
+      const bodyR = document.body.getBoundingClientRect()
+      return {
+        dpr: devicePixelRatio,
+        viewport: { w: innerWidth, h: innerHeight },
+        docClientW: document.documentElement.clientWidth,
+        docScrollW: document.documentElement.scrollWidth,
+        bodyClass: document.body.className,
+        bodyRect: { x: bodyR.x, y: bodyR.y, w: bodyR.width, h: bodyR.height },
+        bodyCS: { margin: getComputedStyle(document.body).margin, padding: getComputedStyle(document.body).padding },
+        htmlCS: { margin: getComputedStyle(document.documentElement).margin, padding: getComputedStyle(document.documentElement).padding },
+        titlebar: q('#__egg_titlebar'),
+        toolbar: q('.toolbar'),
+        content: q('.content'),
+        actionbar: q('.actionbar')
+      }
+    })()`)
+    console.log('[probe] geometry=' + JSON.stringify(probe, null, 2))
+
+    const manifest = loadManifest(dir)
+    const image = await win.webContents.capturePage()
+    const out = `dist/probe-${manifest.name}.png`
+    fs.writeFileSync(out, image.toPNG())
+    console.log(`[probe] screenshot -> ${out}`)
+    return true
+  } catch (e) {
+    console.error(`[probe] FAIL: ${(e as Error).message}`)
+    return false
+  } finally {
+    win.destroy()
+    ctx.aiMock = false
+    if (ephemeral) removeEgg(ctx.eggId)
+  }
 }
 
 function waitForLoad(win: BrowserWindow, timeoutMs = 10_000): Promise<void> {

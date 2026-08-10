@@ -6,9 +6,25 @@ import { bindWindowStateEvents } from './shelf'
 import * as registry from './registry'
 import { attachControls } from './widgetControls'
 import { onEggClosed } from './net/coordinator'
+import { syncEgg } from './sync'
 
 const preparedPartitions = new Set<string>()
 const openWindows = new Map<string, BrowserWindow>()
+
+/**
+ * 准备蛋的隔离 session（partition + egg:// 协议 + 断网锁定），返回 partition 名。
+ * 独立窗口（createEggWindow）与扭蛋空间视图（space.ts）共用。
+ */
+export function prepareEggSession(egg: EggContext): string {
+  const partition = `persist:egg-${egg.eggId}`
+  const ses = session.fromPartition(partition)
+  if (!preparedPartitions.has(partition)) {
+    registerEggProtocol(ses)
+    lockdownSession(ses)
+    preparedPartitions.add(partition)
+  }
+  return partition
+}
 
 /** 窗口尺寸钳制 240~1600，防智障声明 */
 const clampSize = (v: number | undefined, fallback: number): number =>
@@ -16,6 +32,9 @@ const clampSize = (v: number | undefined, fallback: number): number =>
 
 // 收藏柜点击入口：已开的蛋聚焦，未开的创建
 export function openEgg(egg: EggContext): BrowserWindow {
+  // 后台拉取最新版本（不阻塞窗口打开）
+  syncEgg(egg.eggId).catch(() => {})
+
   const existing = openWindows.get(egg.eggId)
   if (existing && !existing.isDestroyed()) {
     if (existing.isMinimized()) existing.restore()
@@ -30,23 +49,31 @@ export function closeEggWindow(eggId: string): void {
   if (win && !win.isDestroyed()) win.close()
 }
 
+/** 获取当前打开的独立蛋窗口 ID 列表 */
+export function getOpenWindowEggIds(): string[] {
+  return [...openWindows.keys()].filter(id => {
+    const w = openWindows.get(id)
+    return w && !w.isDestroyed()
+  })
+}
+
 export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): BrowserWindow {
-  const partition = `persist:egg-${egg.eggId}`
-  const ses = session.fromPartition(partition)
-  if (!preparedPartitions.has(partition)) {
-    registerEggProtocol(ses)
-    lockdownSession(ses)
-    preparedPartitions.add(partition)
-  }
+  const partition = prepareEggSession(egg)
 
   // D11 窗口形态：manifest.window 声明 type/尺寸/置顶
   const spec = egg.manifest.window ?? {}
   const isWidget = spec.type === 'widget'
+  const isMac = process.platform === 'darwin'
 
   const win = new BrowserWindow({
     width: clampSize(spec.width, 900),
     height: clampSize(spec.height, 640),
-    frame: false,
+    // macOS 标准窗用原生交通灯（widget 必须保持 frameless 透明）
+    frame: isMac && !isWidget ? true : false,
+    ...(isMac && !isWidget ? {
+      titleBarStyle: 'hidden' as const,
+      trafficLightPosition: { x: 14, y: 11 },   // 38px preload-injected 标题栏垂直居中
+    } : {}),
     // widget：透明无边框，蛋用 CSS 自绘形状；standard：保持现有不透明行为
     transparent: isWidget,
     // 显式初始化透明背景色，让 DWM 从窗口创建起就知道这是全透明窗
@@ -82,6 +109,8 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
     if (openWindows.get(egg.eggId) === win) openWindows.delete(egg.eggId)
     // P2：蛋窗口关闭 → 清理其房间（host 解散 / joiner 离开）
     onEggClosed(egg.eggId)
+    // 后台推送本地改动到云端
+    syncEgg(egg.eggId).catch(() => {})
   })
 
   // R4: 蛋不能创建窗口

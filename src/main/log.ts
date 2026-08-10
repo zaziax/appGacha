@@ -9,12 +9,17 @@ export function logLine(...parts: unknown[]): void {
   const line = `[${new Date().toISOString()}] ${parts.map(p =>
     typeof p === 'string' ? p : JSON.stringify(p)).join(' ')}\n`
   try { fs.appendFileSync(logFile, line, 'utf-8') } catch { /* 日志尽力而为 */ }
+  try { process.stdout.write(line) } catch { /* 终端不可用时静默 */ }
 }
 
 // 闪退难定位的根因：主进程异常没有出口。全部落盘到 app.log，原生崩溃留 minidump。
 export function initLogging(): void {
   logFile = dataRoot('app.log')
   try { if (fs.existsSync(logFile) && fs.statSync(logFile).size > 5 * 1024 * 1024) fs.rmSync(logFile) } catch { /* 忽略 */ }
+  // 写入 UTF-8 BOM，确保 Windows 工具（Get-Content、记事本等）按 UTF-8 解码，中文不乱码
+  if (!fs.existsSync(logFile)) {
+    try { fs.writeFileSync(logFile, '﻿', 'utf-8') } catch { /* 尽力而为 */ }
+  }
 
   // 原生层崩溃（C++/native 模块）只有 minidump 能留证据
   crashReporter.start({ submitURL: '', uploadToServer: false })
@@ -22,9 +27,8 @@ export function initLogging(): void {
   logLine('===== app start =====', `electron=${process.versions.electron}`, `crashDumps=${app.getPath('crashDumps')}`)
 
   for (const method of ['log', 'warn', 'error'] as const) {
-    const original = console[method].bind(console)
     console[method] = (...args: unknown[]) => {
-      original(...args)
+      // logLine 会同时写文件和终端，不用再调 original 避免重复
       logLine(`console.${method}:`, ...args)
     }
   }

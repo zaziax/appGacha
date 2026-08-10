@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "updatedAt": "2026-07-31",
+  "providers": [
+    {
+      "id": "appgacha",
+      "icon": "appgacha",
+      "name": "AppGacha",
+      "nameZh": "AppGacha",
+      "baseUrl": "",
+      "models": [],
+      "defaultModel": "",
+      "keyUrl": "",
+      "noKey": true,
+      "useProxy": true,
+      "hint": "无需 API Key，登录后选择此项，AI 调用走平台通道并按用量扣积分"
+    },
+    {
+      "id": "deepseek",
+      "icon": "deepseek",
+      "name": "DeepSeek",
+      "baseUrl": "https://api.deepseek.com",
+      "models": [
+        { "id": "deepseek-v4-flash", "context": 1000000 },
+        { "id": "deepseek-v4-pro", "context": 1000000 }
+      ],
+      "defaultModel": "deepseek-v4-flash",
+      "keyUrl": "https://platform.deepseek.com/api_keys"
+    },
+    {
+      "id": "openai",
+      "icon": "openai",
+      "name": "OpenAI",
+      "baseUrl": "https://api.openai.com/v1",
+      "models": [
+        { "id": "gpt-4o", "context": 128000 },
+        { "id": "gpt-4o-mini", "context": 128000 }
+      ],
+      "defaultModel": "gpt-4o-mini",
+      "keyUrl": "https://platform.openai.com/api-keys"
+    },
+    {
+      "id": "qwen",
+      "icon": "qwen",
+      "name": "Qwen",
+      "nameZh": "通义千问",
+      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "models": [
+        { "id": "qwen3.7-plus", "context": 1000000 },
+        { "id": "qwen3.7-max", "context": 1000000 },
+        { "id": "qwen3.6-flash", "context": 1000000 }
+      ],
+      "defaultModel": "qwen3.7-plus",
+      "keyUrl": "https://bailian.console.aliyun.com/#/api-key"
+    },
+    {
+      "id": "kimi",
+      "icon": "moonshot",
+      "name": "Kimi",
+      "nameZh": "月之暗面",
+      "baseUrl": "https://api.moonshot.cn/v1",
+      "models": [
+        { "id": "kimi-k3", "context": 1000000 },
+        { "id": "kimi-k2.6", "context": 262144 }
+      ],
+      "defaultModel": "kimi-k3",
+      "keyUrl": "https://platform.moonshot.cn/console/api-keys"
+    },
+    {
+      "id": "zhipu",
+      "icon": "zhipu",
+      "name": "GLM",
+      "nameZh": "智谱清言",
+      "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
+      "models": [
+        { "id": "glm-5.2", "context": 1000000 },
+        { "id": "glm-5", "context": 1000000 },
+        { "id": "glm-4-flash", "context": 128000 }
+      ],
+      "defaultModel": "glm-5.2",
+      "keyUrl": "https://open.bigmodel.cn/usercenter/apikeys"
+    },
+    {
+      "id": "ollama",
+      "icon": "ollama",
+      "name": "Ollama",
+      "nameZh": "本地模型",
+      "baseUrl": "http://localhost:11434/v1",
+      "models": [],
+      "defaultModel": "",
+      "keyUrl": "",
+      "noKey": true,
+      "hint": "需先在本机运行 Ollama 并 pull 模型，如 qwen3:8b"
+    },
+    {
+      "id": "custom",
+      "icon": "custom",
+      "name": "Custom",
+      "nameZh": "自定义",
+      "baseUrl": "",
+      "models": [],
+      "defaultModel": "",
+      "keyUrl": "",
+      "hint": "任意 OpenAI 兼容接口"
+    }
+  ]
+}

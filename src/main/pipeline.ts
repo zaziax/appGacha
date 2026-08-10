@@ -7,21 +7,21 @@ import { getAiSettings } from './settings'
 import { appRoot, dataRoot } from './paths'
 import { copyDir } from './fsutil'
 import { testEgg } from './test'
-import { runFcDriver, DriverResult, ActivityType } from './fcDriver'
+import { runFcDriver, DriverResult, ActivityType, IpcText } from './fcDriver'
 
 export const PIPELINE_VERSION = '0.1'
 const MAX_ROUNDS = 3
 
 export interface GachaActivity {
   type: ActivityType
-  text: string
+  text: IpcText
   /** 同 id 的条目在前端原地替换（流式思考实时更新） */
   id?: string
 }
 
 export interface GachaProgress {
   stage: 'coin' | 'crank' | 'clack' | 'pop' | 'fail'
-  detail?: string
+  detail?: IpcText
   activity?: GachaActivity
 }
 
@@ -29,7 +29,9 @@ export interface GachaResult {
   ok: boolean
   eggId?: string
   name?: string
-  error?: string
+  error?: IpcText
+  /** 蛋图标 SVG 原文——开蛋仪式爆出用（缺失时为空串） */
+  icon?: string
 }
 
 let busy = false
@@ -52,11 +54,12 @@ type GachaDriver = typeof runFcDriver
 
 export async function runGacha(
   wish: string,
+  lang: 'zh' | 'en',
   onProgress: (p: GachaProgress) => void,
   driver: GachaDriver = runFcDriver
 ): Promise<GachaResult> {
-  if (busy) return { ok: false, error: '机芯正忙，请等上一颗蛋出来' }
-  if (typeof wish !== 'string' || wish.trim().length < 2) return { ok: false, error: '愿望太短了，多说两句' }
+  if (busy) return { ok: false, error: { key: 'err.busy' } }
+  if (typeof wish !== 'string' || wish.trim().length < 2) return { ok: false, error: { key: 'err.wishTooShort' } }
   busy = true
 
   const eggId = randomUUID().toLowerCase()
@@ -64,7 +67,7 @@ export async function runGacha(
 
   try {
     // ① 投币：备舱——模板落位，manifest 由管线写入（wish 不经智能体之手）
-    onProgress({ stage: 'coin', detail: '投币，装配舱就位' })
+    onProgress({ stage: 'coin', detail: { key: 'pipe.coin' } })
     fs.mkdirSync(stagingDir, { recursive: true })
     copyDir(appRoot('template'), stagingDir)
     fs.rmSync(path.join(stagingDir, 'EGG_GUIDE.md'), { force: true })
@@ -72,8 +75,8 @@ export async function runGacha(
     writeManifestFields(stagingDir, { eggId, wish: wish.trim() })
 
     // ② 旋钮转动：驱动智能体制造
-    onProgress({ stage: 'crank', detail: '旋钮转动，机芯开始工作' })
-    const result: DriverResult = await runDriverSafely(driver, wish.trim(), stagingDir, onProgress)
+    onProgress({ stage: 'crank', detail: { key: 'pipe.crank' } })
+    const result: DriverResult = await runDriverSafely(driver, wish.trim(), lang, stagingDir, onProgress)
 
     if (!result.ok) {
       archiveFailure(stagingDir, eggId, wish, result)
@@ -88,8 +91,8 @@ export async function runGacha(
     fs.mkdirSync(dataRoot('eggs'), { recursive: true })
     await safeRename(stagingDir, dest)
     const ctx = registerEgg(dest)
-    onProgress({ stage: 'pop', detail: `咔哒！「${manifest.name}」出蛋了` })
-    return { ok: true, eggId: ctx.eggId, name: manifest.name }
+    onProgress({ stage: 'pop', detail: { key: 'pipe.pop', params: { name: manifest.name } } })
+    return { ok: true, eggId: ctx.eggId, name: manifest.name, icon: readIconSvg(dest) }
   } catch (e) {
     const error = (e as Error).message
     try { archiveFailure(stagingDir, eggId, wish, { ok: false, rounds: 0, turns: 0, error }) } catch { /* 尽力而为 */ }
@@ -106,11 +109,12 @@ const MAX_BACKUPS_PER_EGG = 5
 export async function runUpgrade(
   eggId: string,
   wish: string,
+  lang: 'zh' | 'en',
   onProgress: (p: GachaProgress) => void,
   driver: GachaDriver = runFcDriver
 ): Promise<GachaResult> {
-  if (busy) return { ok: false, error: '机芯正忙，请等上一颗蛋出来' }
-  if (typeof wish !== 'string' || wish.trim().length < 2) return { ok: false, error: '愿望太短了，多说两句' }
+  if (busy) return { ok: false, error: { key: 'err.busy' } }
+  if (typeof wish !== 'string' || wish.trim().length < 2) return { ok: false, error: { key: 'err.wishTooShort' } }
   const egg = getEgg(eggId)
   if (!egg || egg.ephemeral) return { ok: false, error: 'egg not found' }
   busy = true
@@ -122,20 +126,32 @@ export async function runUpgrade(
 
   try {
     // ① 投币：整蛋备份（含数据），然后代码入舱（data/ 不进舱，不给智能体碰真实数据）
-    onProgress({ stage: 'coin', detail: `备份「${egg.manifest.name}」…` })
+    onProgress({ stage: 'coin', detail: { key: 'pipe.backup', params: { name: egg.manifest.name } } })
     backupEgg(eggId, egg.dir)
     fs.mkdirSync(stagingDir, { recursive: true })
     const realDataDir = path.resolve(egg.dir, 'data')
     copyDir(egg.dir, stagingDir, src => path.resolve(src) !== realDataDir)
+    // 回补 vendor：创建时被剥离的预置库在升级时重新可用（只补缺失的，不覆盖蛋已有的）
+    const templateVendor = appRoot('template', 'vendor')
+    if (fs.existsSync(templateVendor)) {
+      const stagingVendor = path.join(stagingDir, 'vendor')
+      for (const f of fs.readdirSync(templateVendor)) {
+        if (!fs.existsSync(path.join(stagingVendor, f))) {
+          fs.mkdirSync(stagingVendor, { recursive: true })
+          fs.copyFileSync(path.join(templateVendor, f), path.join(stagingVendor, f))
+        }
+      }
+    }
     patchManifest(stagingDir, m => { m.eggId = tempId })
 
     // ② 旋钮转动：增量进化（驱动自检走的是"无数据全新安装"路径）
-    onProgress({ stage: 'crank', detail: '旋钮转动，机芯开始改造' })
+    onProgress({ stage: 'crank', detail: { key: 'pipe.crankUpgrade' } })
     const result = await driver({
       wish: upgradeWish,
       stagingDir,
       templateDir: appRoot('template'),
       maxRounds: MAX_ROUNDS,
+      lang,
       upgrade: { baseWish: egg.manifest.wish ?? '（未留档）' },
       onStage: (stage, detail) => onProgress({ stage: stage === 'clack' ? 'clack' : 'crank', detail }),
       onActivity: (type, text, id) => onProgress({ stage: 'crank', activity: { type, text, id } })
@@ -149,13 +165,13 @@ export async function runUpgrade(
     // ③ 机芯咔咔：把真实数据的副本放进舱，验证升级后的代码带着旧数据也能跑（迁移验收）
     const dataDir = path.join(egg.dir, 'data')
     if (fs.existsSync(dataDir)) {
-      onProgress({ stage: 'clack', detail: '带旧数据迁移试跑…' })
+      onProgress({ stage: 'clack', detail: { key: 'pipe.migrate' } })
       copyDir(dataDir, path.join(stagingDir, 'data'))
       const t = await testEgg(stagingDir)
       fs.rmSync(path.join(stagingDir, 'data'), { recursive: true, force: true })
       if (!t.ok) {
-        const error = '升级代码带旧数据试跑未通过：' +
-          (t.error ?? [t.crashed ? '渲染进程崩溃' : '', t.blank ? '页面空白' : '', ...t.consoleErrors].filter(Boolean).join('；'))
+        const error: IpcText = { key: 'err.migrateFailed', params: { detail:
+          (t.error ?? [t.crashed ? '渲染进程崩溃' : '', t.blank ? '页面空白' : '', ...t.consoleErrors].filter(Boolean).join('；')) } }
         archiveFailure(stagingDir, tempId, upgradeWish, { ...result, ok: false, error })
         onProgress({ stage: 'fail', detail: error })
         return { ok: false, error }
@@ -184,8 +200,8 @@ export async function runUpgrade(
     }
     fs.rmSync(stagingDir, { recursive: true, force: true })
     egg.manifest = loadManifest(egg.dir)
-    onProgress({ stage: 'pop', detail: `咔哒！「${egg.manifest.name}」升级完成` })
-    return { ok: true, eggId, name: egg.manifest.name }
+    onProgress({ stage: 'pop', detail: { key: 'pipe.popUpgraded', params: { name: egg.manifest.name } } })
+    return { ok: true, eggId, name: egg.manifest.name, icon: readIconSvg(egg.dir) }
   } catch (e) {
     const error = (e as Error).message
     try { archiveFailure(stagingDir, tempId, upgradeWish, { ok: false, rounds: 0, turns: 0, error }) } catch { /* 尽力而为 */ }
@@ -194,6 +210,15 @@ export async function runUpgrade(
   } finally {
     busy = false
   }
+}
+
+/** 读取蛋目录下的 icon.svg（限 16KB），开蛋仪式爆出图标用 */
+function readIconSvg(dir: string): string {
+  try {
+    const p = path.join(dir, 'icon.svg')
+    if (fs.existsSync(p) && fs.statSync(p).size <= 16 * 1024) return fs.readFileSync(p, 'utf-8')
+  } catch { /* 图标缺失不影响结果 */ }
+  return ''
 }
 
 function backupsDir(eggId: string): string {
@@ -255,6 +280,7 @@ function patchManifest(dir: string, mutate: (m: Record<string, unknown>) => void
 async function runDriverSafely(
   driver: GachaDriver,
   wish: string,
+  lang: 'zh' | 'en',
   stagingDir: string,
   onProgress: (p: GachaProgress) => void
 ): Promise<DriverResult> {
@@ -263,6 +289,7 @@ async function runDriverSafely(
     stagingDir,
     templateDir: appRoot('template'),
     maxRounds: MAX_ROUNDS,
+    lang,
     onStage: (stage, detail) => {
       // 驱动的实况全部转发：crank 是工作动作，clack 是自检
       onProgress({ stage: stage === 'clack' ? 'clack' : 'crank', detail })
@@ -283,9 +310,9 @@ function writeManifestFields(dir: string, fields: { eggId: string; wish: string 
 }
 
 function uniqueFolder(rootDir: string, baseName: string): string {
-  let dir = path.join(rootDir, `${baseName}.egg`)
+  let dir = path.join(rootDir, `${baseName}.gacha`)
   let i = 2
-  while (fs.existsSync(dir)) dir = path.join(rootDir, `${baseName}-${i++}.egg`)
+  while (fs.existsSync(dir)) dir = path.join(rootDir, `${baseName}-${i++}.gacha`)
   return dir
 }
 

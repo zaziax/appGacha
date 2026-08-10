@@ -251,6 +251,8 @@ contextBridge.exposeInMainWorld('egg', {
 function injectTitleBar(): void {
   if (document.getElementById('__egg_titlebar')) return
 
+  const isMac = process.platform === 'darwin'
+
   const bar = document.createElement('div')
   bar.id = '__egg_titlebar'
   bar.innerHTML = `
@@ -259,14 +261,14 @@ function injectTitleBar(): void {
         position: fixed; top: 0; left: 0; right: 0; z-index: 2147483646;
         height: 38px; display: flex; align-items: center; justify-content: space-between;
         padding: 0 8px;
-        background: rgba(255,255,255,0.85); backdrop-filter: blur(8px);
-        border-bottom: 1px solid #e8e4dc;
+        background: var(--card, #fff);
+        border-bottom: 1px solid var(--border, #e8e4dc);
         font-family: system-ui, "Microsoft YaHei", sans-serif;
         -webkit-app-region: drag; user-select: none;
       }
       #__egg_titlebar .tb-left {
-        display: flex; align-items: center; gap: 6px; padding-left: 4px;
-        font-size: 13px; font-weight: 600; color: #2b2b30;
+        display: flex; align-items: center; gap: 6px; padding-left: ${isMac ? '62px' : '4px'};
+        font-size: 13px; font-weight: 600; color: var(--text, #2b2b30);
       }
       #__egg_titlebar .tb-right {
         display: flex; align-items: center; gap: 2px;
@@ -275,12 +277,12 @@ function injectTitleBar(): void {
       #__egg_titlebar .tb-right button {
         width: 34px; height: 26px; border: none; background: none;
         border-radius: 6px; cursor: pointer; display: flex; align-items: center;
-        justify-content: center; color: #8a8a92; font-size: 16px;
+        justify-content: center; color: var(--text-3, #8a8a92); font-size: 16px;
         line-height: 1; transition: background 0.15s, color 0.15s;
         font-family: inherit; padding: 0;
       }
-      #__egg_titlebar .tb-right button:hover { background: #f2f0ec; color: #2b2b30; }
-      #__egg_titlebar .tb-right button.tb-close:hover { background: #c0574f; color: #fff; }
+      #__egg_titlebar .tb-right button:hover { background: var(--bg-inset, #f2f0ec); color: var(--text, #2b2b30); }
+      #__egg_titlebar .tb-right button.tb-close:hover { background: var(--bad, #c0574f); color: #fff; }
       #__egg_titlebar .tb-right button svg {
         width: 14px; height: 14px; display: block;
       }
@@ -288,32 +290,39 @@ function injectTitleBar(): void {
       body.__egg-frameless { padding-top: 38px !important; }
     </style>
     <div class="tb-left">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e8843c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style="stroke:var(--accent, #e8843c)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/>
         <path d="M8 12c0-2.5 1.5-4 4-4s4 1.5 4 4"/>
       </svg>
       <span class="tb-title">${escapeHtml(document.title || '扭蛋')}</span>
     </div>
+    ${
+      isMac ? '' : `
     <div class="tb-right">
       <button title="最小化" id="__tb_min">${minIcon}</button>
       <button title="最大化" id="__tb_max">${maxIcon}</button>
       <button title="关闭" class="tb-close" id="__tb_close">${closeIcon}</button>
-    </div>
+    </div>`
+    }
   `
 
   document.body.prepend(bar)
   document.body.classList.add('__egg-frameless')
 
-  // 按钮事件
-  document.getElementById('__tb_min')!.addEventListener('click', () => ipcRenderer.send('win:minimize'))
-  document.getElementById('__tb_max')!.addEventListener('click', () => ipcRenderer.send('win:maximize'))
-  document.getElementById('__tb_close')!.addEventListener('click', () => ipcRenderer.send('win:close'))
+  // 按钮事件（macOS 用原生交通灯，不注入自定义按钮）
+  if (!isMac) {
+    document.getElementById('__tb_min')!.addEventListener('click', () => ipcRenderer.send('win:minimize'))
+    document.getElementById('__tb_max')!.addEventListener('click', () => ipcRenderer.send('win:maximize'))
+    document.getElementById('__tb_close')!.addEventListener('click', () => ipcRenderer.send('win:close'))
+  }
 
   // 最大化状态切换图标
-  ipcRenderer.on('win:stateChanged', (_e, s: any) => {
-    const btn = document.getElementById('__tb_max')
-    if (btn) btn.innerHTML = s.maximized ? restoreIcon : maxIcon
-  })
+  if (!isMac) {
+    ipcRenderer.on('win:stateChanged', (_e, s: any) => {
+      const btn = document.getElementById('__tb_max')
+      if (btn) btn.innerHTML = s.maximized ? restoreIcon : maxIcon
+    })
+  }
 }
 
 function escapeHtml(s: string): string {
@@ -333,12 +342,16 @@ const maxIcon = '<svg viewBox="0 0 16 16"><rect x="3" y="3" width="10" height="1
 const restoreIcon = '<svg viewBox="0 0 16 16"><rect x="5" y="2" width="9" height="9" rx="1" stroke="currentColor" stroke-width="2" fill="none"/><rect x="2" y="5" width="9" height="9" rx="1" stroke="currentColor" stroke-width="2" fill="white"/></svg>'
 const closeIcon = '<svg viewBox="0 0 16 16"><line x1="4" y1="4" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="4" x2="4" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
 
-// 窗口类型（主进程经 additionalArguments 传入 process.argv）
-const isWidget = process.argv.includes('--egg-window-type=widget')
+// 窗口类型（主进程经 additionalArguments 传入 process.argv）：
+// standard = 独立窗（注入标题栏）；widget = 悬浮窗（hover 上报）；space = 扭蛋空间内嵌（宿主已有 chrome，啥都不注入）
+const eggWindowType = process.argv.find(a => a.startsWith('--egg-window-type='))?.split('=')[1] ?? 'standard'
 
-// DOM ready 时注入：standard 标题栏 / widget hover 事件上报
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => isWidget ? setupWidgetHover() : injectTitleBar())
-} else {
-  isWidget ? setupWidgetHover() : injectTitleBar()
+// DOM ready 时注入：standard 标题栏 / widget hover 事件上报 / space 不注入
+if (eggWindowType !== 'space') {
+  const inject = () => eggWindowType === 'widget' ? setupWidgetHover() : injectTitleBar()
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', inject)
+  } else {
+    inject()
+  }
 }

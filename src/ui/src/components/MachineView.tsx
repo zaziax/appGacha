@@ -1,47 +1,61 @@
 import { useState, useEffect, useSyncExternalStore, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Sparkles, Egg, ArrowLeft, ArrowRight, Loader2, Wand2, Brain, Wrench, PenLine, CheckCircle2, AlertTriangle, RefreshCw } from 'lucide-react'
+import { Sparkles, Egg, ArrowLeft, ArrowRight, Loader2, Wand2, Brain, Wrench, PenLine, CheckCircle2, AlertTriangle, RefreshCw, ClipboardList, Dices, Palette, Bot, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { shelf, GachaProgress, GachaResult, GachaActivity, WishQuestion } from '../shelf'
-import { getGachaState, subscribeGacha, beginGacha, clearGachaResult, dismissResult } from '../gachaStore'
-import { GachaVisual } from './GachaVisual'
+import { getGachaState, subscribeGacha, beginGacha, clearGachaResult, dismissResult, setGachaUpgrade } from '../gachaStore'
+import { GachaMachineV5 } from './GachaMachineV5'
+import { sfx } from '../sound'
+import { tr } from '../i18n'
 
 const SPRING = { type: 'spring' as const, stiffness: 200, damping: 20, mass: 0.8 }
 
-// ---- 预设数据 ----
+// ---- 色相工具 ----
 
-const INSPIRE_CARDS = [
-  { label: '番茄钟', prompt: '我想要一个番茄钟，25分钟专注+5分钟休息，结束时提醒我，统计每天完成了几个番茄' },
-  { label: '每日记账', prompt: '我想要一个每日记账本，能分类记录支出，按月统计，支持导出' },
-  { label: '待办清单', prompt: '我想要一个待办清单，支持拖拽排序、设置到期时间和提醒' },
-  { label: '每日诗词', prompt: '我想要一个每日诗词推荐，每天随机展示一首古诗，附带注释和赏析' },
-  { label: '背单词', prompt: '我想要一个背单词应用，支持导入词库、艾宾浩斯复习曲线、AI生成例句助记' },
-  { label: '习惯打卡', prompt: '我想要一个习惯打卡应用，每天记录完成情况，连续打卡天数统计' },
+/** HSL → #hex（用于 wish 文本中的精确色值） */
+function hslToHex(h: number, s: number, l: number): string {
+  const sn = s / 100, ln = l / 100
+  const a = sn * Math.min(ln, 1 - ln)
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12
+    const c = ln - a * Math.max(Math.min(k - 3, 9 - k, 1), -1)
+    return Math.round(255 * c).toString(16).padStart(2, '0')
+  }
+  return `#${f(0)}${f(8)}${f(4)}`.toUpperCase()
+}
+
+/** 精选色相起点（对应经典配色），点选即跳转色相环到该位置 */
+const HUE_PRESETS = [
+  { h: 150, key: 'mint' },
+  { h: 8, key: 'coral' },
+  { h: 215, key: 'sky' },
+  { h: 270, key: 'lavender' },
+  { h: 40, key: 'amber' },
+  { h: 340, key: 'sakura' },
 ]
 
-const STYLE_OPTIONS = [
-  { id: 'clean', label: '清爽简约', desc: '大量留白、细线条、低饱和', emoji: '🧊' },
-  { id: 'cute', label: '活泼可爱', desc: '圆角、糖果色、趣味动效', emoji: '🍬' },
-  { id: 'dark', label: '深色沉浸', desc: '暗色背景、霓虹点缀、专注感', emoji: '🌙' },
-  { id: 'paper', label: '纸质手账', desc: '纸张纹理、手写风、贴纸装饰', emoji: '📔' },
-]
+// ---- 配色配方（色相环上的关系公式） ----
+type SchemeId = 'mono' | 'analogous' | 'complement' | 'triadic'
 
-const COLOR_PALETTES = [
-  { id: 'mint', label: '薄荷绿', colors: ['#50C878', '#E8F8F0', '#2D8B5E'] },
-  { id: 'coral', label: '珊瑚橘', colors: ['#FF7F6B', '#FFF0ED', '#D9534F'] },
-  { id: 'sky', label: '天空蓝', colors: ['#6DA3F0', '#EDF4FF', '#3B72C4'] },
-  { id: 'lavender', label: '薰衣草', colors: ['#B18CE0', '#F5EFFF', '#7C5CB0'] },
-  { id: 'amber', label: '琥珀金', colors: ['#F0A830', '#FFF8E8', '#C07D10'] },
-  { id: 'sakura', label: '樱花粉', colors: ['#F0A0B8', '#FFF0F4', '#C06080'] },
+const SCHEMES: { id: SchemeId; offsets: number[]; roles: string }[] = [
+  { id: 'mono', offsets: [0], roles: '同色相明暗梯度' },
+  { id: 'analogous', offsets: [0, -35, 35], roles: '辅色用于次要元素与图标点缀' },
+  { id: 'complement', offsets: [0, 180], roles: '互补色作强调色' },
+  { id: 'triadic', offsets: [0, 120, 240], roles: '三色均衡点缀' },
 ]
 
 // ---- 步骤定义 ----
-type Step = 'wish' | 'clarify' | 'style' | 'color' | 'confirm'
+type Step = 'wish' | 'clarify' | 'visual' | 'confirm'
 
 interface QARecord { question: string; answer: string }
+
+/** 聊天流消息：AI 问题 + 用户回答交替 */
+interface ChatMsg { kind: 'q' | 'a'; text: string; options?: string[] }
 
 interface Props { onToast: (msg: string) => void; onEggCreated: () => void }
 
 export function MachineView({ onToast, onEggCreated }: Props) {
+  const { t, i18n } = useTranslation()
   const gacha = useSyncExternalStore(subscribeGacha, getGachaState)
 
   // 向导状态
@@ -49,11 +63,17 @@ export function MachineView({ onToast, onEggCreated }: Props) {
   const [wishText, setWishText] = useState('')
   const [qaHistory, setQaHistory] = useState<QARecord[]>([])
   const [questions, setQuestions] = useState<WishQuestion[]>([])
-  const [answers, setAnswers] = useState<Record<number, string>>({})
+  const [chatLog, setChatLog] = useState<ChatMsg[]>([])
+  const [chatIndex, setChatIndex] = useState(0) // 当前待回答的问题索引（全局，跨轮次）
+  const [roundStart, setRoundStart] = useState(0) // 当前轮次在 chatIndex 中的起始偏移
   const [clarifyRound, setClarifyRound] = useState(0)
   const [aiLoading, setAiLoading] = useState(false)
-  const [styleId, setStyleId] = useState<string | null>(null)
-  const [colorId, setColorId] = useState<string | null>(null)
+  const [styleNote, setStyleNote] = useState<string | null>(null) // AI 风格建议
+  const [styleOverride, setStyleOverride] = useState('') // 用户补充/覆盖
+  const [hue, setHue] = useState<number | null>(null)
+  const [scheme, setScheme] = useState<SchemeId>('mono')
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [suggestLoading, setSuggestLoading] = useState(false)
 
   // 扭蛋结果
   const [revealed, setRevealed] = useState(true)
@@ -68,9 +88,44 @@ export function MachineView({ onToast, onEggCreated }: Props) {
   // 重置向导
   const resetWizard = useCallback(() => {
     setStep('wish'); setWishText(''); setQaHistory([]); setQuestions([])
-    setAnswers({}); setClarifyRound(0); setAiLoading(false)
-    setStyleId(null); setColorId(null); setRevealed(true)
+    setChatLog([]); setChatIndex(0); setRoundStart(0); setClarifyRound(0); setAiLoading(false)
+    setStyleNote(null); setStyleOverride(''); setHue(null); setScheme('mono'); setRevealed(true)
+    setSuggestions([]); setSuggestLoading(false)
   }, [])
+
+  // 取消升级：清掉升级目标并重置向导，回到普通许愿流程（不再卡死在升级态）
+  const cancelUpgrade = useCallback(() => {
+    sfx.blip()
+    setGachaUpgrade(null)
+    resetWizard()
+  }, [resetWizard])
+
+  // 灵感骰子：AI 生成随机愿望建议，失败时降级到本地预置池
+  const fetchSuggestions = async () => {
+    if (suggestLoading) return
+    setSuggestLoading(true)
+    try {
+      const lang = i18n.language.startsWith('zh') ? 'zh' : 'en'
+      const res = await shelf.wishSuggest(lang)
+      if (res.suggestions.length > 0) { setSuggestions(res.suggestions); setSuggestLoading(false); return }
+    } catch { /* AI 不可用 → 降级 */ }
+    // 本地预置池（覆盖工具/趣味/生活三类，体现桌面独有优势）
+    const isZh = i18n.language.startsWith('zh')
+    const pool = isZh
+      ? ['悬浮在桌面的番茄钟 widget', '能和室友联机下的五子棋', '每天提醒我喝水并记录杯数',
+         '用 3D 星球展示今日待办', '随机生成菜谱的今晚吃什么', '带 AI 解签的每日运势筒',
+         '记录植物浇水日程的小花园', '本地记账本月花销饼图', '双人联机猜词对战']
+      : ['A floating pomodoro widget on my desktop', 'Online Gomoku I can play with my roommate',
+         'Remind me to drink water and track my cups', 'A 3D planet showing today\'s todos',
+         'Random recipe picker for dinner', 'Daily fortune sticks with AI interpretation',
+         'A tiny garden tracking plant watering', 'Local expense tracker with pie charts',
+         'Two-player word guessing battle']
+    // 随机抽 3 条（Fisher-Yates 取前 3）
+    const arr = [...pool]
+    for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]] }
+    setSuggestions(arr.slice(0, 3))
+    setSuggestLoading(false)
+  }
 
   // 步骤①：提交愿望 → 调 AI 追问
   const submitWish = async () => {
@@ -78,67 +133,100 @@ export function MachineView({ onToast, onEggCreated }: Props) {
     if (text.length < 2) return
     setAiLoading(true)
     try {
-      const result = await shelf.wishChat([{ role: 'user', content: text }])
+      // 升级场景把目标蛋带给引导 AI（主进程据此注入蛋档案：名称/原始愿望/能力域）
+      const ctx = isUpgrade ? { upgradeEggId: gacha.upgrade!.eggId } : undefined
+      const result = await shelf.wishChat([{ role: 'user', content: text }], ctx)
       if (result.done || result.questions.length === 0) {
-        setStep(isUpgrade ? 'confirm' : 'style')
+        if (result.styleNote) setStyleNote(result.styleNote)
+        setStep(isUpgrade ? 'confirm' : 'visual')
       } else {
         setQuestions(result.questions)
-        setAnswers({})
+        setChatLog([]); setChatIndex(0); setRoundStart(0)
         setClarifyRound(1)
         setStep('clarify')
       }
     } catch {
       // AI 不可用时跳过追问，直接进下一步
-      setStep(isUpgrade ? 'confirm' : 'style')
+      setStep(isUpgrade ? 'confirm' : 'visual')
     } finally {
       setAiLoading(false)
     }
   }
 
-  // 步骤②：提交追问答案
-  const submitClarify = async () => {
-    const newQA: QARecord[] = questions.map((q, i) => ({
-      question: q.text,
-      answer: answers[i] || '由你决定'
-    }))
-    const allQA = [...qaHistory, ...newQA]
-    setQaHistory(allQA)
-
-    // 第二轮追问（最多2轮）
-    if (clarifyRound < 2) {
-      setAiLoading(true)
-      try {
-        const summary = allQA.map(qa => `问：${qa.question}\n答：${qa.answer}`).join('\n')
-        const result = await shelf.wishChat([
-          { role: 'user', content: wishText },
-          { role: 'assistant', content: JSON.stringify({ done: false, questions }) },
-          { role: 'user', content: `我的回答：\n${summary}` }
-        ])
-        if (!result.done && result.questions.length > 0) {
-          setQuestions(result.questions)
-          setAnswers({})
-          setClarifyRound(r => r + 1)
-          setAiLoading(false)
-          return
-        }
-      } catch { /* 追问失败不阻塞 */ }
-      setAiLoading(false)
+  // 步骤②：聊天流——逐条回答，答完自动触发下一轮或进入下一步
+  const submitOneAnswer = (answer: string) => {
+    const qi = chatIndex - roundStart
+    const q = questions[qi]
+    if (!q) return
+    const ans = answer.trim() || t('wish.decideAnswer')
+    const log = [...chatLog, { kind: 'q' as const, text: q.text, options: q.options }, { kind: 'a' as const, text: ans }]
+    setChatLog(log)
+    setQaHistory(h => [...h, { question: q.text, answer: ans }])
+    const next = chatIndex + 1
+    setChatIndex(next)
+    if (next - roundStart >= questions.length) {
+      void followUpRound(log)
     }
-    setStep(isUpgrade ? 'confirm' : 'style')
+  }
+  
+  // 跳过剩余所有问题
+  const skipAllQuestions = () => {
+    sfx.blip()
+    goStep(isUpgrade ? 'confirm' : 'visual')
+  }
+  
+  // 当前轮答完 → 尝试第二轮追问，否则进入下一步
+  const followUpRound = async (log: ChatMsg[]) => {
+    if (clarifyRound >= 2) {
+      setStep(isUpgrade ? 'confirm' : 'visual')
+      return
+    }
+    setAiLoading(true)
+    try {
+      const qas = log.filter(m => m.kind === 'q').map((m, i) => {
+        const a = log.filter(x => x.kind === 'a')[i]
+        return `问：${m.text}\n答：${a?.text ?? ''}`
+      }).join('\n')
+      const result = await shelf.wishChat([
+        { role: 'user', content: wishText },
+        { role: 'assistant', content: JSON.stringify({ done: false, questions }) },
+        { role: 'user', content: `我的回答：\n${qas}` }
+      ], isUpgrade ? { upgradeEggId: gacha.upgrade!.eggId } : undefined)
+      if (!result.done && result.questions.length > 0) {
+        setQuestions(result.questions)
+        setChatIndex(log.length) // 新一轮问题在 chatLog 中的起始位置
+        setRoundStart(log.length)
+        setClarifyRound(r => r + 1)
+        setAiLoading(false)
+        return
+      }
+      if (result.styleNote) setStyleNote(result.styleNote)
+    } catch { /* 追问失败不阻塞 */ }
+    setAiLoading(false)
+    setStep(isUpgrade ? 'confirm' : 'visual')
   }
 
   // 组装最终 wish 文本
   const buildFinalWish = (): string => {
     let wish = wishText.trim()
     if (qaHistory.length > 0) {
-      const details = qaHistory.map(qa => qa.answer).filter(a => a !== '由你决定').join('；')
+      const details = qaHistory.map(qa => qa.answer).filter(a => a !== t('wish.decideAnswer')).join('；')
       if (details) wish += `\n【需求细节】${details}`
     }
     if (!isUpgrade) {
-      const style = STYLE_OPTIONS.find(s => s.id === styleId)
-      if (style) wish += `\n【视觉风格】${style.label}（${style.desc}）`
-      const palette = COLOR_PALETTES.find(c => c.id === colorId)
-      if (palette) wish += `\n【主色调】${palette.label}系（${palette.colors[0]}）`
+      const styleParts: string[] = []
+      if (styleNote) styleParts.push(styleNote)
+      if (styleOverride.trim()) styleParts.push(styleOverride.trim())
+      if (styleParts.length > 0) wish += `\n【视觉风格】${styleParts.join('；')}`
+      if (hue !== null) {
+        const hex = hslToHex(hue, 60, 50)
+        const sc = SCHEMES.find(s => s.id === scheme)!
+        const derived = sc.offsets.filter(o => o !== 0).map(o => {
+          const hh = ((hue + o) % 360 + 360) % 360
+          return `${hslToHex(hh, 55, 52)}（色相 ${hh}°）`
+        })
+        wish += `\n【主色调】${hex}（色相 ${hue}°），配色=${t(`wish.schemes.${scheme}`)}${derived.length > 0 ? `：辅色 ${derived.join('、')}，${sc.roles}` : `，${sc.roles}`}；浅色派生 hsl(${hue},40%,96%)、深色派生 hsl(${hue},55%,32%)`
+      }
     }
     return wish
   }
@@ -146,9 +234,10 @@ export function MachineView({ onToast, onEggCreated }: Props) {
   // 投币开扭
   const launchGacha = async () => {
     const finalWish = buildFinalWish()
+    const lang = i18n.language.startsWith('zh') ? 'zh' : 'en'
     try {
-      if (isUpgrade) await shelf.upgrade(gacha.upgrade!.eggId, finalWish)
-      else await shelf.wish(finalWish)
+      if (isUpgrade) await shelf.upgrade(gacha.upgrade!.eggId, finalWish, lang)
+      else await shelf.wish(finalWish, lang)
       beginGacha(gacha.upgrade)
       onEggCreated()
     } catch (err) { onToast((err as Error).message) }
@@ -159,7 +248,7 @@ export function MachineView({ onToast, onEggCreated }: Props) {
     return (
       <div className="flex h-full">
         <div className="w-[38%] min-w-[280px] max-w-[340px] flex items-center justify-center overflow-hidden bg-cream">
-          <GachaVisual stage={gacha.running ? gacha.stage : null} running={gacha.running} resultReady={resultReady} onReveal={() => setRevealed(true)} />
+          <GachaMachineV5 stage={gacha.running ? gacha.stage : null} running={gacha.running} resultReady={resultReady} icon={gacha.result?.icon} onReveal={() => setRevealed(true)} />
         </div>
         <div className="w-px bg-[#D8CCBB]" />
         <div className="flex-1 flex flex-col min-w-0 bg-cream">
@@ -175,14 +264,17 @@ export function MachineView({ onToast, onEggCreated }: Props) {
   }
 
   // 步骤向导
-  const steps: Step[] = isUpgrade ? ['wish', 'clarify', 'confirm'] : ['wish', 'clarify', 'style', 'color', 'confirm']
+  const steps: Step[] = isUpgrade ? ['wish', 'clarify', 'confirm'] : ['wish', 'clarify', 'visual', 'confirm']
   const stepIndex = steps.indexOf(step)
+
+  const goStep = (s: Step) => { sfx.pop(); setStep(s) }
 
   return (
     <div className="flex h-full">
       {/* Left: Gacha Visual */}
-      <div className="w-[38%] min-w-[280px] max-w-[340px] flex items-center justify-center overflow-hidden bg-cream">
-        <GachaVisual stage={null} running={false} resultReady={false} onReveal={() => {}} />
+      <div className="w-[38%] min-w-[280px] max-w-[340px] flex flex-col items-center justify-center gap-4 overflow-hidden bg-cream">
+        <GachaMachineV5 stage={null} running={false} resultReady={false} onReveal={() => {}}
+          mood={aiLoading ? 'thinking' : (step === 'visual' || step === 'confirm') ? 'excited' : 'idle'} />
       </div>
 
       <div className="w-px bg-[#D8CCBB]" />
@@ -194,8 +286,14 @@ export function MachineView({ onToast, onEggCreated }: Props) {
           <div className="flex items-center gap-2 mb-3">
             <Egg className="w-5 h-5 text-brand" strokeWidth={2.5} />
             <span className="text-[14px] font-extrabold text-text">
-              {isUpgrade ? `升级「${gacha.upgrade?.name}」` : '许个愿望'}
+              {isUpgrade ? t('wish.upgradeTitle', { name: gacha.upgrade?.name }) : t('wish.wishTitle')}
             </span>
+            {isUpgrade && (
+              <button onClick={cancelUpgrade} title={t('wish.cancelUpgrade')}
+                className="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-extrabold text-muted border-2 border-transparent hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition-all">
+                <X className="w-3.5 h-3.5" strokeWidth={2.8} /> {t('wish.cancelUpgrade')}
+              </button>
+            )}
           </div>
           {/* Step dots */}
           <div className="flex items-center gap-1.5">
@@ -208,43 +306,42 @@ export function MachineView({ onToast, onEggCreated }: Props) {
         </div>
 
         {/* Step content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 chat-scroll">
+        <div className="flex-1 overflow-y-auto px-6 pt-4 pb-1 chat-scroll">
           <AnimatePresence mode="wait">
             {step === 'wish' && (
               <StepWish key="wish" wishText={wishText} setWishText={setWishText}
-                aiLoading={aiLoading} onSubmit={submitWish} isUpgrade={isUpgrade} />
+                aiLoading={aiLoading} onSubmit={submitWish} isUpgrade={isUpgrade}
+                suggestions={suggestions} suggestLoading={suggestLoading} onDice={fetchSuggestions} />
             )}
             {step === 'clarify' && (
-              <StepClarify key="clarify" questions={questions} answers={answers}
-                setAnswers={setAnswers} aiLoading={aiLoading}
-                onSubmit={submitClarify} onSkip={() => setStep(isUpgrade ? 'confirm' : 'style')} />
+              <StepClarify key="clarify" questions={questions} chatLog={chatLog}
+                chatIndex={chatIndex} roundStart={roundStart} aiLoading={aiLoading}
+                onAnswer={submitOneAnswer} onSkipAll={skipAllQuestions} />
             )}
-            {step === 'style' && (
-              <StepStyle key="style" selected={styleId} onSelect={setStyleId}
-                onNext={() => setStep('color')} />
-            )}
-            {step === 'color' && (
-              <StepColor key="color" selected={colorId} onSelect={setColorId}
-                onNext={() => setStep('confirm')} />
+            {step === 'visual' && (
+              <StepVisual key="visual" styleNote={styleNote} override={styleOverride}
+                onOverride={setStyleOverride} hue={hue} onHue={setHue}
+                scheme={scheme} onScheme={setScheme} onNext={() => goStep('confirm')} />
             )}
             {step === 'confirm' && (
               <StepConfirm key="confirm" wishText={wishText} qaHistory={qaHistory}
-                styleId={styleId} colorId={colorId} isUpgrade={isUpgrade}
-                onLaunch={launchGacha} />
+                styleNote={styleNote} styleOverride={styleOverride} hue={hue} scheme={scheme}
+                isUpgrade={isUpgrade} onLaunch={launchGacha} />
             )}
           </AnimatePresence>
         </div>
 
         {/* Back button */}
         {stepIndex > 0 && (
-          <div className="px-6 py-3">
+          <div className="px-6 pt-1.5 pb-3">
             <button onClick={() => {
+              sfx.blip()
               const prev = steps[stepIndex - 1]
               setStep(prev)
-              if (prev === 'wish') { setQuestions([]); setQaHistory([]); setClarifyRound(0) }
+              if (prev === 'wish') { setQuestions([]); setQaHistory([]); setChatLog([]); setChatIndex(0); setRoundStart(0); setClarifyRound(0) }
             }}
               className="flex items-center gap-1.5 text-[13px] font-bold text-muted hover:text-text transition-colors">
-              <ArrowLeft className="w-3.5 h-3.5" /> 上一步
+              <ArrowLeft className="w-3.5 h-3.5" /> {t('wish.back')}
             </button>
           </div>
         )}
@@ -254,24 +351,58 @@ export function MachineView({ onToast, onEggCreated }: Props) {
 }
 
 // ================================================================
-//  Step ① 需求输入
+//  Step ① 需求输入 + 灵感骰子（AI 生成随机愿望建议）
 // ================================================================
-function StepWish({ wishText, setWishText, aiLoading, onSubmit, isUpgrade }: {
+function StepWish({ wishText, setWishText, aiLoading, onSubmit, isUpgrade, suggestions, suggestLoading, onDice }: {
   wishText: string; setWishText: (v: string) => void; aiLoading: boolean; onSubmit: () => void; isUpgrade: boolean
+  suggestions: string[]; suggestLoading: boolean; onDice: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <motion.div {...fadeSlide}>
-      <p className="text-[14px] font-extrabold text-text mb-1">
-        {isUpgrade ? '想怎么改进它？' : '你想要什么样的应用？'}
-      </p>
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-[14px] font-extrabold text-text">
+          {isUpgrade ? t('wish.stepWishTitleUpgrade') : t('wish.stepWishTitle')}
+        </p>
+        {/* 灵感骰子：仅新愿望场景 */}
+        {!isUpgrade && (
+          <button onClick={onDice} disabled={suggestLoading}
+            title={t('wish.diceHint')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-extrabold border-2 border-text/15 bg-white text-muted hover:border-brand/50 hover:text-brand transition-all active:translate-y-0.5 disabled:opacity-40"
+            style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.1)' }}>
+            {suggestLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Dices className="w-3.5 h-3.5" strokeWidth={2.5} />}
+            {t('wish.dice')}
+          </button>
+        )}
+      </div>
       <p className="text-[12px] font-bold text-muted mb-4">
-        {isUpgrade ? '描述你想添加或修改的功能' : '用一句话描述，我会帮你确认细节'}
+        {isUpgrade ? t('wish.stepWishHintUpgrade') : t('wish.stepWishHint')}
       </p>
 
+      {/* AI 生成的灵感建议 chips */}
+      <AnimatePresence>
+        {suggestions.length > 0 && (
+          <motion.div className="flex flex-wrap gap-2 mb-3"
+            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+            {suggestions.map((s, i) => (
+              <motion.button key={s}
+                initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: i * 0.08, type: 'spring', stiffness: 300, damping: 20 }}
+                onClick={() => { sfx.tick(); setWishText(s) }}
+                className="px-3 py-1.5 rounded-xl text-[12px] font-extrabold border-2 border-brand/25 bg-brand/5 text-brand hover:bg-brand/10 hover:border-brand/50 transition-all active:translate-y-0.5">
+                {s}
+              </motion.button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <textarea
-        rows={3} value={wishText} onChange={e => setWishText(e.target.value)}
+        rows={4} value={wishText} onChange={e => setWishText(e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit() } }}
-        placeholder={isUpgrade ? '例如：加个夜间模式、增加数据导出…' : '例如：我想要一个记账本，能分类记录支出…'}
+        placeholder={isUpgrade
+          ? t('wish.stepWishPlaceholderUpgrade')
+          : t('wish.stepWishPlaceholder')}
         className="w-full resize-none rounded-2xl px-4 py-3 text-[14px] leading-relaxed outline-none bg-white font-bold placeholder:text-muted/40 border-[3px] border-text/10 focus:border-brand/40 transition-colors"
         style={{ boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.04)' }}
       />
@@ -280,180 +411,434 @@ function StepWish({ wishText, setWishText, aiLoading, onSubmit, isUpgrade }: {
         className="mt-3 flex items-center gap-2 px-5 py-3 bg-brand text-white rounded-2xl font-extrabold text-[14px] hover:bg-brand-hover active:translate-y-0.5 transition-all disabled:opacity-40 border-[3px] border-text"
         style={{ boxShadow: '4px 4px 0 rgba(92,64,51,0.2)' }}>
         {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" strokeWidth={2.5} />}
-        <span>{aiLoading ? '正在理解你的需求…' : '确认，下一步'}</span>
+        <span>{aiLoading ? t('wish.thinking') : t('wish.next')}</span>
       </button>
-
-      {/* Inspiration cards — grid, no horizontal scroll */}
-      {!isUpgrade && (
-        <div className="mt-6">
-          <p className="text-[12px] font-extrabold text-muted mb-3">💡 没想好？试试这些：</p>
-          <div className="grid grid-cols-2 gap-2.5">
-            {INSPIRE_CARDS.map(c => (
-              <button key={c.label} onClick={() => setWishText(c.prompt)}
-                className="px-3.5 py-3 rounded-2xl border-[3px] border-text bg-white hover:bg-cream transition-colors text-left active:translate-y-0.5"
-                style={{ boxShadow: '3px 3px 0 rgba(92,64,51,0.12)' }}>
-                <p className="text-[13px] font-extrabold text-text">{c.label}</p>
-                <p className="text-[11px] font-bold text-muted mt-1 line-clamp-2 leading-relaxed">{c.prompt}</p>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </motion.div>
   )
 }
 
 // ================================================================
-//  Step ② AI 追问
+//  Step ② AI 追问 —— 聊天流范式：逐条释放 + 固定底部输入栏 + typing 指示
 // ================================================================
-function StepClarify({ questions, answers, setAnswers, aiLoading, onSubmit, onSkip }: {
-  questions: WishQuestion[]; answers: Record<number, string>; setAnswers: (a: Record<number, string>) => void
-  aiLoading: boolean; onSubmit: () => void; onSkip: () => void
+function StepClarify({ questions, chatLog, chatIndex, roundStart, aiLoading, onAnswer, onSkipAll }: {
+  questions: WishQuestion[]; chatLog: ChatMsg[]; chatIndex: number; roundStart: number
+  aiLoading: boolean; onAnswer: (answer: string) => void; onSkipAll: () => void
 }) {
+  const { t } = useTranslation()
+  const [input, setInput] = useState('')
+  const [revealedIdx, setRevealedIdx] = useState(-1) // 已浮现的问题索引（高水位）
+  const endRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  // 输入框自动增高（内容撑高，超过上限才滚动）
+  const autoGrow = () => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 88) + 'px'
+  }
+  useEffect(() => { autoGrow() }, [input])
+
+  const currentQ = chatIndex - roundStart < questions.length
+    ? questions[chatIndex - roundStart]
+    : undefined
+  const waiting = aiLoading || (currentQ !== undefined && revealedIdx < chatIndex)
+
+  // 逐条释放：当前问题延迟浮现（“对方正在输入…”体感）
+  useEffect(() => {
+    if (aiLoading || !currentQ || revealedIdx >= chatIndex) return
+    const timer = setTimeout(() => setRevealedIdx(chatIndex), 550)
+    return () => clearTimeout(timer)
+  }, [chatIndex, aiLoading, revealedIdx, currentQ])
+
+  // 自动滚到底部
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [chatLog.length, revealedIdx, aiLoading])
+
+  const send = () => {
+    if (waiting) return
+    onAnswer(input)
+    setInput('')
+  }
+
+  return (
+    <motion.div {...fadeSlide} className="h-full flex flex-col">
+      {/* 消息区（内部滚动，外层不滚） */}
+      <div className="flex-1 min-h-0 overflow-y-auto chat-scroll pr-1 flex flex-col gap-3 pb-2">
+        {chatLog.map((m, i) => m.kind === 'q' ? (
+          <motion.div key={i} className="flex items-start gap-2.5"
+            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ type: 'spring', stiffness: 260, damping: 22 }}>
+            <div className="w-6 h-6 rounded-full bg-brand/10 flex items-center justify-center shrink-0 mt-0.5">
+              <Bot className="w-3.5 h-3.5 text-brand" strokeWidth={2.5} />
+            </div>
+            <div className="px-3.5 py-2.5 rounded-2xl rounded-tl-md bg-white border-2 border-text/10 text-[13px] font-bold text-text leading-relaxed max-w-[85%]"
+              style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.06)' }}>
+              {m.text}
+            </div>
+          </motion.div>
+        ) : (
+          <motion.div key={i} className="flex justify-end"
+            initial={{ opacity: 0, y: 8, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 24 }}>
+            <div className="px-3.5 py-2.5 rounded-2xl rounded-br-md bg-brand text-white text-[13px] font-bold leading-relaxed max-w-[85%]"
+              style={{ boxShadow: '2px 2px 0 rgba(217,83,79,0.25)' }}>
+              {m.text}
+            </div>
+          </motion.div>
+        ))}
+
+        {/* “对方正在输入…”指示器 */}
+        {waiting && (
+          <motion.div className="flex items-start gap-2.5"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <div className="w-6 h-6 rounded-full bg-brand/10 flex items-center justify-center shrink-0 mt-0.5">
+              <Bot className="w-3.5 h-3.5 text-brand" strokeWidth={2.5} />
+            </div>
+            <div className="px-4 py-3 rounded-2xl rounded-tl-md bg-white border-2 border-text/10 flex items-center gap-1">
+              {[0, 1, 2].map(d => (
+                <motion.span key={d} className="w-1.5 h-1.5 rounded-full bg-muted/50"
+                  animate={{ y: [0, -4, 0] }}
+                  transition={{ repeat: Infinity, duration: 0.7, delay: d * 0.15, ease: 'easeInOut' }} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {/* 当前问题（typing 结束后浮现） */}
+        {currentQ && !waiting && revealedIdx >= chatIndex && (
+          <motion.div className="flex items-start gap-2.5"
+            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ type: 'spring', stiffness: 260, damping: 22 }}>
+            <div className="w-6 h-6 rounded-full bg-brand/10 flex items-center justify-center shrink-0 mt-0.5">
+              <Bot className="w-3.5 h-3.5 text-brand" strokeWidth={2.5} />
+            </div>
+            <div className="px-3.5 py-2.5 rounded-2xl rounded-tl-md bg-white border-2 border-text/10 text-[13px] font-bold text-text leading-relaxed max-w-[85%]"
+              style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.06)' }}>
+              {currentQ.text}
+            </div>
+          </motion.div>
+        )}
+        <div ref={endRef} />
+      </div>
+
+      {/* 参考方向 chips（当前问题的，填入输入栏） */}
+      {currentQ && !waiting && currentQ.options.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 pb-2">
+          <span className="text-[11px] font-bold text-muted/50">{t('wish.reference')}</span>
+          {currentQ.options.map(opt => (
+            <button key={opt}
+              onClick={() => { sfx.tick(); setInput(opt) }}
+              className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold border-2 border-text/15 bg-white/70 text-muted hover:border-brand/40 hover:text-brand transition-all active:translate-y-0.5">
+              {opt}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 固定底部输入栏 */}
+      <div className="shrink-0 pt-2 border-t-2 border-text/8">
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={inputRef}
+            rows={1}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+            placeholder={t('wish.clarifyPlaceholder')}
+            className="chat-scroll flex-1 px-3.5 py-2.5 rounded-xl text-[13px] font-bold outline-none bg-white border-2 border-text/10 focus:border-brand/40 transition-colors placeholder:text-muted/35 resize-none overflow-y-auto"
+            style={{ maxHeight: 88 }}
+          />
+          <button onClick={send} disabled={waiting}
+            className="px-4 py-2.5 bg-brand text-white rounded-xl font-extrabold text-[13px] hover:bg-brand-hover active:translate-y-0.5 transition-all disabled:opacity-40 border-2 border-text shrink-0"
+            style={{ boxShadow: '3px 3px 0 rgba(92,64,51,0.18)' }}>
+            {t('wish.send')}
+          </button>
+        </div>
+        <div className="flex items-center gap-4 mt-1.5">
+          <button onClick={() => { sfx.tick(); onAnswer('') }} disabled={waiting}
+            className="text-[11px] font-extrabold text-muted/60 hover:text-brand transition-colors disabled:opacity-40">
+            {t('wish.skipThis')}
+          </button>
+          <button onClick={onSkipAll} disabled={waiting}
+            className="text-[11px] font-extrabold text-muted/60 hover:text-brand transition-colors disabled:opacity-40">
+            {t('wish.skipAll')}
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+// ================================================================
+//  Step ③ 视觉调性 —— AI 风格建议 + 色相环 + 配色配方
+// ================================================================
+function StepVisual({ styleNote, override, onOverride, hue, onHue, scheme, onScheme, onNext }: {
+  styleNote: string | null; override: string; onOverride: (v: string) => void
+  hue: number | null; onHue: (h: number) => void
+  scheme: SchemeId; onScheme: (s: SchemeId) => void; onNext: () => void
+}) {
+  const { t } = useTranslation()
+  const hasChoice = hue !== null || override.trim().length > 0
+  const schemesRef = useRef<HTMLDivElement>(null)
+
+  // 配方区展开后滚入视野（最小位移），避免 sticky CTA 遮挡芯片
+  useEffect(() => {
+    if (hue === null) return
+    const timer = setTimeout(() => schemesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 160)
+    return () => clearTimeout(timer)
+  }, [hue === null])
+
+  return (
+    <motion.div {...fadeSlide}>
+      <div className="flex items-center gap-2 mb-1">
+        <Palette className="w-4 h-4 text-brand" strokeWidth={2.5} />
+        <p className="text-[14px] font-extrabold text-text">{t('wish.visualTitle')}</p>
+      </div>
+      <p className="text-[12px] font-bold text-muted mb-4">{t('wish.visualHint')}</p>
+
+      {/* AI 风格建议卡 */}
+      {styleNote && (
+        <div className="rounded-2xl border-[3px] border-brand/25 bg-brand/5 p-3.5 mb-4">
+          <p className="text-[11px] font-extrabold text-brand uppercase tracking-wide mb-1">{t('wish.machineSuggest')}</p>
+          <p className="text-[13px] font-bold text-text leading-relaxed">{styleNote}</p>
+        </div>
+      )}
+
+      {/* 换个方向（可选补充/覆盖） */}
+      <input value={override} onChange={e => onOverride(e.target.value)}
+        placeholder={t('wish.styleOverridePh')}
+        className="w-full px-3.5 py-2.5 rounded-xl text-[13px] font-bold outline-none bg-white border-2 border-text/10 focus:border-brand/40 transition-colors placeholder:text-muted/35 mb-5" />
+
+      {/* 主色调：色相环 + 糖球快捷锚点 */}
+      <p className="text-[13px] font-extrabold text-text mb-3">{t('wish.primaryHue')}</p>
+      <div className="flex items-center gap-5">
+        <HueRing hue={hue} onHue={onHue} />
+        <div className="flex flex-col gap-2">
+          {[HUE_PRESETS.slice(0, 3), HUE_PRESETS.slice(3)].map((row, ri) => (
+            <div key={ri} className="flex gap-2">
+              {row.map(p => (
+                <Gumball key={p.h} h={p.h} selected={hue === p.h}
+                  onClick={() => { sfx.tick(); onHue(p.h) }} title={t(`wish.hues.${p.key}`)} />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 配色配方：选色后展开（渐进披露，避免初始信息过载） */}
+      <AnimatePresence>
+        {hue !== null && (
+          <motion.div key="schemes" ref={schemesRef}
+            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 30 }}>
+            <p className="text-[13px] font-extrabold text-text mt-5 mb-2.5">{t('wish.schemeTitle')}</p>
+            <div className="flex flex-wrap gap-2 pb-16">
+              {SCHEMES.map(sc => (
+                <SchemeChip key={sc.id} def={sc} hue={hue} selected={scheme === sc.id}
+                  label={t(`wish.schemes.${sc.id}`)}
+                  onClick={() => { sfx.tick(); onScheme(sc.id) }} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* sticky CTA：永远可见，底部渐变融入背景 */}
+      <div className="sticky bottom-0 pt-4 pb-1 -mx-2 px-2"
+        style={{ background: 'linear-gradient(to bottom, transparent, #F4EBE1 32%)' }}>
+        <button onClick={onNext}
+          className="flex items-center gap-2 px-5 py-3 bg-brand text-white rounded-2xl font-extrabold text-[14px] hover:bg-brand-hover active:translate-y-0.5 transition-all border-[3px] border-text"
+          style={{ boxShadow: '4px 4px 0 rgba(92,64,51,0.2)' }}>
+          <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
+          <span>{hasChoice ? t('wish.nextStep') : t('wish.skipVisual')}</span>
+        </button>
+      </div>
+    </motion.div>
+  )
+}
+
+/** 色相环：360° 连续拖拽 + 30° 刻度音效 + 中心实时预览球 */
+function HueRing({ hue, onHue }: { hue: number | null; onHue: (h: number) => void }) {
+  const ringRef = useRef<HTMLDivElement>(null)
+  const dragging = useRef(false)
+  // 连续角度（不 wrap 360）避免跨 0° 动画绕远路
+  const contRef = useRef<number | null>(null)
+  const [anim, setAnim] = useState<number | null>(null)
+
+  const norm = (a: number) => ((a % 360) + 360) % 360
+  const display = anim !== null ? norm(anim) : hue
+
+  // 糖球点选 → 旋钮沿最短路径弹跳
+  useEffect(() => {
+    if (hue === null || dragging.current) return
+    const cur = contRef.current
+    if (cur === null) { contRef.current = hue; setAnim(hue); return }
+    let delta = hue - norm(cur)
+    if (delta > 180) delta -= 360
+    if (delta < -180) delta += 360
+    const target = cur + delta
+    contRef.current = target
+    setAnim(target)
+  }, [hue])
+
+  const hueAt = (clientX: number, clientY: number): number => {
+    const rect = ringRef.current!.getBoundingClientRect()
+    const dx = clientX - (rect.left + rect.width / 2)
+    const dy = clientY - (rect.top + rect.height / 2)
+    return norm(Math.atan2(dx, -dy) * 180 / Math.PI)
+  }
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    dragging.current = true
+    ;(e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId)
+    const h = hueAt(e.clientX, e.clientY)
+    contRef.current = h
+    setAnim(null)
+    sfx.tick()
+    onHue(Math.round(h))
+  }
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragging.current) return
+    const h = hueAt(e.clientX, e.clientY)
+    const prev = contRef.current ?? h
+    // 30° 软刻度：跨过扇区边界时轻响一声
+    if (Math.floor(norm(prev) / 30) !== Math.floor(h / 30)) sfx.tick()
+    contRef.current = h
+    setAnim(null)
+    onHue(Math.round(h))
+  }
+
+  const onPointerUp = () => {
+    if (!dragging.current) return
+    dragging.current = false
+    sfx.pop()
+  }
+
+  const knobAngle = anim ?? (hue !== null ? hue : 0)
+
+  return (
+    <div className="flex flex-col items-center gap-1.5 shrink-0">
+      <div ref={ringRef}
+        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
+        className="relative w-[148px] h-[148px] rounded-full cursor-pointer select-none"
+        style={{ touchAction: 'none' }}>
+        {/* 彩虹环带 */}
+        <div className="absolute inset-0 rounded-full" style={{
+          background: 'conic-gradient(from 0deg, hsl(0,72%,58%), hsl(45,72%,55%), hsl(90,62%,50%), hsl(135,62%,48%), hsl(180,66%,46%), hsl(225,68%,56%), hsl(270,66%,58%), hsl(315,70%,56%), hsl(360,72%,58%))',
+          boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.12), 3px 3px 0 rgba(92,64,51,0.10)'
+        }} />
+        {/* 内圆（中心预览区） */}
+        <div className="absolute inset-[24px] rounded-full bg-cream border-[3px] border-white flex items-center justify-center"
+          style={{ boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.06)' }}>
+          {display !== null && display !== undefined ? (
+            <motion.div key="ball" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 18 }}
+              className="w-14 h-14 rounded-full relative overflow-hidden border-[3px] border-white/80"
+              style={{
+                background: `radial-gradient(circle at 35% 28%, hsl(${display}, 72%, 82%), hsl(${display}, 64%, 54%) 52%, hsl(${display}, 60%, 38%))`,
+                boxShadow: '3px 3px 0 rgba(92,64,51,0.18)'
+              }}>
+              <span className="absolute w-3 h-3 rounded-full bg-white/70 blur-[1px]" style={{ top: '16%', left: '20%' }} />
+            </motion.div>
+          ) : (
+            <span className="text-[11px] font-extrabold text-muted/40">?</span>
+          )}
+        </div>
+        {/* 旋钮 */}
+        <motion.div
+          animate={{ rotate: knobAngle }}
+          transition={dragging.current ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 24 }}
+          className="absolute inset-0 pointer-events-none">
+          <div className="absolute left-1/2 -translate-x-1/2 w-[22px] h-[22px] rounded-full border-[3px] border-white"
+            style={{
+              top: 3,
+              background: display !== null && display !== undefined ? `hsl(${display}, 64%, 52%)` : '#ccc',
+              boxShadow: '0 2px 5px rgba(0,0,0,0.28)'
+            }} />
+        </motion.div>
+      </div>
+      {/* hex 读数 */}
+      <div className="h-4">
+        {hue !== null && (
+          <motion.span initial={{ opacity: 0, y: 3 }} animate={{ opacity: 1, y: 0 }}
+            className="text-[11px] font-extrabold text-muted">{hslToHex(hue, 60, 50)}</motion.span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** 糖球：光泽感彩色球（径向渐变高光） */
+function Gumball({ h, selected, onClick, title }: { h: number; selected: boolean; onClick: () => void; title: string }) {
+  return (
+    <motion.button onClick={onClick} title={title}
+      whileTap={{ scale: 0.72, y: 2 }}
+      animate={selected ? { scale: 1.18, y: -3 } : { scale: 1, y: 0 }}
+      transition={{ type: 'spring', stiffness: 500, damping: 18 }}
+      className={`w-8 h-8 rounded-full border-[3px] relative overflow-hidden ${
+        selected ? 'border-text' : 'border-white/70 hover:scale-105'
+      }`}
+      style={{
+        background: `radial-gradient(circle at 35% 28%, hsl(${h}, 72%, 82%), hsl(${h}, 64%, 54%) 52%, hsl(${h}, 60%, 38%))`,
+        boxShadow: selected ? '3px 3px 0 rgba(92,64,51,0.22)' : '2px 2px 0 rgba(92,64,51,0.12)'
+      }}>
+      {/* 高光点 */}
+      <span className="absolute w-2 h-2 rounded-full bg-white/75 blur-[1px]" style={{ top: '18%', left: '22%' }} />
+    </motion.button>
+  )
+}
+
+/** 配方芯片：展示当前色相下的派生色点 */
+function SchemeChip({ def, hue, selected, label, onClick }: {
+  def: { id: SchemeId; offsets: number[] }; hue: number; selected: boolean; label: string; onClick: () => void
+}) {
+  return (
+    <motion.button onClick={onClick} whileTap={{ scale: 0.93 }}
+      className={`flex items-center gap-2 px-3 py-2 rounded-xl border-[3px] transition-colors ${
+        selected ? 'border-text bg-white' : 'border-text/12 bg-white/60 hover:border-text/30'
+      }`}
+      style={{ boxShadow: selected ? '2px 2px 0 rgba(92,64,51,0.15)' : 'none' }}>
+      <span className="flex -space-x-1">
+        {def.offsets.map(o => {
+          const hh = ((hue + o) % 360 + 360) % 360
+          return <span key={o} className="w-3.5 h-3.5 rounded-full border-2 border-white" style={{ background: `hsl(${hh}, 62%, 52%)` }} />
+        })}
+      </span>
+      <span className={`text-[12px] font-extrabold ${selected ? 'text-text' : 'text-muted'}`}>{label}</span>
+    </motion.button>
+  )
+}
+
+// ================================================================
+//  Step ④ 汇总确认
+// ================================================================
+function StepConfirm({ wishText, qaHistory, styleNote, styleOverride, hue, scheme, isUpgrade, onLaunch }: {
+  wishText: string; qaHistory: QARecord[]; styleNote: string | null; styleOverride: string
+  hue: number | null; scheme: SchemeId; isUpgrade: boolean; onLaunch: () => void
+}) {
+  const { t } = useTranslation()
+  const details = qaHistory.map(qa => qa.answer).filter(a => a !== t('wish.decideAnswer'))
+  const hasVisual = !isUpgrade && (styleNote || styleOverride.trim() || hue !== null)
+
   return (
     <motion.div {...fadeSlide}>
       <div className="flex items-center gap-2 mb-4">
-        <Sparkles className="w-4 h-4 text-brand" strokeWidth={2.5} />
-        <p className="text-[14px] font-extrabold text-text">帮你确认几个细节</p>
+        <ClipboardList className="w-4 h-4 text-brand" strokeWidth={2.5} />
+        <p className="text-[14px] font-extrabold text-text">{t('wish.confirmTitle')}</p>
       </div>
-
-      <div className="flex flex-col gap-5">
-        {questions.map((q, qi) => (
-          <div key={qi}>
-            <p className="text-[13px] font-extrabold text-text mb-2">{q.text}</p>
-            <div className="flex flex-wrap gap-2">
-              {q.options.map(opt => (
-                <button key={opt}
-                  onClick={() => setAnswers({ ...answers, [qi]: opt })}
-                  className={`px-3.5 py-2 rounded-xl text-[13px] font-extrabold border-[3px] transition-all active:translate-y-0.5 ${
-                    answers[qi] === opt
-                      ? 'border-brand bg-brand text-white'
-                      : 'border-text/20 bg-white text-text hover:border-text/50'
-                  }`}
-                  style={{ boxShadow: answers[qi] === opt ? '3px 3px 0 rgba(217,83,79,0.2)' : '2px 2px 0 rgba(92,64,51,0.08)' }}>
-                  {opt}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex items-center gap-3 mt-6">
-        <button onClick={onSubmit} disabled={aiLoading}
-          className="flex items-center gap-2 px-5 py-3 bg-brand text-white rounded-2xl font-extrabold text-[14px] hover:bg-brand-hover active:translate-y-0.5 transition-all disabled:opacity-40 border-[3px] border-text"
-          style={{ boxShadow: '4px 4px 0 rgba(92,64,51,0.2)' }}>
-          {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" strokeWidth={2.5} />}
-          <span>{aiLoading ? '思考中…' : '确认'}</span>
-        </button>
-        <button onClick={onSkip}
-          className="px-4 py-3 rounded-2xl text-[13px] font-extrabold text-muted hover:text-text transition-colors">
-          你帮我决定就好
-        </button>
-      </div>
-    </motion.div>
-  )
-}
-
-// ================================================================
-//  Step ③ 风格选择
-// ================================================================
-function StepStyle({ selected, onSelect, onNext }: {
-  selected: string | null; onSelect: (id: string) => void; onNext: () => void
-}) {
-  return (
-    <motion.div {...fadeSlide}>
-      <p className="text-[14px] font-extrabold text-text mb-1">选个感觉</p>
-      <p className="text-[12px] font-bold text-muted mb-4">你的蛋想要什么视觉调性？</p>
-
-      <div className="grid grid-cols-2 gap-3">
-        {STYLE_OPTIONS.map(s => (
-          <button key={s.id} onClick={() => onSelect(s.id)}
-            className={`px-4 py-4 rounded-2xl border-[3px] text-left transition-all active:translate-y-0.5 ${
-              selected === s.id ? 'border-brand bg-white' : 'border-text/15 bg-white hover:border-text/40'
-            }`}
-            style={{ boxShadow: selected === s.id ? '4px 4px 0 rgba(217,83,79,0.18)' : '3px 3px 0 rgba(92,64,51,0.08)' }}>
-            <span className="text-2xl">{s.emoji}</span>
-            <p className="text-[14px] font-extrabold text-text mt-2">{s.label}</p>
-            <p className="text-[11px] font-bold text-muted mt-1 leading-relaxed">{s.desc}</p>
-          </button>
-        ))}
-      </div>
-
-      <button onClick={onNext}
-        className="mt-5 flex items-center gap-2 px-5 py-3 bg-brand text-white rounded-2xl font-extrabold text-[14px] hover:bg-brand-hover active:translate-y-0.5 transition-all border-[3px] border-text"
-        style={{ boxShadow: '4px 4px 0 rgba(92,64,51,0.2)' }}>
-        <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
-        <span>{selected ? '下一步' : '跳过，你帮我选'}</span>
-      </button>
-    </motion.div>
-  )
-}
-
-// ================================================================
-//  Step ④ 配色选择
-// ================================================================
-function StepColor({ selected, onSelect, onNext }: {
-  selected: string | null; onSelect: (id: string) => void; onNext: () => void
-}) {
-  return (
-    <motion.div {...fadeSlide}>
-      <p className="text-[14px] font-extrabold text-text mb-1">选个颜色</p>
-      <p className="text-[12px] font-bold text-muted mb-4">给你的蛋定个主色调</p>
-
-      <div className="grid grid-cols-3 gap-3">
-        {COLOR_PALETTES.map(p => (
-          <button key={p.id} onClick={() => onSelect(p.id)}
-            className={`px-3 py-3.5 rounded-2xl border-[3px] text-center transition-all active:translate-y-0.5 ${
-              selected === p.id ? 'border-brand bg-white' : 'border-text/15 bg-white hover:border-text/40'
-            }`}
-            style={{ boxShadow: selected === p.id ? '4px 4px 0 rgba(217,83,79,0.18)' : '3px 3px 0 rgba(92,64,51,0.08)' }}>
-            <div className="flex justify-center gap-1 mb-2">
-              {p.colors.map((c, i) => (
-                <div key={i} className="w-5 h-5 rounded-full border-2 border-text/20" style={{ background: c }} />
-              ))}
-            </div>
-            <p className="text-[12px] font-extrabold text-text">{p.label}</p>
-          </button>
-        ))}
-      </div>
-
-      <button onClick={onNext}
-        className="mt-5 flex items-center gap-2 px-5 py-3 bg-brand text-white rounded-2xl font-extrabold text-[14px] hover:bg-brand-hover active:translate-y-0.5 transition-all border-[3px] border-text"
-        style={{ boxShadow: '4px 4px 0 rgba(92,64,51,0.2)' }}>
-        <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
-        <span>{selected ? '下一步' : '跳过，你帮我选'}</span>
-      </button>
-    </motion.div>
-  )
-}
-
-// ================================================================
-//  Step ⑤ 汇总确认
-// ================================================================
-function StepConfirm({ wishText, qaHistory, styleId, colorId, isUpgrade, onLaunch }: {
-  wishText: string; qaHistory: QARecord[]; styleId: string | null; colorId: string | null
-  isUpgrade: boolean; onLaunch: () => void
-}) {
-  const style = STYLE_OPTIONS.find(s => s.id === styleId)
-  const palette = COLOR_PALETTES.find(c => c.id === colorId)
-  const details = qaHistory.map(qa => qa.answer).filter(a => a !== '由你决定')
-
-  return (
-    <motion.div {...fadeSlide}>
-      <p className="text-[14px] font-extrabold text-text mb-4">确认你的许愿单 📋</p>
 
       <div className="rounded-2xl border-[3px] border-text bg-white p-4 space-y-3"
         style={{ boxShadow: '4px 4px 0 rgba(92,64,51,0.12)' }}>
         {/* 核心需求 */}
         <div>
-          <p className="text-[11px] font-extrabold text-muted uppercase tracking-wide mb-1">需求</p>
+          <p className="text-[11px] font-extrabold text-muted uppercase tracking-wide mb-1">{t('wish.labelWish')}</p>
           <p className="text-[13px] font-bold text-text leading-relaxed">{wishText}</p>
         </div>
         {/* 细节 */}
         {details.length > 0 && (
           <div>
-            <p className="text-[11px] font-extrabold text-muted uppercase tracking-wide mb-1">细节</p>
+            <p className="text-[11px] font-extrabold text-muted uppercase tracking-wide mb-1">{t('wish.labelDetails')}</p>
             <div className="flex flex-wrap gap-1.5">
               {details.map((d, i) => (
                 <span key={i} className="px-2.5 py-1 rounded-lg bg-cream text-[12px] font-bold text-text border border-text/10">{d}</span>
@@ -462,25 +847,26 @@ function StepConfirm({ wishText, qaHistory, styleId, colorId, isUpgrade, onLaunc
           </div>
         )}
         {/* 风格 & 配色 */}
-        {!isUpgrade && (style || palette) && (
-          <div className="flex items-center gap-4">
-            {style && (
+        {hasVisual && (
+          <div className="space-y-2">
+            {(styleNote || styleOverride.trim()) && (
               <div>
-                <p className="text-[11px] font-extrabold text-muted uppercase tracking-wide mb-1">风格</p>
-                <p className="text-[13px] font-bold text-text">{style.emoji} {style.label}</p>
+                <p className="text-[11px] font-extrabold text-muted uppercase tracking-wide mb-1">{t('wish.labelStyle')}</p>
+                <p className="text-[13px] font-bold text-text leading-relaxed">
+                  {styleNote}{styleNote && styleOverride.trim() && '；'}{styleOverride.trim()}
+                </p>
               </div>
             )}
-            {palette && (
-              <div>
-                <p className="text-[11px] font-extrabold text-muted uppercase tracking-wide mb-1">配色</p>
-                <div className="flex items-center gap-1.5">
-                  <div className="flex gap-0.5">
-                    {palette.colors.map((c, i) => (
-                      <div key={i} className="w-4 h-4 rounded-full border border-text/20" style={{ background: c }} />
-                    ))}
-                  </div>
-                  <span className="text-[13px] font-bold text-text">{palette.label}</span>
-                </div>
+            {hue !== null && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-[11px] font-extrabold text-muted uppercase tracking-wide">{t('wish.labelPalette')}</p>
+                <span className="flex -space-x-1">
+                  {SCHEMES.find(s => s.id === scheme)!.offsets.map(o => {
+                    const hh = ((hue + o) % 360 + 360) % 360
+                    return <span key={o} className="inline-block w-4 h-4 rounded-full border-2 border-white" style={{ background: `hsl(${hh}, 62%, 52%)`, boxShadow: '0 1px 2px rgba(0,0,0,0.15)' }} />
+                  })}
+                </span>
+                <span className="text-[13px] font-bold text-text">{hslToHex(hue, 60, 50)} · {t(`wish.schemes.${scheme}`)}</span>
               </div>
             )}
           </div>
@@ -491,7 +877,7 @@ function StepConfirm({ wishText, qaHistory, styleId, colorId, isUpgrade, onLaunc
         className="mt-5 flex items-center gap-2 px-6 py-3.5 bg-brand text-white rounded-2xl font-extrabold text-[15px] hover:bg-brand-hover active:translate-y-0.5 transition-all border-[3px] border-text"
         style={{ boxShadow: '5px 5px 0 rgba(92,64,51,0.25)' }}>
         <Sparkles className="w-5 h-5" strokeWidth={2.5} />
-        <span>投币，开扭！</span>
+        <span>{t('wish.launch')}</span>
       </button>
     </motion.div>
   )
@@ -514,6 +900,7 @@ function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose 
   gacha: ReturnType<typeof getGachaState>; revealed: boolean; resultReady: boolean
   onOpen: () => void; onRetry: () => void; onClose: () => void
 }) {
+  const { t } = useTranslation()
   const feedEnd = useRef<HTMLDivElement>(null)
   useEffect(() => { feedEnd.current?.scrollIntoView({ behavior: 'smooth' }) }, [gacha.activities.length])
 
@@ -526,17 +913,17 @@ function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose 
             <Sparkles className="w-5 h-5 text-brand" strokeWidth={2.5} />
           </motion.div>
         ) : (
-          <span className="text-xl">🥚</span>
+          <Egg className="w-5 h-5 text-brand" strokeWidth={2.5} />
         )}
         <div className="min-w-0">
           <p className="text-[15px] font-extrabold text-text leading-tight">
-            {gacha.running ? progressLabel(gacha.stage) : resultReady ? '蛋扭好了！' : ''}
+            {gacha.running ? progressLabel(gacha.stage, t) : resultReady ? t('progress.done') : ''}
           </p>
           {gacha.running && gacha.detail && (
-            <p className="text-[12px] font-bold text-muted truncate mt-0.5">{gacha.detail}</p>
+            <p className="text-[12px] font-bold text-muted truncate mt-0.5">{tr(t, gacha.detail)}</p>
           )}
           {resultReady && (
-            <p className="text-[12px] font-bold text-muted mt-0.5">转动左侧旋钮，看看扭出了什么</p>
+            <p className="text-[12px] font-bold text-muted mt-0.5">{t('progress.turnKnob')}</p>
           )}
         </div>
       </div>
@@ -548,7 +935,7 @@ function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose 
             {gacha.activities.length === 0 && gacha.running && (
               <div className="flex items-center gap-2 py-2">
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-muted" />
-                <span className="text-[12px] font-bold text-muted">机芯启动中…</span>
+                <span className="text-[12px] font-bold text-muted">{t('progress.starting')}</span>
               </div>
             )}
             {gacha.activities.map((a, i) => {
@@ -562,7 +949,7 @@ function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose 
                   <p className={`text-[12px] leading-relaxed font-bold min-w-0 ${
                     a.type === 'think' ? 'text-muted italic' : 'text-text'
                   }`}>
-                    {a.type === 'think' ? a.text : a.text}
+                    {tr(t, a.text)}
                   </p>
                 </motion.div>
               )
@@ -592,24 +979,25 @@ function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose 
 function ResultCard({ result, onOpen, onRetry, onClose }: {
   result: GachaResult; onOpen: () => void; onRetry: () => void; onClose: () => void
 }) {
+  const { t } = useTranslation()
   const ok = result.ok
   return (
     <div className="bg-white rounded-2xl overflow-hidden border-[4px] border-text"
       style={{ boxShadow: '5px 5px 0 rgba(92,64,51,0.18)', borderLeft: ok ? '6px solid #5ac08a' : '6px solid #f0c040' }}>
       <div className="px-5 py-4">
         <p className="text-[15px] font-extrabold text-text">
-          {ok ? (result.upgraded ? `咔哒！「${result.name}」升级完成` : `咔哒！「${result.name}」出蛋了`)
-              : (result.upgraded ? '这次升级没成…' : '这次没扭出好蛋…')}
+          {ok ? (result.upgraded ? t('result.okUpgraded', { name: result.name }) : t('result.ok', { name: result.name }))
+              : (result.upgraded ? t('result.failUpgraded') : t('result.fail'))}
         </p>
         <p className="text-[13px] font-bold text-muted mt-1.5">
-          {ok ? (result.upgraded ? '数据完好，代码焕然一新' : '已放进你的收藏柜')
-              : `${result.error ?? ''}${result.upgraded ? '（蛋还是原来的样子）' : ''}`}
+          {ok ? (result.upgraded ? t('result.okUpgradedHint') : t('result.okHint'))
+              : `${tr(t, result.error)}${result.upgraded ? t('result.failUpgradedHint') : ''}`}
         </p>
       </div>
       <div className="flex gap-2 px-5 py-3">
-        {ok && result.eggId && <Btn primary onClick={onOpen}>打开看看</Btn>}
-        {!ok && <Btn primary onClick={onRetry}>再来一发</Btn>}
-        <Btn onClick={onClose}>好的</Btn>
+        {ok && result.eggId && <Btn primary onClick={onOpen}>{t('result.open')}</Btn>}
+        {!ok && <Btn primary onClick={onRetry}>{t('result.retry')}</Btn>}
+        <Btn onClick={onClose}>{t('result.okBtn')}</Btn>
       </div>
     </div>
   )
@@ -629,14 +1017,14 @@ function Btn({ children, primary, onClick }: { children: React.ReactNode; primar
   )
 }
 
-function progressLabel(s: GachaProgress['stage'] | null): string {
+function progressLabel(s: GachaProgress['stage'] | null, t: (key: string) => string): string {
   switch (s) {
-    case 'coin': return '投币成功，机芯启动…'
-    case 'crank': return '旋钮转动，机芯正在构思…'
-    case 'clack': return '机芯咔咔作响，代码生成中…'
-    case 'pop': return '咔哒！蛋已扭好'
-    case 'fail': return '这次没扭出好蛋'
-    default: return '扭蛋中…'
+    case 'coin': return t('progress.coin')
+    case 'crank': return t('progress.crank')
+    case 'clack': return t('progress.clack')
+    case 'pop': return t('progress.pop')
+    case 'fail': return t('progress.fail')
+    default: return t('progress.default')
   }
 }
 

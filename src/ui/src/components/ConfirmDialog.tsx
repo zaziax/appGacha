@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { AlertTriangle } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 
 interface Props {
   title: string
@@ -12,7 +13,8 @@ interface Props {
 }
 
 /** GACHAGO 风格确认弹窗，替代原生 confirm() */
-export function ConfirmDialog({ title, message, confirmText = '确认', cancelText = '取消', danger = false, onConfirm, onCancel }: Props) {
+export function ConfirmDialog({ title, message, confirmText, cancelText, danger = false, onConfirm, onCancel }: Props) {
+  const { t } = useTranslation()
   const confirmRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -43,12 +45,12 @@ export function ConfirmDialog({ title, message, confirmText = '确认', cancelTe
           <button onClick={onCancel}
             className="px-4 py-2.5 rounded-xl border-[3px] border-text bg-white text-text text-[13px] font-extrabold hover:bg-cream active:translate-y-0.5 transition-all"
             style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.15)' }}>
-            {cancelText}
+            {cancelText ?? t('confirm.cancel')}
           </button>
           <button ref={confirmRef} onClick={onConfirm}
             className={`px-4 py-2.5 rounded-xl border-[3px] border-text text-[13px] font-extrabold text-white active:translate-y-0.5 transition-all ${danger ? 'bg-red-500 hover:bg-red-600' : 'bg-brand hover:bg-brand-hover'}`}
             style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.2)' }}>
-            {confirmText}
+            {confirmText ?? t('confirm.ok')}
           </button>
         </div>
       </div>
