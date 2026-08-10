@@ -1,8 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { motion, AnimatePresence } from 'motion/react'
-import { ChevronDown } from 'lucide-react'
-import { useTranslation } from 'react-i18next'
 import type { GachaProgress } from '../shelf'
 import { sfx } from '../sound'
 import { ShowcaseBalls, RevealCeremony } from './GachaShowcase3D'
@@ -52,7 +50,6 @@ const HARD_SHADOW = '7px 7px 0 rgba(92,64,51,0.16)'
 const HARD_SHADOW_SM = '3px 3px 0 rgba(92,64,51,0.18)'
 
 export function GachaMachineV5({ stage, running, resultReady, onReveal, mood = 'idle', icon }: Props) {
-  const { t } = useTranslation()
   const agitatedRef = useRef(false)
   const knobRef = useRef<HTMLDivElement>(null)
   const knobAngle = useRef(0)
@@ -208,17 +205,45 @@ export function GachaMachineV5({ stage, running, resultReady, onReveal, mood = '
             </AnimatePresence>
           </div>
 
-          {/* ======== 真旋钮（奶油盘 + 墨握把 + 红毂 + 方向点） ======== */}
+          {/* ======== 真旋钮 —— 任天堂式引导：扩散波纹 + 白细环 + 镜面高光 + 精致抖动 ======== */}
           <div className="absolute left-[78px] top-[226px] z-20">
+            {/* 扩散波纹：从旋钮中心向外扩散的同心圆环，像水面涟漪把视线「吸」向圆心 */}
+            {resultReady && !revealing && (
+              <div className="absolute pointer-events-none z-[15]" style={{ left: 34, top: 34 }}>
+                {[0, 1, 2].map(i => (
+                  <motion.div
+                    key={i}
+                    className="absolute rounded-full border-[1.5px] border-white/50"
+                    style={{ width: 68, height: 68, marginLeft: -34, marginTop: -34 }}
+                    animate={{ scale: [1, 3.8], opacity: [0.5, 0] }}
+                    transition={{ duration: 2.4, repeat: Infinity, delay: i * 0.75, ease: 'easeOut' }}
+                  />
+                ))}
+              </div>
+            )}
+
             <motion.div
-              animate={resultReady && !revealing ? { rotate: [0, -10, 10, -6, 6, 0] } : { rotate: 0 }}
-              transition={{ duration: 1.1, repeat: resultReady ? Infinity : 0, repeatDelay: 1, ease: 'easeInOut' }}
+              animate={resultReady && !revealing ? {
+                rotate: [0, -7, 6, -4, 3, -1, 0],
+                scale: [1, 1, 1.03, 1, 1.02, 1, 1],
+              } : { rotate: 0, scale: 1 }}
+              transition={{ duration: 1.8, repeat: resultReady ? Infinity : 0, repeatDelay: 1.8, ease: 'easeInOut' }}
             >
+              {/* 聚焦环：白色细环呼吸透明度（荒野之息 Sheikah 锁定风格） */}
+              {resultReady && !revealing && (
+                <motion.div
+                  className="absolute -inset-[5px] rounded-full pointer-events-none border-[2px] border-white/70"
+                  animate={{ opacity: [0.2, 0.65, 0.2] }}
+                  transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
+                />
+              )}
+
               {/* 12 点刻度（固定，给握把一个"目标"） */}
               <div className="absolute -top-[7px] left-1/2 -translate-x-1/2 w-[6px] h-[10px] rounded-full z-10"
                 style={{ background: INK }} />
+
               <div
-                className={`relative w-[68px] h-[68px] rounded-full border-4 border-text cursor-pointer flex items-center justify-center ${resultReady ? 'ring-4 ring-[#FFC21A]/80' : ''}`}
+                className="relative w-[68px] h-[68px] rounded-full border-4 border-text cursor-pointer flex items-center justify-center"
                 style={{ background: PAPER, boxShadow: '3px 4px 0 rgba(92,64,51,0.20)' }}
                 onClick={handleKnob}
               >
@@ -230,8 +255,38 @@ export function GachaMachineV5({ stage, running, resultReady, onReveal, mood = '
                   <div className="w-[22px] h-[22px] rounded-full border-[3.5px] border-text z-[2]"
                     style={{ background: RED }} />
                 </div>
+
+                {/* 镜面高光扫过：白色光条从左到右滑过旋钮表面（塞尔达宝箱式"可交互"暗示） */}
+                {resultReady && !revealing && (
+                  <div className="absolute inset-0 rounded-full overflow-hidden pointer-events-none z-10">
+                    <motion.div
+                      className="absolute w-8 h-2.5 bg-white/55 rounded-full blur-[1.5px]"
+                      animate={{
+                        left: ['-22%', '108%'],
+                        top: ['22%', '22%'],
+                        opacity: [0, 0.5, 0],
+                      }}
+                      transition={{
+                        duration: 2.6,
+                        repeat: Infinity,
+                        repeatDelay: 0.9,
+                        ease: 'easeInOut',
+                        times: [0, 0.5, 1],
+                      }}
+                    />
+                  </div>
+                )}
               </div>
             </motion.div>
+
+            {/* 旋钮旁白色小星光（动森式"注意这里"粒子） */}
+            {resultReady && !revealing && (
+              <>
+                <Sparkle color="white" x={-6} y={-2} size={7} delay={0.3} />
+                <Sparkle color="white" x={66} y={8} size={5} delay={1.1} />
+                <Sparkle color="white" x={10} y={64} size={6} delay={0.8} />
+              </>
+            )}
           </div>
 
           {/* ======== 品牌小牌（填补控制区与取蛋口之间的红留白） ======== */}
@@ -283,20 +338,6 @@ export function GachaMachineV5({ stage, running, resultReady, onReveal, mood = '
         </div>
       </motion.div>
 
-      {/* ======== 游戏提示 ======== */}
-      <div className="flex flex-col items-center gap-0.5 h-[34px] justify-end">
-        <AnimatePresence>
-          {resultReady && !revealing && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, y: [0, 4, 0] }} exit={{ opacity: 0 }}
-              transition={{ y: { repeat: Infinity, duration: 0.65, ease: 'easeInOut' } }}>
-              <ChevronDown className="w-4 h-4 text-brand" strokeWidth={3.5} />
-            </motion.div>
-          )}
-        </AnimatePresence>
-        <p className={`text-xs font-extrabold tracking-wide transition-colors ${resultReady ? 'text-brand' : 'text-muted/60'}`}>
-          {resultReady ? t('machine.resultReady') : revealing ? t('machine.revealing') : running ? t('machine.running') : t('machine.idle')}
-        </p>
-      </div>
 
       {/* ======== 全屏开奖仪式（复用 V4） ======== */}
       <AnimatePresence>
@@ -318,7 +359,7 @@ export function GachaMachineV5({ stage, running, resultReady, onReveal, mood = '
    小部件：平色星光 / 平色扭蛋壳
    ================================================================ */
 
-function Sparkle({ x, y, size, delay }: { x: number; y: number; size: number; delay: number }) {
+function Sparkle({ x, y, size, delay, color = YELL }: { x: number; y: number; size: number; delay: number; color?: string }) {
   return (
     <motion.div className="absolute pointer-events-none z-40" style={{ left: x, top: y, width: size, height: size }}
       initial={{ scale: 0, opacity: 0 }}
@@ -326,7 +367,7 @@ function Sparkle({ x, y, size, delay }: { x: number; y: number; size: number; de
       transition={{ duration: 1.3, delay, repeat: Infinity, repeatDelay: 0.7, ease: 'easeInOut' }}>
       <div className="w-full h-full" style={{
         clipPath: 'polygon(50% 0%, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0% 50%, 38% 38%)',
-        background: YELL
+        background: color
       }} />
     </motion.div>
   )

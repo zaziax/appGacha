@@ -958,7 +958,7 @@ function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose 
             <p className="text-[11px] font-bold text-muted/60 mt-0.5">{fmtElapsed(elapsed)}</p>
           )}
           {resultReady && (
-            <p className="text-[12px] font-bold text-muted mt-0.5">{t('progress.turnKnob')}</p>
+            <p className="text-[12px] font-bold text-brand mt-0.5">{t('progress.turnKnob')}</p>
           )}
         </div>
         {/* 取消按钮 */}
