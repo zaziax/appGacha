@@ -1,5 +1,5 @@
 import { EggContext } from '../eggs'
-import { resolveAiEndpoint, chatCompletionFetch, throwForProxyStatus } from '../aiChannel'
+import { resolveAiEndpoint, chatCompletionFetch, throwForProxyStatus, parseSseContent } from '../aiChannel'
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -73,9 +73,20 @@ async function completions(body: Record<string, unknown>): Promise<string> {
     const text = (await res.text().catch(() => '')).slice(0, 300)
     throw new Error(`AI_HTTP_${res.status}: ${text}`)
   }
-  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] }
-  const content = data.choices?.[0]?.message?.content
-  if (typeof content !== 'string') throw new Error('AI_BAD_RESPONSE: 响应里没有 choices[0].message.content')
+  // 先取原文再判断格式（代理可能无视 Content-Type 返回 SSE）
+  const rawText = await res.text()
+  const ct = res.headers.get('content-type') || ''
+  let content: string
+  if (ct.includes('text/event-stream') || ct.includes('application/x-ndjson') || rawText.startsWith('data:')) {
+    content = parseSseContent(rawText)
+  } else {
+    try {
+      content = (JSON.parse(rawText) as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ?? ''
+    } catch {
+      content = parseSseContent(rawText)
+    }
+  }
+  if (typeof content !== 'string' || content.length === 0) throw new Error('AI_BAD_RESPONSE: 响应里没有 choices[0].message.content')
   return content
 }
 

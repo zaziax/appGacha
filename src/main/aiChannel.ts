@@ -104,6 +104,26 @@ export async function chatCompletionFetch(
   })
 }
 
+/** 解析 SSE 格式的 AI 响应：逐行读 "data: <json>"，拼接所有 content 片段 */
+export function parseSseContent(raw: string): string {
+  const parts: string[] = []
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith(':')) continue
+    if (!trimmed.startsWith('data:')) continue
+    const json = trimmed.slice(5).trim()
+    if (json === '[DONE]') break
+    try {
+      const obj = JSON.parse(json) as { choices?: { delta?: { content?: string }; message?: { content?: string } }[] }
+      for (const c of obj.choices ?? []) {
+        const text = c.delta?.content ?? c.message?.content ?? ''
+        if (text) parts.push(text)
+      }
+    } catch { /* 跳过无法解析的行 */ }
+  }
+  return parts.join('')
+}
+
 /** 把通道错误翻译成用户可读异常（非流式调用点通用） */
 export async function throwForProxyStatus(res: Response): Promise<void> {
   if (res.status !== 402 && res.status !== 503) return

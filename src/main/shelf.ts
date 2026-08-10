@@ -19,7 +19,7 @@ import { buildWishGuideSystem, buildWishSuggestPrompt, type WishGuideContext } f
 import type { IpcText } from './fcDriver'
 import { startLogin, logout, getAuthStatus, sendEmailCode, verifyEmailCode, loginWithPassword, setPassword, resetPassword, openWebPage } from './auth'
 import { checkHealth, apiFetch } from './api'
-import { resolveAiEndpoint, chatCompletionFetch, throwForProxyStatus, AiNotConfiguredError, AiProxyError } from './aiChannel'
+import { resolveAiEndpoint, chatCompletionFetch, throwForProxyStatus, AiNotConfiguredError, AiProxyError, parseSseContent } from './aiChannel'
 import { randomUUID } from 'node:crypto'
 import { listCloudEggs, syncEgg, downloadEgg, deleteCloudEgg, setSyncEnabled } from './sync'
 import { initAutoUpdater, stopAutoUpdater, checkForUpdatesNow, installUpdateNow, getCurrentUpdateStatus } from './updater'
@@ -36,25 +36,6 @@ function proxyErrText(e: unknown): string | null {
   return null
 }
 
-/** 解析 SSE 格式的 AI 响应：逐行读 "data: <json>"，拼接所有 content 片段 */
-function parseSseContent(raw: string): string {
-  const parts: string[] = []
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith(':')) continue
-    if (!trimmed.startsWith('data:')) continue
-    const json = trimmed.slice(5).trim()
-    if (json === '[DONE]') break
-    try {
-      const obj = JSON.parse(json) as { choices?: { delta?: { content?: string }; message?: { content?: string } }[] }
-      for (const c of obj.choices ?? []) {
-        const text = c.delta?.content ?? c.message?.content ?? ''
-        if (text) parts.push(text)
-      }
-    } catch { /* 跳过无法解析的行 */ }
-  }
-  return parts.join('')
-}
 
 async function wishChatAi(messages: { role: string; content: string }[], systemPrompt: string): Promise<WishChatResult> {
   const endpoint = await resolveAiEndpoint()
@@ -481,8 +462,18 @@ export function registerShelfChannels(): void {
         max_tokens: 200
       }, { signal: controller.signal, timeout: 20_000 })
       if (!res.ok) throw new Error(`AI HTTP ${res.status}`)
-      const data = (await res.json()) as { choices?: { message?: { content?: string } }[] }
-      const content = data.choices?.[0]?.message?.content ?? ''
+      const rawText = await res.text()
+      const ct = res.headers.get('content-type') || ''
+      let content: string
+      if (ct.includes('text/event-stream') || ct.includes('application/x-ndjson') || rawText.startsWith('data:')) {
+        content = parseSseContent(rawText)
+      } else {
+        try {
+          content = (JSON.parse(rawText) as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ?? ''
+        } catch {
+          content = parseSseContent(rawText)
+        }
+      }
       const parsed = JSON.parse(content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')) as { suggestions?: string[] }
       return { suggestions: (parsed.suggestions ?? []).slice(0, 3).map(String) }
     } catch (e) {
