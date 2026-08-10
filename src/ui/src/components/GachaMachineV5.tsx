@@ -5,7 +5,7 @@ import { ChevronDown } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { GachaProgress } from '../shelf'
 import { sfx } from '../sound'
-import { ShowcaseBalls, RevealCeremony } from './GachaMachine3D'
+import { ShowcaseBalls, RevealCeremony } from './GachaShowcase3D'
 
 /* ================================================================
    V5 扭蛋机 —— 第五版（A/B/C/D/E 对比用，勿覆盖 GachaMachine3D）。
