@@ -9,6 +9,7 @@ import { copyDir } from './fsutil'
 import { testEgg } from './test'
 import { runFcDriver, DriverResult, ActivityType, IpcText } from './fcDriver'
 import { logLine } from './log'
+import { generateEggDoc } from './eggDoc'
 
 export const PIPELINE_VERSION = '0.1'
 const CHECKPOINT_VERSION = 1
@@ -195,6 +196,12 @@ export async function runGacha(
     await safeRename(stagingDir, dest)
     const ctx = registerEgg(dest)
     logLine('[pipeline] runGacha registered:', { eggId: ctx.eggId, name: manifest.name, dest })
+    // 生成结构快照，供未来升级时 AI 快速理解蛋的代码结构
+    try {
+      const doc = generateEggDoc(dest)
+      fs.writeFileSync(path.join(dest, 'EGGDOC.md'), doc, 'utf-8')
+      logLine('[pipeline] runGacha EGGDOC written:', { dest, bytes: doc.length })
+    } catch (e) { logLine('[pipeline] runGacha EGGDOC failed:', (e as Error).message) }
     onProgress({ stage: 'pop', detail: { key: 'pipe.pop', params: { name: manifest.name } } })
     return { ok: true, eggId: ctx.eggId, name: manifest.name, icon: readIconSvg(dest) }
   } catch (e) {
@@ -281,6 +288,10 @@ export async function resumeGacha(
         }
         fs.rmSync(stagingDir, { recursive: true, force: true })
         egg.manifest = loadManifest(egg.dir)
+        try {
+          const doc = generateEggDoc(egg.dir)
+          fs.writeFileSync(path.join(egg.dir, 'EGGDOC.md'), doc, 'utf-8')
+        } catch (e) { logLine('[pipeline] resumeGacha(upgrade) EGGDOC failed:', (e as Error).message) }
         onProgress({ stage: 'pop', detail: { key: 'pipe.popUpgraded', params: { name: egg.manifest.name } } })
         return { ok: true, eggId: cp.realEggId!, name: egg.manifest.name, icon: readIconSvg(egg.dir) }
       }
@@ -293,6 +304,10 @@ export async function resumeGacha(
     fs.mkdirSync(dataRoot('eggs'), { recursive: true })
     await safeRename(stagingDir, dest)
     const ctx = registerEgg(dest)
+    try {
+      const doc = generateEggDoc(dest)
+      fs.writeFileSync(path.join(dest, 'EGGDOC.md'), doc, 'utf-8')
+    } catch (e) { logLine('[pipeline] resumeGacha EGGDOC failed:', (e as Error).message) }
     onProgress({ stage: 'pop', detail: { key: 'pipe.pop', params: { name: manifest.name } } })
     return { ok: true, eggId: ctx.eggId, name: manifest.name, icon: readIconSvg(dest) }
   } catch (e) {
@@ -354,6 +369,26 @@ export async function runUpgrade(
     // ② 旋钮转动：增量进化（驱动自检走的是"无数据全新安装"路径）
     onProgress({ stage: 'crank', detail: { key: 'pipe.crankUpgrade' } })
     if (signal.aborted) return cancelledResult(onProgress)
+    // 读取蛋的结构快照，供 AI 快速理解代码结构
+    let eggDoc = ''
+    const eggDocPath = path.join(egg.dir, 'EGGDOC.md')
+    if (fs.existsSync(eggDocPath)) {
+      eggDoc = fs.readFileSync(eggDocPath, 'utf-8')
+    } else {
+      // 旧蛋回退：简单文件列表
+      const listDir = (d: string, prefix = ''): string[] => {
+        const out: string[] = []
+        for (const e of fs.readdirSync(path.join(d, prefix), { withFileTypes: true })) {
+          if (e.name.startsWith('.') || e.name === 'data') continue
+          const rel = prefix ? `${prefix}/${e.name}` : e.name
+          if (e.isDirectory()) out.push(...listDir(d, rel))
+          else out.push(rel)
+        }
+        return out
+      }
+      eggDoc = `# 蛋结构快照\n\n（旧蛋，无结构快照。文件列表如下：）\n\n${listDir(egg.dir).join('\n')}`
+    }
+    logLine('[pipeline] runUpgrade eggDoc:', { eggId, bytes: eggDoc.length })
     const result = await driver({
       wish: upgradeWish,
       stagingDir,
@@ -361,6 +396,7 @@ export async function runUpgrade(
       maxRounds: MAX_ROUNDS,
       lang,
       upgrade: { baseWish: egg.manifest.wish ?? '（未留档）' },
+      eggDoc,
       signal,
       onStage: (stage, detail) => onProgress({ stage: stage === 'clack' ? 'clack' : 'crank', detail }),
       onActivity: (type, text, id) => onProgress({ stage: 'crank', activity: { type, text, id } }),
@@ -430,6 +466,12 @@ export async function runUpgrade(
     fs.rmSync(stagingDir, { recursive: true, force: true })
     logLine('[pipeline] runUpgrade done:', { eggId, name: egg.manifest.name })
     egg.manifest = loadManifest(egg.dir)
+    // 重新生成结构快照（代码已变更、函数/CSS/DB 等结构可能已变）
+    try {
+      const doc = generateEggDoc(egg.dir)
+      fs.writeFileSync(path.join(egg.dir, 'EGGDOC.md'), doc, 'utf-8')
+      logLine('[pipeline] runUpgrade EGGDOC updated:', { eggId, bytes: doc.length })
+    } catch (e) { logLine('[pipeline] runUpgrade EGGDOC failed:', (e as Error).message) }
     onProgress({ stage: 'pop', detail: { key: 'pipe.popUpgraded', params: { name: egg.manifest.name } } })
     return { ok: true, eggId, name: egg.manifest.name, icon: readIconSvg(egg.dir) }
   } catch (e) {
