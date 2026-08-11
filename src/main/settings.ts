@@ -1,6 +1,7 @@
 import { app, safeStorage } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
+import { makeError, ErrorCode } from '../shared/types'
 
 export interface AiSettings {
   baseURL: string
@@ -255,10 +256,10 @@ export function saveCategory(c: { id?: string; name: string }): EggCategory {
   const f = readFile()
   if (!f.categories) f.categories = []
   const name = c.name.trim()
-  if (!name) throw new Error('分类名不能为空')
+  if (!name) throw new Error(makeError(ErrorCode.CATEGORY_NAME_EMPTY, '分类名不能为空'))
   if (c.id) {
     const existing = f.categories.find(x => x.id === c.id)
-    if (!existing) throw new Error('分类不存在')
+    if (!existing) throw new Error(makeError(ErrorCode.CATEGORY_NOT_FOUND, '分类不存在'))
     existing.name = name
     writeFile(f)
     return existing

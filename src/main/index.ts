@@ -171,7 +171,30 @@ app.whenReady().then(async () => {
   }
 })
 
-// P3 托盘常驻：关窗口 ≠ 退出，只有托盘菜单“退出”才真正 quit
+// 渲染进程崩溃：自动重载（三次内），超过则放弃避免死循环
+const rendererCrashCount = new Map<number, { count: number; firstAt: number }>()
+app.on('render-process-gone', (_event, webContents, details) => {
+  const id = webContents.id
+  const now = Date.now()
+  const record = rendererCrashCount.get(id)
+  // 5 分钟内崩溃 3 次 → 放弃自动恢复
+  if (record && now - record.firstAt < 300_000 && record.count >= 3) {
+    console.error(`[appgacha] renderer ${id} crashed ${record.count} times in 5 min — giving up`)
+    return
+  }
+  if (!record || now - record.firstAt >= 300_000) {
+    rendererCrashCount.set(id, { count: 1, firstAt: now })
+  } else {
+    record.count++
+  }
+  console.warn(`[appgacha] renderer ${id} crashed (${details.reason}), reloading (attempt ${record?.count ?? 1}/3)`)
+  // 稍微等一下让系统喘口气
+  setTimeout(() => {
+    if (!webContents.isDestroyed()) webContents.reload()
+  }, 500)
+})
+
+// P3 托盘常驻：关窗口 ≠ 退出，只有托盘菜单”退出”才真正 quit
 app.on('window-all-closed', () => {
   if (isSmoke) return
   const { minimizeToTray } = getAppSettings()

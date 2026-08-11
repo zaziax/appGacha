@@ -33,7 +33,7 @@ const clampSize = (v: number | undefined, fallback: number): number =>
 // 收藏柜点击入口：已开的蛋聚焦，未开的创建
 export function openEgg(egg: EggContext): BrowserWindow {
   // 后台拉取最新版本（不阻塞窗口打开）
-  syncEgg(egg.eggId).catch(() => {})
+  syncEgg(egg.eggId).catch(e => console.error('[eggWindow] sync on open failed:', (e as Error).message))
 
   const existing = openWindows.get(egg.eggId)
   if (existing && !existing.isDestroyed()) {
@@ -110,7 +110,7 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
     // P2：蛋窗口关闭 → 清理其房间（host 解散 / joiner 离开）
     onEggClosed(egg.eggId)
     // 后台推送本地改动到云端
-    syncEgg(egg.eggId).catch(() => {})
+    syncEgg(egg.eggId).catch(e => console.error('[eggWindow] sync on close failed:', (e as Error).message))
   })
 
   // R4: 蛋不能创建窗口

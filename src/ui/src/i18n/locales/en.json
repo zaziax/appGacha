@@ -340,7 +340,10 @@
     "checksFailed": "Still failing after {{n}} self-check rounds. Last issues:\n{{report}}",
     "maxTurns": "Unfinished after max turns ({{n}})",
     "migrateFailed": "Upgraded code failed the old-data test run: {{detail}}",
-    "unexpected": "Unexpected movement failure"
+    "unexpected": "Unexpected movement failure",
+    "categoryNameEmpty": "Category name cannot be empty",
+    "categoryNotFound": "Category not found",
+    "syncProRequired": "Cloud sync requires a Pro plan — upgrade in the account panel"
   },
   "notify": {
     "createdTitle": "Click! New egg ◓",
@@ -372,5 +375,12 @@
     "pastDue": "Payment failed",
     "logout": "Sign out",
     "loadFailed": "Failed to load"
+  },
+  "errorBoundary": {
+    "title": "Something went wrong",
+    "hint": "This part of the interface hit an unexpected error. Don't worry — your eggs and data are safe.",
+    "details": "Technical details",
+    "retry": "Retry",
+    "reload": "Reload page"
   }
 }

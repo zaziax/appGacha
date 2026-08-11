@@ -9,6 +9,7 @@
 import { app, net } from 'electron'
 import { getAccessToken, getRefreshToken, updateTokens, logout } from './auth'
 import { logLine } from './log'
+import { makeError, ErrorCode } from '../shared/types'
 
 // API 地址：开发 → localhost，打包 → 线上
 // 注意：不在模块顶层访问 app.isPackaged —— Electron 37 在模块初始化时 app 可能未就绪
@@ -94,7 +95,9 @@ export async function apiFetch<T = unknown>(path: string, opts: ApiOptions = {})
     const data = await res.json() as T
     return { ok: true, status: res.status, data }
   } catch (e) {
-    const msg = (e as Error).name === 'AbortError' ? '请求超时' : (e as Error).message
+    const msg = (e as Error).name === 'AbortError'
+      ? makeError(ErrorCode.TIMEOUT, '请求超时')
+      : (e as Error).message
     logLine('[api] fetch error:', path, msg)
     return { ok: false, status: 0, error: msg }
   }

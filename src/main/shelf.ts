@@ -21,6 +21,7 @@ import { startLogin, logout, getAuthStatus, sendEmailCode, verifyEmailCode, logi
 import { checkHealth, apiFetch } from './api'
 import { resolveAiEndpoint, chatCompletionFetch, throwForProxyStatus, AiNotConfiguredError, AiProxyError, parseSseContent } from './aiChannel'
 import { randomUUID } from 'node:crypto'
+import { makeError, ErrorCode } from '../shared/types'
 import { listCloudEggs, syncEgg, downloadEgg, deleteCloudEgg, setSyncEnabled } from './sync'
 import { initAutoUpdater, stopAutoUpdater, checkForUpdatesNow, installUpdateNow, getCurrentUpdateStatus } from './updater'
 
@@ -31,8 +32,8 @@ interface WishChatResult { done: boolean; questions: WishQuestion[]; styleNote?:
 
 /** 把平台通道错误翻成用户可读文案（许愿链路） */
 function proxyErrText(e: unknown): string | null {
-  if (e instanceof AiProxyError && e.insufficientCredits) return '积分不足，请先充值'
-  if (e instanceof AiProxyError) return '平台 AI 通道暂不可用'
+  if (e instanceof AiProxyError && e.insufficientCredits) return makeError(ErrorCode.INSUFFICIENT_CREDITS, '积分不足，请先充值')
+  if (e instanceof AiProxyError) return makeError(ErrorCode.PROXY_UNAVAILABLE, '平台 AI 通道暂不可用')
   return null
 }
 
@@ -393,7 +394,7 @@ export function registerShelfChannels(): void {
   })
 
   handle('shelf:wish', async (wish, lang) => {
-    if (isGachaBusy()) throw new Error('机芯正忙，请等上一颗蛋出来')
+    if (isGachaBusy()) throw new Error(makeError(ErrorCode.BUSY, '机芯正忙，请等上一颗蛋出来'))
     const l = lang === 'en' ? 'en' : 'zh'
     // 不 await：扭蛋过程通过 gacha:progress 事件流式上报，完成事件里带结果
     launchGacha(runGacha(String(wish ?? ''), l, reportProgress), false)
@@ -401,7 +402,7 @@ export function registerShelfChannels(): void {
   })
 
   handle('shelf:upgrade', async (eggId, wish, lang) => {
-    if (isGachaBusy()) throw new Error('机芯正忙，请等上一颗蛋出来')
+    if (isGachaBusy()) throw new Error(makeError(ErrorCode.BUSY, '机芯正忙，请等上一颗蛋出来'))
     const l = lang === 'en' ? 'en' : 'zh'
     launchGacha(runUpgrade(String(eggId), String(wish ?? ''), l, reportProgress), true)
     return { started: true }
@@ -516,7 +517,7 @@ export function registerShelfChannels(): void {
       if (res.status === 401) throw new Error('未登录 AppGacha 账号，请先登录')
       if (!res.ok) throw new Error(`平台服务不可用（HTTP ${res.status}）`)
       const data = await res.json() as { enabled?: boolean; default_model?: string }
-      if (!data.enabled) throw new Error('平台 AI 通道未启用，请联系管理员')
+      if (!data.enabled) throw new Error(makeError(ErrorCode.PROXY_UNAVAILABLE, '平台 AI 通道未启用，请联系管理员'))
       if (!data.default_model) throw new Error('平台未配置默认模型')
       return { models: [data.default_model] }
     }
@@ -603,7 +604,7 @@ export function registerShelfChannels(): void {
 
   handle('shelf:saveCategory', (c) => {
     const v = c as { id?: string; name?: string }
-    if (!v?.name?.trim()) throw new Error('分类名不能为空')
+    if (!v?.name?.trim()) throw new Error(makeError(ErrorCode.CATEGORY_NAME_EMPTY, '分类名不能为空'))
     return saveCategory({ id: v.id, name: v.name })
   })
 

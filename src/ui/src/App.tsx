@@ -15,6 +15,7 @@ import { SettingsDialog } from './components/SettingsDialog'
 import { ClosePromptDialog } from './components/ClosePromptDialog'
 import { UpdateDialog } from './components/UpdateDialog'
 import { ConfirmDialog } from './components/ConfirmDialog'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { ShelfToolbar, SortMode } from './components/ShelfToolbar'
 import { Toast, useToast } from './components/Toast'
 import { sfx, setSoundEnabled } from './sound'
@@ -71,12 +72,12 @@ export default function App() {
             const enabled = (b.plan?.storage_quota_bytes ?? 0) > 0
             setHasSyncAccess(enabled)
             shelf.setSyncEnabled(enabled)
-          }).catch(() => { setHasSyncAccess(false); shelf.setSyncEnabled(false) })
+          }).catch((err) => { console.error('[App] billingSummary failed:', (err as Error).message); setHasSyncAccess(false); shelf.setSyncEnabled(false) })
         } else {
           setHasSyncAccess(false)
           shelf.setSyncEnabled(false)
         }
-      }).catch(() => {})
+      }).catch((err) => { console.error('[App] authStatus failed:', (err as Error).message) })
     }
     checkAuth()
     shelf.onAuthChanged(() => checkAuth())
@@ -104,15 +105,15 @@ export default function App() {
         }
         return next
       })
-    }).catch(() => {})
+    }).catch((err) => { console.error('[App] syncList failed:', (err as Error).message) })
   }, [hasSyncAccess, eggs])
 
   useEffect(() => { refreshSyncStatuses() }, [refreshSyncStatuses])
 
-  useEffect(() => { shelf.getCategories().then(setCatData).catch(() => {}) }, [])
+  useEffect(() => { shelf.getCategories().then(setCatData).catch((err) => { console.error('[App] getCategories failed:', (err as Error).message) }) }, [])
 
   // 启动时应用音效开关持久化状态
-  useEffect(() => { shelf.getAppSettings().then(s => setSoundEnabled(s.soundEnabled)).catch(() => {}) }, [])
+  useEffect(() => { shelf.getAppSettings().then(s => setSoundEnabled(s.soundEnabled)).catch((err) => { console.error('[App] getAppSettings failed:', (err as Error).message) }) }, [])
 
   useEffect(() => onGachaDone(r => {
     refresh()
@@ -184,7 +185,7 @@ export default function App() {
 
   // ─── 更新状态监听 ───
   useEffect(() => {
-    shelf.getUpdateStatus().then(setUpdateStatus).catch(() => {})
+    shelf.getUpdateStatus().then(setUpdateStatus).catch((err) => { console.error('[App] getUpdateStatus failed:', (err as Error).message) })
     shelf.onUpdateStateChanged(s => {
       setUpdateStatus(s as UpdateStatus)
       if ((s as UpdateStatus).stage === 'downloaded') setShowUpdateDialog(true)
@@ -302,9 +303,10 @@ export default function App() {
   const clearFilters = () => { setQuery(''); setActiveCategory(null); setActivePerm(null) }
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-cream">
-      {/* Custom Title Bar */}
-      <TitleBar
+    <ErrorBoundary>
+      <div className="h-screen flex flex-col overflow-hidden bg-cream">
+        {/* Custom Title Bar */}
+        <TitleBar
         view={view}
         onViewChange={setView}
         gachaRunning={gacha.running}
@@ -504,7 +506,8 @@ export default function App() {
         />
       )}
       <Toast toast={toast} />
-    </div>
+      </div>
+    </ErrorBoundary>
   )
 }
 

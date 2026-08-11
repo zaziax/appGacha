@@ -340,7 +340,10 @@
     "checksFailed": "{{n}} 轮自检仍未通过。最后的问题：\n{{report}}",
     "maxTurns": "超过最大回合数（{{n}}）仍未完成",
     "migrateFailed": "升级代码带旧数据试跑未通过：{{detail}}",
-    "unexpected": "机芯意外故障"
+    "unexpected": "机芯意外故障",
+    "categoryNameEmpty": "分类名不能为空",
+    "categoryNotFound": "分类不存在",
+    "syncProRequired": "云同步是 Pro 会员权益，可在头像面板升级开通"
   },
   "notify": {
     "createdTitle": "咔哒！出蛋了 ◓",
@@ -372,5 +375,12 @@
     "pastDue": "付款失败",
     "logout": "退出登录",
     "loadFailed": "加载失败"
+  },
+  "errorBoundary": {
+    "title": "出了点问题",
+    "hint": "这部分界面遇到了意外错误。别担心，你的蛋和数据都在，不会丢失。",
+    "details": "技术细节",
+    "retry": "重试",
+    "reload": "刷新页面"
   }
 }
