@@ -265,7 +265,9 @@
     "downloadingEgg": "下载中…",
     "downloadQueued": "排队第 {{pos}} 位",
     "eggDownloaded": "{{name}} 已下载到本地",
-    "downloadFailed": "下载失败：{{msg}}"
+    "downloadFailed": "下载失败：{{msg}}",
+    "cloudDeleted": "{{name}} 已从云端删除",
+    "cloudDeleteFailed": "删除 {{name}} 失败"
   },
   "perms": {
     "db": "数据库",

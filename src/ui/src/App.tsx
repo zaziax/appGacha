@@ -237,6 +237,21 @@ export default function App() {
     setDownloadQueue(prev => [...prev, eggId])
   }
 
+  // ─── 云端蛋删除 ───
+  const handleDeleteCloudEgg = async (eggId: string, name: string) => {
+    try {
+      const ok = await shelf.syncDeleteCloud(eggId)
+      if (ok) {
+        setCloudOnlyEggs(prev => prev.filter(c => c.egg_id !== eggId))
+        showToast(t('shelf.cloudDeleted', { name }))
+      } else {
+        showToast(t('shelf.cloudDeleteFailed', { name }))
+      }
+    } catch (err) {
+      showToast((err as Error).message)
+    }
+  }
+
   // ─── 分类操作（乐观更新，失败提示不阻断） ───
   const createCategory = (name: string) => {
     shelf.saveCategory({ name }).then(cat => {
@@ -439,6 +454,7 @@ export default function App() {
                             queuePosition={qPos}
                             progress={qPos === 0 ? (downloadProgress[ce.egg_id] ?? 0) : undefined}
                             onDownload={() => handleDownloadCloudEgg(ce.egg_id)}
+                            onDelete={() => handleDeleteCloudEgg(ce.egg_id, ce.egg_name)}
                           />
                         )
                       })}

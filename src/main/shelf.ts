@@ -394,6 +394,7 @@ export function registerShelfChannels(): void {
   })
 
   handle('shelf:wish', async (wish, lang) => {
+    logLine('[shelf:wish] IPC received:', { wish: String(wish ?? '').slice(0, 80), lang, busy: isGachaBusy() })
     if (isGachaBusy()) throw new Error(makeError(ErrorCode.BUSY, '机芯正忙，请等上一颗蛋出来'))
     const l = lang === 'en' ? 'en' : 'zh'
     // 不 await：扭蛋过程通过 gacha:progress 事件流式上报，完成事件里带结果
@@ -402,6 +403,7 @@ export function registerShelfChannels(): void {
   })
 
   handle('shelf:upgrade', async (eggId, wish, lang) => {
+    logLine('[shelf:upgrade] IPC received:', { eggId, wish: String(wish ?? '').slice(0, 80), lang, busy: isGachaBusy() })
     if (isGachaBusy()) throw new Error(makeError(ErrorCode.BUSY, '机芯正忙，请等上一颗蛋出来'))
     const l = lang === 'en' ? 'en' : 'zh'
     launchGacha(runUpgrade(String(eggId), String(wish ?? ''), l, reportProgress), true)
@@ -780,6 +782,10 @@ export function registerShelfChannels(): void {
 
   handle('shelf:syncList', async () => {
     return await listCloudEggs()
+  })
+
+  handle('shelf:syncDeleteCloud', async (eggId) => {
+    return await deleteCloudEgg(String(eggId))
   })
 
   handle('shelf:syncDownload', async (eggId) => {

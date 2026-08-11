@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Download } from 'lucide-react'
+import { Download, Trash2 } from 'lucide-react'
 import { View } from '@react-three/drei'
 import { useTranslation } from 'react-i18next'
 import type { CloudEggInfo } from '../shelf'
@@ -12,6 +12,7 @@ interface Props {
   /** 0-100, only meaningful when queuePosition === 0 */
   progress?: number
   onDownload: () => void
+  onDelete?: () => void
 }
 
 /** 扭蛋配色：杯体色 + 内容物色（同 EggCard 算法，保证视觉一致） */
@@ -46,7 +47,7 @@ const SPHERE = 88
  * 云端未下载蛋卡片 —— 同款 3D 扭蛋球体 + 灰度滤镜 + 下载遮罩。
  * 对应游戏库中"未安装"状态，视觉上像一个褪色的蛋等着被点亮。
  */
-export function CloudEggCard({ egg, queuePosition, progress, onDownload }: Props) {
+export function CloudEggCard({ egg, queuePosition, progress, onDownload, onDelete }: Props) {
   const { t } = useTranslation()
   const sphereRef = useRef<HTMLDivElement>(null)
   const [hovered, setHovered] = useState(false)
@@ -136,6 +137,21 @@ export function CloudEggCard({ egg, queuePosition, progress, onDownload }: Props
         <span className="text-[10px] text-muted/40 -mt-1 text-center leading-tight">
           {[fmtSize(egg.size_bytes), dateText].filter(Boolean).join(' · ')}
         </span>
+      )}
+
+      {/* 云端删除按钮：hover 时浮现 */}
+      {onDelete && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete() }}
+          className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-white border-2 border-red-200 text-red-400
+            hover:bg-red-50 hover:border-red-400 hover:text-red-600 active:scale-90 transition-all
+            opacity-0 group-hover:opacity-100 flex items-center justify-center z-20"
+          title="从云端删除"
+          aria-label="从云端删除"
+          style={{ boxShadow: '1px 1px 0 rgba(92,64,51,0.12)' }}
+        >
+          <Trash2 className="w-3 h-3" strokeWidth={2.5} />
+        </button>
       )}
     </div>
   )

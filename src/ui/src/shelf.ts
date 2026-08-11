@@ -234,6 +234,7 @@ export interface ShelfBridge {
   syncEgg(eggId: string): Promise<SyncEggResult>
   syncList(): Promise<CloudEggInfo[]>
   syncDownload(eggId: string): Promise<{ name: string; eggId: string }>
+  syncDeleteCloud(eggId: string): Promise<boolean>
   setSyncEnabled(v: boolean): Promise<void>
   onAuthChanged(cb: (s: { loggedIn: boolean }) => void): void
   onGachaProgress(cb: (p: GachaProgress) => void): void

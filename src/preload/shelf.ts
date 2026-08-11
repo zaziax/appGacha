@@ -78,6 +78,7 @@ contextBridge.exposeInMainWorld('shelf', {
   syncEgg: (eggId: string) => invoke('shelf:syncEgg', eggId),
   syncList: () => invoke('shelf:syncList'),
   syncDownload: (eggId: string) => invoke('shelf:syncDownload', eggId),
+  syncDeleteCloud: (eggId: string) => invoke('shelf:syncDeleteCloud', eggId),
   setSyncEnabled: (v: boolean) => invoke('shelf:setSyncEnabled', v),
   onAuthChanged: (cb: (s: { loggedIn: boolean }) => void) => {
     ipcRenderer.on('auth:changed', (_e, s) => cb(s))

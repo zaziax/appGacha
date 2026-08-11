@@ -265,7 +265,9 @@
     "downloadingEgg": "Downloading…",
     "downloadQueued": "#{{pos}} in queue",
     "eggDownloaded": "{{name}} downloaded",
-    "downloadFailed": "Download failed: {{msg}}"
+    "downloadFailed": "Download failed: {{msg}}",
+    "cloudDeleted": "{{name}} deleted from cloud",
+    "cloudDeleteFailed": "Failed to delete {{name}}"
   },
   "perms": {
     "db": "Database",

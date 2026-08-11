@@ -8,6 +8,7 @@ import { appRoot, dataRoot } from './paths'
 import { copyDir } from './fsutil'
 import { testEgg } from './test'
 import { runFcDriver, DriverResult, ActivityType, IpcText } from './fcDriver'
+import { logLine } from './log'
 
 export const PIPELINE_VERSION = '0.1'
 const CHECKPOINT_VERSION = 1
@@ -150,6 +151,7 @@ export async function runGacha(
 
   const eggId = randomUUID().toLowerCase()
   const stagingDir = dataRoot('staging', eggId)
+  logLine('[pipeline] runGacha start:', { eggId, wish: wish.trim().slice(0, 60), lang })
 
   try {
     // ① 投币：备舱——模板落位，manifest 由管线写入（wish 不经智能体之手）
@@ -169,7 +171,12 @@ export async function runGacha(
     if (!result.ok) {
       if (signal.aborted) return cancelledResult(onProgress)
       // 断点模式：保留 staging 目录，不归档失败（用户可续建）
-      if (!result.checkpointed) archiveFailure(stagingDir, eggId, wish, result)
+      if (!result.checkpointed) {
+        logLine('[pipeline] runGacha archiveFailure:', { eggId, error: result.error })
+        archiveFailure(stagingDir, eggId, wish, result)
+      } else {
+        logLine('[pipeline] runGacha checkpointed (staging preserved):', { eggId })
+      }
       onProgress({ stage: 'fail', detail: result.error })
       return { ok: false, error: result.error }
     }
@@ -178,12 +185,16 @@ export async function runGacha(
     // ③ 咔哒：成功出蛋后清除断点（如果有的话）
     try { fs.rmSync(checkpointPath(stagingDir), { force: true }) } catch { /* 可能本就不存在 */ }
     // 剥离未用 vendor，管线复写受保护字段（防智能体篡改），原子入柜
+    logLine('[pipeline] runGacha stripUnusedVendor start:', { eggId, stagingDir })
     stripUnusedVendor(stagingDir)
+    logLine('[pipeline] runGacha stripUnusedVendor done:', { eggId, vendorExists: fs.existsSync(path.join(stagingDir, 'vendor')) })
     const manifest = writeManifestFields(stagingDir, { eggId, wish: wish.trim() })
     const dest = uniqueFolder(dataRoot('eggs'), manifest.name)
+    logLine('[pipeline] runGacha uniqueFolder:', { eggId, name: manifest.name, dest })
     fs.mkdirSync(dataRoot('eggs'), { recursive: true })
     await safeRename(stagingDir, dest)
     const ctx = registerEgg(dest)
+    logLine('[pipeline] runGacha registered:', { eggId: ctx.eggId, name: manifest.name, dest })
     onProgress({ stage: 'pop', detail: { key: 'pipe.pop', params: { name: manifest.name } } })
     return { ok: true, eggId: ctx.eggId, name: manifest.name, icon: readIconSvg(dest) }
   } catch (e) {
@@ -318,6 +329,7 @@ export async function runUpgrade(
   const tempId = randomUUID().toLowerCase()
   const stagingDir = dataRoot('staging', tempId)
   const upgradeWish = wish.trim()
+  logLine('[pipeline] runUpgrade start:', { realEggId: eggId, eggName: egg.manifest.name, tempId, wish: upgradeWish.slice(0, 60), lang })
 
   try {
     // ① 投币：整蛋备份（含数据），然后代码入舱（data/ 不进舱，不给智能体碰真实数据）
@@ -390,7 +402,9 @@ export async function runUpgrade(
     }
 
     // ④ 咔哒：剥离未用 vendor，写回真身与升级记录，换装（代码整体替换，data/ 原地不动）
+    logLine('[pipeline] runUpgrade stripUnusedVendor start:', { tempId, realEggId: eggId })
     stripUnusedVendor(stagingDir)
+    logLine('[pipeline] runUpgrade stripUnusedVendor done:', { tempId, vendorExists: fs.existsSync(path.join(stagingDir, 'vendor')) })
     patchManifest(stagingDir, m => {
       m.eggId = eggId
       m.wish = egg.manifest.wish ?? upgradeWish
@@ -403,13 +417,18 @@ export async function runUpgrade(
     })
     closeEggWindow(eggId)
     try {
+      logLine('[pipeline] runUpgrade swapCode start:', { stagingDir, eggDir: egg.dir })
       swapCode(stagingDir, egg.dir)
+      logLine('[pipeline] runUpgrade swapCode done')
     } catch (e) {
       // 换装半途翻车 → 从刚才的备份整体还原，蛋不能处于半新半旧状态
+      logLine('[pipeline] runUpgrade swapCode FAILED, restoring backup:', (e as Error).message)
       restoreLatestBackup(eggId, egg.dir)
       throw e
     }
+    logLine('[pipeline] runUpgrade removing staging:', stagingDir)
     fs.rmSync(stagingDir, { recursive: true, force: true })
+    logLine('[pipeline] runUpgrade done:', { eggId, name: egg.manifest.name })
     egg.manifest = loadManifest(egg.dir)
     onProgress({ stage: 'pop', detail: { key: 'pipe.popUpgraded', params: { name: egg.manifest.name } } })
     return { ok: true, eggId, name: egg.manifest.name, icon: readIconSvg(egg.dir) }

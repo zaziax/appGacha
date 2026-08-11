@@ -49,7 +49,7 @@ export async function syncEgg(eggId: string): Promise<SyncEggResult> {
   if (!_syncEnabled) return { eggId, action: 'skipped' }
   if (isSyncDisabledForEgg(eggId)) return { eggId, action: 'skipped' }
   const egg = getEgg(eggId)
-  if (!egg) return { eggId, action: 'error', error: 'Egg not found' }
+  if (!egg || egg.ephemeral) return { eggId, action: 'skipped' }
 
   let tmpFile: string | undefined
   try {
