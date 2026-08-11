@@ -10,7 +10,73 @@ import { testEgg } from './test'
 import { runFcDriver, DriverResult, ActivityType, IpcText } from './fcDriver'
 
 export const PIPELINE_VERSION = '0.1'
+const CHECKPOINT_VERSION = 1
 const MAX_ROUNDS = 3
+
+// ─── 断点续建 ───
+
+export interface GachaCheckpoint {
+  version: number
+  eggId: string
+  wish: string
+  lang: 'zh' | 'en'
+  /** 升级模式才有的字段 */
+  upgrade?: { baseWish: string }
+  realEggId?: string  // 升级时用：真实蛋 ID（舱内是临时 ID）
+  /** fcDriver 状态 */
+  messages: unknown[]
+  turns: number
+  rounds: number
+  totalTokens: number
+  /** 中断原因 */
+  errorKey: string
+  createdAt: string
+}
+
+function checkpointPath(stagingDir: string): string {
+  return path.join(stagingDir, 'checkpoint.json')
+}
+
+export function saveCheckpoint(stagingDir: string, cp: Omit<GachaCheckpoint, 'version' | 'createdAt'>): void {
+  const data: GachaCheckpoint = {
+    ...cp,
+    version: CHECKPOINT_VERSION,
+    createdAt: new Date().toISOString()
+  }
+  fs.writeFileSync(checkpointPath(stagingDir), JSON.stringify(data, null, 2), 'utf-8')
+}
+
+export function loadCheckpoint(eggId: string): GachaCheckpoint | null {
+  const dir = dataRoot('staging', eggId)
+  const p = checkpointPath(dir)
+  if (!fs.existsSync(p)) return null
+  try {
+    const data = JSON.parse(fs.readFileSync(p, 'utf-8'))
+    if (data.version === CHECKPOINT_VERSION) return data as GachaCheckpoint
+  } catch { /* 损坏的 checkpoint 视为不存在 */ }
+  return null
+}
+
+export function hasCheckpoint(eggId: string): boolean {
+  return loadCheckpoint(eggId) !== null
+}
+
+export function abandonCheckpoint(eggId: string): void {
+  const dir = dataRoot('staging', eggId)
+  if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true })
+}
+
+/** 扫描所有待续建的断点（供 UI 查询） */
+export function listCheckpoints(): GachaCheckpoint[] {
+  const dir = dataRoot('staging')
+  if (!fs.existsSync(dir)) return []
+  const result: GachaCheckpoint[] = []
+  for (const entry of fs.readdirSync(dir)) {
+    const cp = loadCheckpoint(entry)
+    if (cp) result.push(cp)
+  }
+  return result
+}
 
 export interface GachaActivity {
   type: ActivityType
@@ -56,11 +122,13 @@ function cancelledResult(onProgress?: (p: GachaProgress) => void): GachaResult {
   return { ok: false, error: { key: 'err.cancelled' } }
 }
 
-// 启动时调用：应用刚启动不可能有在途扭蛋，舱内一切（中断残留目录、自检截图）都是遗留物
+// 启动时调用：清扫上一次残留的 staging 目录，但保留断点续建的检查点
 export function sweepStaging(): void {
   const dir = dataRoot('staging')
   if (!fs.existsSync(dir)) return
   for (const entry of fs.readdirSync(dir)) {
+    // 有待续建断点的目录不删：用户可能充值后回来继续
+    if (fs.existsSync(path.join(dir, entry, 'checkpoint.json'))) continue
     try { fs.rmSync(path.join(dir, entry), { recursive: true, force: true }) } catch { /* 占用时下次再扫 */ }
   }
 }
@@ -100,13 +168,16 @@ export async function runGacha(
 
     if (!result.ok) {
       if (signal.aborted) return cancelledResult(onProgress)
-      archiveFailure(stagingDir, eggId, wish, result)
+      // 断点模式：保留 staging 目录，不归档失败（用户可续建）
+      if (!result.checkpointed) archiveFailure(stagingDir, eggId, wish, result)
       onProgress({ stage: 'fail', detail: result.error })
       return { ok: false, error: result.error }
     }
 
     if (signal.aborted) return cancelledResult(onProgress)
-    // ③ 咔哒：剥离未用 vendor，管线复写受保护字段（防智能体篡改），原子入柜
+    // ③ 咔哒：成功出蛋后清除断点（如果有的话）
+    try { fs.rmSync(checkpointPath(stagingDir), { force: true }) } catch { /* 可能本就不存在 */ }
+    // 剥离未用 vendor，管线复写受保护字段（防智能体篡改），原子入柜
     stripUnusedVendor(stagingDir)
     const manifest = writeManifestFields(stagingDir, { eggId, wish: wish.trim() })
     const dest = uniqueFolder(dataRoot('eggs'), manifest.name)
@@ -119,6 +190,104 @@ export async function runGacha(
     if (signal.aborted) return cancelledResult(onProgress)
     const error = (e as Error).message
     try { archiveFailure(stagingDir, eggId, wish, { ok: false, rounds: 0, turns: 0, error }) } catch { /* 尽力而为 */ }
+    onProgress({ stage: 'fail', detail: error })
+    return { ok: false, error }
+  } finally {
+    busy = false
+    currentAbort = null
+  }
+}
+
+/** 断点续建：从上次中断的 staging 目录继续构建 */
+export async function resumeGacha(
+  eggId: string,
+  onProgress: (p: GachaProgress) => void,
+  driver: GachaDriver = runFcDriver
+): Promise<GachaResult> {
+  const cp = loadCheckpoint(eggId)
+  if (!cp) return { ok: false, error: 'no checkpoint found' }
+  if (busy) return { ok: false, error: { key: 'err.busy' } }
+
+  busy = true
+  currentAbort = new AbortController()
+  const signal = currentAbort.signal
+
+  const stagingDir = dataRoot('staging', eggId)
+  const isUpgrade = !!cp.realEggId && !!cp.upgrade
+
+  try {
+    // 续建：staging 目录已存在，直接驱动继续
+    onProgress({ stage: 'crank', detail: { key: 'pipe.crank' } })
+    if (signal.aborted) return cancelledResult(onProgress)
+
+    const result: DriverResult = await runDriverSafely(driver, cp.wish, cp.lang, stagingDir, onProgress, signal, cp)
+
+    if (!result.ok) {
+      if (signal.aborted) return cancelledResult(onProgress)
+      if (!result.checkpointed) archiveFailure(stagingDir, eggId, cp.wish, result)
+      onProgress({ stage: 'fail', detail: result.error })
+      return { ok: false, error: result.error }
+    }
+
+    if (signal.aborted) return cancelledResult(onProgress)
+
+    // 成功：清除断点
+    try { fs.rmSync(checkpointPath(stagingDir), { force: true }) } catch { /* 可能已不存在 */ }
+
+    if (isUpgrade) {
+      // 升级续建：迁移试跑 + 换装（与 runUpgrade 相同的后处理）
+      const egg = getEgg(cp.realEggId!)
+      if (egg) {
+        const dataDir = path.join(egg.dir, 'data')
+        if (fs.existsSync(dataDir)) {
+          onProgress({ stage: 'clack', detail: { key: 'pipe.migrate' } })
+          copyDir(dataDir, path.join(stagingDir, 'data'))
+          const t = await testEgg(stagingDir)
+          fs.rmSync(path.join(stagingDir, 'data'), { recursive: true, force: true })
+          if (!t.ok) {
+            const error: IpcText = { key: 'err.migrateFailed', params: { detail:
+              (t.error ?? [t.crashed ? '渲染进程崩溃' : '', t.blank ? '页面空白' : '', ...t.consoleErrors].filter(Boolean).join('；')) } }
+            archiveFailure(stagingDir, eggId, cp.wish, { ...result, ok: false, error })
+            onProgress({ stage: 'fail', detail: error })
+            return { ok: false, error }
+          }
+        }
+        stripUnusedVendor(stagingDir)
+        patchManifest(stagingDir, m => {
+          m.eggId = cp.realEggId
+          m.wish = egg.manifest.wish ?? cp.wish
+          m.hostApiVersion = '1'
+          m.version = bumpMinor(String(egg.manifest.version ?? '1.0.0'))
+          m.createdBy = { model: getAiSettings()?.model ?? 'unknown', pipelineVersion: PIPELINE_VERSION }
+          m.upgrades = [...(egg.manifest.upgrades ?? []), { wish: cp.wish, at: new Date().toISOString(), model: getAiSettings()?.model ?? 'unknown' }]
+        })
+        closeEggWindow(cp.realEggId!)
+        try {
+          swapCode(stagingDir, egg.dir)
+        } catch (e) {
+          restoreLatestBackup(cp.realEggId!, egg.dir)
+          throw e
+        }
+        fs.rmSync(stagingDir, { recursive: true, force: true })
+        egg.manifest = loadManifest(egg.dir)
+        onProgress({ stage: 'pop', detail: { key: 'pipe.popUpgraded', params: { name: egg.manifest.name } } })
+        return { ok: true, eggId: cp.realEggId!, name: egg.manifest.name, icon: readIconSvg(egg.dir) }
+      }
+    }
+
+    // 新蛋续建：与 runGacha 相同的后处理
+    stripUnusedVendor(stagingDir)
+    const manifest = writeManifestFields(stagingDir, { eggId, wish: cp.wish })
+    const dest = uniqueFolder(dataRoot('eggs'), manifest.name)
+    fs.mkdirSync(dataRoot('eggs'), { recursive: true })
+    await safeRename(stagingDir, dest)
+    const ctx = registerEgg(dest)
+    onProgress({ stage: 'pop', detail: { key: 'pipe.pop', params: { name: manifest.name } } })
+    return { ok: true, eggId: ctx.eggId, name: manifest.name, icon: readIconSvg(dest) }
+  } catch (e) {
+    if (signal.aborted) return cancelledResult(onProgress)
+    const error = (e as Error).message
+    try { archiveFailure(stagingDir, eggId, cp.wish, { ok: false, rounds: 0, turns: 0, error }) } catch { /* 尽力而为 */ }
     onProgress({ stage: 'fail', detail: error })
     return { ok: false, error }
   } finally {
@@ -182,15 +351,28 @@ export async function runUpgrade(
       upgrade: { baseWish: egg.manifest.wish ?? '（未留档）' },
       signal,
       onStage: (stage, detail) => onProgress({ stage: stage === 'clack' ? 'clack' : 'crank', detail }),
-      onActivity: (type, text, id) => onProgress({ stage: 'crank', activity: { type, text, id } })
+      onActivity: (type, text, id) => onProgress({ stage: 'crank', activity: { type, text, id } }),
+      onCheckpoint: (state) => {
+        saveCheckpoint(stagingDir, {
+          eggId: tempId,
+          wish: upgradeWish,
+          lang,
+          upgrade: { baseWish: egg.manifest.wish ?? '（未留档）' },
+          realEggId: eggId,
+          messages: state.messages,
+          turns: state.turns,
+          rounds: state.rounds,
+          totalTokens: state.totalTokens,
+          errorKey: 'err.checkpointed'
+        })
+      }
     })
     if (!result.ok) {
       if (signal.aborted) return cancelledResult(onProgress)
-      archiveFailure(stagingDir, tempId, upgradeWish, result)
+      if (!result.checkpointed) archiveFailure(stagingDir, tempId, upgradeWish, result)
       onProgress({ stage: 'fail', detail: result.error })
       return { ok: false, error: result.error }
     }
-
     // ③ 机芯咔咔：把真实数据的副本放进舱，验证升级后的代码带着旧数据也能跑（迁移验收）
     const dataDir = path.join(egg.dir, 'data')
     if (fs.existsSync(dataDir)) {
@@ -314,7 +496,8 @@ async function runDriverSafely(
   lang: 'zh' | 'en',
   stagingDir: string,
   onProgress: (p: GachaProgress) => void,
-  signal: AbortSignal
+  signal: AbortSignal,
+  resume?: GachaCheckpoint
 ): Promise<DriverResult> {
   let latestMetrics: GachaProgress['metrics'] = undefined
   return driver({
@@ -329,7 +512,27 @@ async function runDriverSafely(
       onProgress({ stage: stage === 'clack' ? 'clack' : 'crank', detail, metrics: latestMetrics })
     },
     onActivity: (type, text, id) => onProgress({ stage: 'crank', activity: { type, text, id }, metrics: latestMetrics }),
-    onMetrics: (m) => { latestMetrics = m }
+    onMetrics: (m) => { latestMetrics = m },
+    onCheckpoint: (state) => {
+      saveCheckpoint(stagingDir, {
+        eggId: path.basename(stagingDir),
+        wish,
+        lang,
+        upgrade: resume?.upgrade,
+        realEggId: resume?.realEggId,
+        messages: state.messages,
+        turns: state.turns,
+        rounds: state.rounds,
+        totalTokens: state.totalTokens,
+        errorKey: 'err.checkpointed'
+      })
+    },
+    resume: resume ? {
+      messages: resume.messages,
+      turns: resume.turns,
+      rounds: resume.rounds,
+      totalTokens: resume.totalTokens
+    } : undefined
   })
 }
 

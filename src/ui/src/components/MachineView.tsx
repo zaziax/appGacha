@@ -2,7 +2,7 @@ import { useState, useEffect, useSyncExternalStore, useCallback, useRef } from '
 import { motion, AnimatePresence } from 'motion/react'
 import { Sparkles, Egg, ArrowLeft, ArrowRight, Loader2, Wand2, Brain, Wrench, PenLine, CheckCircle2, AlertTriangle, RefreshCw, ClipboardList, Dices, Palette, Bot, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { shelf, GachaProgress, GachaResult, GachaActivity, WishQuestion } from '../shelf'
+import { shelf, GachaProgress, GachaResult, GachaActivity, WishQuestion, PendingBuild } from '../shelf'
 import { getGachaState, subscribeGacha, beginGacha, clearGachaResult, dismissResult, setGachaUpgrade } from '../gachaStore'
 import { GachaMachineV5 } from './GachaMachineV5'
 import { sfx } from '../sound'
@@ -75,13 +75,28 @@ export function MachineView({ onToast, onEggCreated }: Props) {
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [suggestLoading, setSuggestLoading] = useState(false)
 
+  // 断点续建
+  const [pendingBuild, setPendingBuild] = useState<PendingBuild | null>(null)
+  const [resuming, setResuming] = useState(false)
+
   // 扭蛋结果
   const [revealed, setRevealed] = useState(true)
   const resultReady = !!(gacha.result && !revealed && !gacha.running)
 
   useEffect(() => {
     if (gacha.result && !gacha.running) setRevealed(false)
+    // 每轮完成后检查是否有断点（可能接连失败产生新断点）
+    if (!gacha.running && !gacha.result) {
+      shelf.getPendingBuild().then(setPendingBuild).catch(() => setPendingBuild(null))
+    }
   }, [gacha.result, gacha.running])
+
+  // 初始挂载时也检查一次
+  useEffect(() => {
+    if (!gacha.running && !gacha.result) {
+      shelf.getPendingBuild().then(setPendingBuild).catch(() => setPendingBuild(null))
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const isUpgrade = !!gacha.upgrade
 
@@ -294,6 +309,46 @@ export function MachineView({ onToast, onEggCreated }: Props) {
 
       {/* Right: Step Wizard */}
       <div className="flex-1 flex flex-col min-w-0 bg-cream">
+        {/* 断点续建提示 */}
+        {pendingBuild && !gacha.running && !gacha.result && (
+          <motion.div className="mx-5 mt-4 p-4 rounded-xl bg-[#FFF8E7] border border-[#E6D5A8] flex items-center gap-3"
+            initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={SPRING}>
+            <RefreshCw className="w-5 h-5 text-[#B8860B] shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-extrabold text-[#5c4033]">{t('checkpoint.title')}</div>
+              <div className="text-[12px] text-[#8B7355] mt-0.5 leading-relaxed">
+                {t('checkpoint.desc', { wish: pendingBuild.wish.length > 40 ? pendingBuild.wish.slice(0, 40) + '…' : pendingBuild.wish, turns: pendingBuild.turns })}
+              </div>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <button className="px-3 py-1.5 rounded-lg bg-[#B8860B] text-white text-[12px] font-extrabold
+                hover:bg-[#9A7209] transition-colors disabled:opacity-60"
+                disabled={resuming}
+                onClick={async () => {
+                  setResuming(true)
+                  try {
+                    await shelf.resumeBuild(pendingBuild.eggId)
+                    beginGacha(pendingBuild.isUpgrade
+                      ? { eggId: pendingBuild.realEggId, name: pendingBuild.upgradeName }
+                      : null)
+                    setPendingBuild(null)
+                  } catch (e) { onToast((e as Error).message) }
+                  finally { setResuming(false) }
+                }}>
+                {resuming ? <Loader2 className="w-4 h-4 animate-spin" /> : t('checkpoint.resume')}
+              </button>
+              <button className="px-3 py-1.5 rounded-lg text-[12px] font-extrabold text-[#8B7355]
+                hover:bg-[#F0E6D2] transition-colors"
+                onClick={async () => {
+                  await shelf.abandonBuild(pendingBuild.eggId)
+                  setPendingBuild(null)
+                }}>
+                {t('checkpoint.discard')}
+              </button>
+            </div>
+          </motion.div>
+        )}
+
         {/* Progress header */}
         <div className="px-6 pt-5 pb-3">
           <div className="flex items-center gap-2 mb-3">

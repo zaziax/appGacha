@@ -31,6 +31,15 @@ export interface DriverJob {
   onActivity?: (type: ActivityType, text: IpcText, id?: string) => void
   /** 进度量化：每轮循环开始时回调当前回合/轮次，供 UI 展示剩余时间感知 */
   onMetrics?: (m: { turn: number; maxTurns: number; round: number; maxRounds: number }) => void
+  /** 断点续建：管线提供此回调后，驱动在遇到可恢复错误（402/503/网络中断）时保存上下文 */
+  onCheckpoint?: (state: { messages: unknown[]; turns: number; rounds: number; totalTokens: number }) => void
+  /** 断点续建：从已有对话恢复，跳过模板初始化 */
+  resume?: {
+    messages: unknown[]
+    turns: number
+    rounds: number
+    totalTokens: number
+  }
 }
 
 export interface DriverResult {
@@ -38,6 +47,8 @@ export interface DriverResult {
   rounds: number
   turns: number
   error?: IpcText
+  /** 断点已存：管线跳过 archiveFailure，保留 staging 目录待续建 */
+  checkpointed?: boolean
 }
 
 const MAX_TURNS = 60
@@ -436,9 +447,9 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
   const charBudget = Math.floor(contextTokens * 3 * CONTEXT_USAGE_RATIO)
 
   const deadline = Date.now() + OVERALL_TIMEOUT_MS
-  let totalTokens = 0
-  let rounds = 1
-  let turns = 0
+  let totalTokens = job.resume?.totalTokens ?? 0
+  let rounds = job.resume?.rounds ?? 1
+  let turns = job.resume?.turns ?? 0
   let planDone = false  // P1 规划守卫：AI 输出过规划文本后才允许 write_file
   let consecutiveEmpty = 0  // 连续空响应计数：连续 3 次空响应视为模型失联
 
@@ -478,16 +489,27 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
   const guideHint = detectGuideHint(job.wish, job.lang)
   const userContent = guideHint ? `${opening}\n\n${guideHint}` : opening
 
-  const messages: unknown[] = [
-    { role: 'system', content: buildSystemPrompt(job.templateDir, job.lang) },
-    { role: 'user', content: userContent }
-  ]
+  const messages: unknown[] = job.resume
+    ? [...job.resume.messages]
+    : [
+        { role: 'system', content: buildSystemPrompt(job.templateDir, job.lang) },
+        { role: 'user', content: userContent }
+      ]
+
+  // 续建时追一条 system 消息告知 AI 从断点继续
+  if (job.resume) {
+    messages.push({
+      role: 'system',
+      content: `[断点续建] 你正在继续之前中断的构建。上面已经完成的文件修改和工具调用结果都在对话历史中，请从第 ${turns + 1} 回合继续，不要重复已完成的写入。`
+    })
+    logLine('[fc] resume:', `turns=${turns}, rounds=${rounds}, msgs=${messages.length}`)
+  }
 
   // ─── 调试日志：初始消息 ───
   const sysPrompt = String((messages[0] as Record<string,unknown>).content)
   logLine('[fc] system prompt:', `${sysPrompt.length} chars`)
   logLine('[fc] system prompt (head 500):', sysPrompt.slice(0, 500))
-  logLine('[fc] user[0]:', userContent.slice(0, 400))
+  if (!job.resume) logLine('[fc] user[0]:', userContent.slice(0, 400))
 
   const runCheck = async (): Promise<{ pass: boolean; report: string }> => {
     const issues = validateEgg(job.stagingDir)
@@ -637,11 +659,13 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
           // HTTP 业务错误不重试（通常是配置/余额问题）
           logLine(`[fc] HTTP error:`, e.status, e.body.slice(0, 300))
           if (e.status === 402) {
-            // 积分不足：引导充值（断点续建待后续版本支持）
-            return { ok: false, rounds, turns, error: { key: 'err.insufficientCredits' } }
+            // 积分不足：存断点，引导充值后可续建
+            job.onCheckpoint?.({ messages, turns, rounds, totalTokens })
+            return { ok: false, rounds, turns, error: { key: 'err.insufficientCredits' }, checkpointed: true }
           }
           if (e.status === 503) {
-            return { ok: false, rounds, turns, error: { key: 'err.proxyUnavailable' } }
+            job.onCheckpoint?.({ messages, turns, rounds, totalTokens })
+            return { ok: false, rounds, turns, error: { key: 'err.proxyUnavailable' }, checkpointed: true }
           }
           return { ok: false, rounds, turns, error: { key: 'err.http', params: { status: e.status, body: e.body } } }
         }
@@ -655,7 +679,8 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
     }
     if (!stream) {
       logLine(`[fc] RESULT: retriesExhausted`, `turns=${turns}, error="${lastError}"`)
-      return { ok: false, rounds, turns, error: { key: 'err.retriesExhausted', params: { n: MAX_RETRIES, error: lastError } } }
+      job.onCheckpoint?.({ messages, turns, rounds, totalTokens })
+      return { ok: false, rounds, turns, error: { key: 'err.retriesExhausted', params: { n: MAX_RETRIES, error: lastError } }, checkpointed: true }
     }
 
     totalTokens += stream.estimatedTokens

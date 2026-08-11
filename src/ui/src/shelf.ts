@@ -152,6 +152,19 @@ export interface CreditTx {
   created_at: string | null
 }
 
+/** 断点续建：主进程发来的待续建构建信息 */
+export interface PendingBuild {
+  eggId: string
+  wish: string
+  turns: number
+  rounds: number
+  errorKey: string
+  isUpgrade: boolean
+  realEggId: string
+  upgradeName: string
+  createdAt: string
+}
+
 export interface ShelfBridge {
   list(): Promise<EggInfo[]>
   open(eggId: string): Promise<void>
@@ -164,6 +177,12 @@ export interface ShelfBridge {
   upgrade(eggId: string, text: string, lang: string): Promise<{ started: boolean }>
   /** 取消正在进行的扭蛋/升级生成 */
   cancelGacha(): Promise<void>
+  /** 断点续建：查询是否有待续建的构建（返回 null 表示没有） */
+  getPendingBuild(): Promise<PendingBuild | null>
+  /** 断点续建：从指定断点继续构建 */
+  resumeBuild(eggId: string): Promise<{ started: boolean }>
+  /** 断点续建：放弃断点，清理 staging 目录 */
+  abandonBuild(eggId: string): Promise<{ ok: boolean }>
   wishChat(messages: { role: string; content: string }[], context?: { upgradeEggId?: string }): Promise<WishChatResult>
   wishSuggest(lang: string): Promise<{ suggestions: string[] }>
   getAiSettings(): Promise<AiSettingsMasked | null>

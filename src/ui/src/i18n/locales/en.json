@@ -331,7 +331,7 @@
     "busy": "The movement is busy — wait for the current egg",
     "wishTooShort": "Your wish is too short — tell me more",
     "aiNotConfigured": "Configure your model in Settings, or sign in to use platform credits",
-    "insufficientCredits": "Credits insufficient. Please top up to continue (this build's progress was not saved)",
+    "insufficientCredits": "Credits insufficient. Top up to resume from where you left off — no need to restart.",
     "proxyUnavailable": "Platform AI channel is unavailable. Contact the admin or configure your own API key",
     "timeout": "Movement timed out (15 min)",
     "tokenBudget": "Token budget exhausted",
@@ -382,5 +382,11 @@
     "details": "Technical details",
     "retry": "Retry",
     "reload": "Reload page"
+  },
+  "checkpoint": {
+    "title": "Previous build was interrupted",
+    "desc": "\"{{wish}}\" stopped at turn {{turns}}. Progress is saved — continue?",
+    "resume": "Resume",
+    "discard": "Discard"
   }
 }

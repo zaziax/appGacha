@@ -331,7 +331,7 @@
     "busy": "机芯正忙，请等上一颗蛋出来",
     "wishTooShort": "愿望太短了，多说两句",
     "aiNotConfigured": "请先在设置里配置模型，或登录账号使用平台积分",
-    "insufficientCredits": "积分不足，请先充值后继续（本次构建进度未保存）",
+    "insufficientCredits": "积分不足，请先充值。充值后可从断点继续，无需重来。",
     "proxyUnavailable": "平台 AI 通道暂不可用，请联系管理员或自配 API Key",
     "timeout": "机芯超时（15 分钟）",
     "tokenBudget": "token 预算耗尽",
@@ -382,5 +382,11 @@
     "details": "技术细节",
     "retry": "重试",
     "reload": "刷新页面"
+  },
+  "checkpoint": {
+    "title": "上次的构建中断了",
+    "desc": "「{{wish}}」在第 {{turns}} 回合中断。进度已保存，要继续吗？",
+    "resume": "继续构建",
+    "discard": "放弃"
   }
 }

@@ -14,7 +14,7 @@ import { createEggShortcut } from './assoc'
 import { writeEggIco } from './ico'
 import { apiFetchRaw } from './api'
 import { logLine } from './log'
-import { runGacha, runUpgrade, isGachaBusy, cancelGacha, hasBackup, restoreLatestBackup } from './pipeline'
+import { runGacha, runUpgrade, resumeGacha, isGachaBusy, cancelGacha, hasBackup, restoreLatestBackup, listCheckpoints, abandonCheckpoint } from './pipeline'
 import { buildWishGuideSystem, buildWishSuggestPrompt, type WishGuideContext } from './wishGuide'
 import type { IpcText } from './fcDriver'
 import { startLogin, logout, getAuthStatus, sendEmailCode, verifyEmailCode, loginWithPassword, setPassword, resetPassword, openWebPage } from './auth'
@@ -422,6 +422,45 @@ export function registerShelfChannels(): void {
     egg.manifest = loadManifest(egg.dir)
     initSchedules([egg]) // 还原回来的提醒重新装弹
     return { name }
+  })
+
+  // ─── 断点续建 ───
+
+  handle('shelf:getPendingBuild', async () => {
+    const cps = listCheckpoints()
+    if (cps.length === 0) return null
+    // 返回最近一个断点（通常只有一个，除非多次中断）
+    const cp = cps.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
+    // 升级场景：查找真实蛋名
+    let upgradeName = ''
+    if (cp.realEggId) {
+      const egg = getEgg(cp.realEggId)
+      upgradeName = egg?.manifest?.name ?? ''
+    }
+    return {
+      eggId: cp.eggId,
+      wish: cp.wish,
+      turns: cp.turns,
+      rounds: cp.rounds,
+      errorKey: cp.errorKey,
+      isUpgrade: !!cp.realEggId,
+      realEggId: cp.realEggId ?? '',
+      upgradeName,
+      createdAt: cp.createdAt
+    }
+  })
+
+  handle('shelf:resumeBuild', async (eggId) => {
+    if (isGachaBusy()) throw new Error(makeError(ErrorCode.BUSY, '机芯正忙，请等上一颗蛋出来'))
+    const cp = listCheckpoints().find(c => c.eggId === eggId)
+    if (!cp) throw new Error('checkpoint not found')
+    launchGacha(resumeGacha(eggId as string, reportProgress), cp.realEggId ? true : false)
+    return { started: true }
+  })
+
+  handle('shelf:abandonBuild', async (eggId) => {
+    abandonCheckpoint(eggId as string)
+    return { ok: true }
   })
 
   handle('shelf:wishChat', async (messages, context) => {
