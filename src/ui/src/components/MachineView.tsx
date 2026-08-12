@@ -1,6 +1,6 @@
-import { useState, useEffect, useSyncExternalStore, useCallback, useRef } from 'react'
+import { useState, useEffect, useSyncExternalStore, useCallback, useRef, forwardRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Sparkles, Egg, ArrowLeft, ArrowRight, Loader2, Wand2, Brain, Wrench, PenLine, CheckCircle2, AlertTriangle, RefreshCw, ClipboardList, Dices, Palette, Bot, X } from 'lucide-react'
+import { Sparkles, Egg, ArrowLeft, ArrowRight, Loader2, Wand2, Brain, Wrench, PenLine, CheckCircle2, AlertTriangle, RefreshCw, ClipboardList, Dices, Palette, Bot, X, ChevronDown } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { shelf, GachaProgress, GachaResult, GachaActivity, WishQuestion, PendingBuild } from '../shelf'
 import { getGachaState, subscribeGacha, beginGacha, clearGachaResult, dismissResult, setGachaUpgrade } from '../gachaStore'
@@ -955,23 +955,121 @@ function StepConfirm({ wishText, qaHistory, styleNote, styleOverride, hue, schem
 //  扭蛋进度 / 结果面板（机芯实况 live feed）
 // ================================================================
 
-const ACTIVITY_META: Record<GachaActivity['type'], { icon: typeof Brain; cls: string }> = {
-  think: { icon: Brain, cls: 'text-violet-500' },
-  tool: { icon: Wrench, cls: 'text-sky-600' },
-  write: { icon: PenLine, cls: 'text-emerald-600' },
-  check: { icon: CheckCircle2, cls: 'text-amber-600' },
-  retry: { icon: RefreshCw, cls: 'text-orange-500' },
-  error: { icon: AlertTriangle, cls: 'text-red-500' },
+const ACTIVITY_META: Record<GachaActivity['type'], { icon: typeof Brain; cls: string; badge: string }> = {
+  think: { icon: Brain, cls: 'text-violet-600', badge: 'bg-violet-100' },
+  tool: { icon: Wrench, cls: 'text-sky-600', badge: 'bg-sky-100' },
+  write: { icon: PenLine, cls: 'text-emerald-600', badge: 'bg-emerald-100' },
+  check: { icon: CheckCircle2, cls: 'text-amber-600', badge: 'bg-amber-100' },
+  retry: { icon: RefreshCw, cls: 'text-orange-500', badge: 'bg-orange-100' },
+  error: { icon: AlertTriangle, cls: 'text-red-500', badge: 'bg-red-100' },
 }
+
+// ---- 思考光标：尾部 2px 竖条，明暗闪烁 ----
+function BlinkingCursor() {
+  return (
+    <motion.span
+      className="inline-block w-[2px] h-[13px] rounded-full bg-violet-500 shrink-0"
+      animate={{ opacity: [1, 1, 0, 0] }}
+      transition={{ duration: 1, repeat: Infinity, times: [0, 0.5, 0.5, 1], ease: 'linear' }}
+    />
+  )
+}
+
+// ---- 光效扫略：斜向高光带周期性扫过胶囊表面 ----
+function ShineSweep() {
+  return (
+    <motion.span
+      aria-hidden
+      className="pointer-events-none absolute inset-y-0 left-0 w-1/3 -skew-x-12"
+      initial={{ x: '-130%' }}
+      animate={{ x: '460%' }}
+      transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut', repeatDelay: 0.4 }}
+      style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.65), transparent)' }}
+    />
+  )
+}
+
+// ---- 思考行：单行流式胶囊，完成后折叠，点击展开 ----
+const ThinkRow = forwardRef<HTMLDivElement, {
+  text: GachaActivity['text']; active: boolean; expanded: boolean; onToggle: () => void
+  t: (key: string, params?: Record<string, unknown>) => string
+}>(function ThinkRow({ text, active, expanded, onToggle, t }, ref) {
+  const content = tr(t, text)
+  return (
+    <motion.div
+      ref={ref}
+      layout
+      initial={{ opacity: 0, y: 8, scale: 0.94 }}
+      animate={{ opacity: active ? 1 : 0.55, y: 0, scale: active ? 1.03 : 0.98 }}
+      transition={SPRING}
+      onClick={onToggle}
+      className={`relative flex items-center gap-2.5 rounded-xl px-3 py-2 cursor-pointer select-none overflow-hidden ${
+        active ? 'bg-violet-100' : 'bg-transparent hover:bg-violet-100/50'
+      }`}
+    >
+      {active && <ShineSweep />}
+      <Brain className={`w-4 h-4 shrink-0 ${active ? 'text-violet-600' : 'text-violet-400'}`} strokeWidth={2.5} />
+      {expanded ? (
+        <p className="flex-1 min-w-0 text-[12px] leading-relaxed font-bold text-text whitespace-pre-wrap break-words">{content}</p>
+      ) : (
+        <p className={`flex-1 min-w-0 truncate text-[12px] font-bold ${active ? 'text-text' : 'text-muted'}`}>{content}</p>
+      )}
+      {active ? <BlinkingCursor /> : (
+        <motion.span animate={{ rotate: expanded ? 180 : 0 }} transition={SPRING} className="shrink-0">
+          <ChevronDown className={`w-3.5 h-3.5 ${expanded ? 'text-violet-500' : 'text-muted/50'}`} />
+        </motion.span>
+      )}
+    </motion.div>
+  )
+})
+
+// ---- 动作行：彩色图标徽章 + 单行文字，无背景 ----
+const ActionRow = forwardRef<HTMLDivElement, {
+  type: GachaActivity['type']; text: GachaActivity['text']; active: boolean
+  t: (key: string, params?: Record<string, unknown>) => string
+}>(function ActionRow({ type, text, active, t }, ref) {
+  const meta = ACTIVITY_META[type] ?? ACTIVITY_META.tool
+  const Icon = meta.icon
+  return (
+    <motion.div
+      ref={ref}
+      layout
+      initial={{ opacity: 0, y: 8, scale: 0.94 }}
+      animate={{ opacity: active ? 1 : 0.6, y: 0, scale: active ? 1 : 0.98 }}
+      transition={SPRING}
+      className="flex items-center gap-2.5 px-3 py-1.5"
+    >
+      <div className={`w-6 h-6 shrink-0 flex items-center justify-center rounded-md ${meta.badge}`}>
+        <Icon className={`w-3.5 h-3.5 ${meta.cls}`} strokeWidth={2.5} />
+      </div>
+      <p className="flex-1 min-w-0 truncate text-[12px] font-bold text-text">{tr(t, text)}</p>
+    </motion.div>
+  )
+})
 
 function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose }: {
   gacha: ReturnType<typeof getGachaState>; revealed: boolean; resultReady: boolean
   onOpen: () => void; onRetry: () => void; onClose: () => void
 }) {
   const { t } = useTranslation()
-  const feedEnd = useRef<HTMLDivElement>(null)
   const [elapsed, setElapsed] = useState(0)
-  useEffect(() => { feedEnd.current?.scrollIntoView({ behavior: 'smooth' }) }, [gacha.activities.length])
+  // 已展开的思考条目（按稳定 key 记录，允许多条独立展开）
+  const [expandedThinks, setExpandedThinks] = useState<Set<string>>(new Set())
+  const toggleThink = (key: string) => setExpandedThinks(prev => {
+    const next = new Set(prev)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return next
+  })
+  // 正在进行的条目（列表最后一条）居中滚动
+  const activeRef = useRef<HTMLDivElement>(null)
+  const lastIdx = gacha.activities.length - 1
+  const lastAct = gacha.activities[lastIdx]
+  const activeKey = gacha.activities.length ? (lastAct.id ?? `${lastAct.type}-${lastIdx}`) : null
+  useEffect(() => {
+    if (!activeKey || !gacha.running) return
+    activeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [activeKey, gacha.running])
 
   // 耗时计时器：每秒刷新
   useEffect(() => {
@@ -1034,33 +1132,31 @@ function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose 
         )}
       </div>
 
-      {/* Live feed */}
+      {/* Live feed（去白盒：动态直接浮在奶油背景上） */}
       {(gacha.running || resultReady) && (
-        <div className="flex-1 min-h-0 overflow-y-auto mx-5 mb-4 rounded-2xl border-[3px] border-text/15 bg-white/70 chat-scroll">
-          <div className="px-4 py-3 flex flex-col gap-2.5">
+        <div className="flex-1 min-h-0 overflow-y-auto mx-4 mb-4 chat-scroll">
+          <div className="px-2 py-3 flex flex-col gap-1.5">
             {gacha.activities.length === 0 && gacha.running && (
-              <div className="flex items-center gap-2 py-2">
+              <div className="flex items-center gap-2 px-3 py-2">
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-muted" />
                 <span className="text-[12px] font-bold text-muted">{t('progress.starting')}</span>
               </div>
             )}
             {gacha.activities.map((a, i) => {
-              const meta = ACTIVITY_META[a.type] ?? ACTIVITY_META.tool
-              const Icon = meta.icon
+              const isActive = gacha.running && i === lastIdx
+              const key = a.id ?? `${a.type}-${i}`
+              if (a.type === 'think') {
+                return (
+                  <ThinkRow key={key} ref={isActive ? activeRef : undefined}
+                    text={a.text} active={isActive}
+                    expanded={expandedThinks.has(key)} onToggle={() => toggleThink(key)} t={t} />
+                )
+              }
               return (
-                <motion.div key={i} className="flex gap-2.5 items-start"
-                  initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.2 }}>
-                  <Icon className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${meta.cls}`} strokeWidth={2.5} />
-                  <p className={`text-[12px] leading-relaxed font-bold min-w-0 ${
-                    a.type === 'think' ? 'text-muted italic' : 'text-text'
-                  }`}>
-                    {tr(t, a.text)}
-                  </p>
-                </motion.div>
+                <ActionRow key={key} ref={isActive ? activeRef : undefined}
+                  type={a.type} text={a.text} active={isActive} t={t} />
               )
             })}
-            <div ref={feedEnd} />
           </div>
         </div>
       )}
