@@ -563,6 +563,7 @@ async function streamCompletion(
           choices?: {
             delta?: {
               content?: string
+              reasoning_content?: string
               tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[]
             }
           }[]
@@ -570,8 +571,10 @@ async function streamCompletion(
         try { chunk = JSON.parse(payload) } catch { continue }
         const delta = chunk.choices?.[0]?.delta
         if (!delta) continue
-        if (delta.content) {
-          content += delta.content
+        // deepseek-v4-flash 可能把输出放在 reasoning_content 而非 content
+        const text = delta.content || delta.reasoning_content || ''
+        if (text) {
+          content += text
           onDelta(content)
         }
         for (const tcd of delta.tool_calls ?? []) {
@@ -837,11 +840,11 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
         stream = await streamCompletion(endpoint, messages, partial => {
-          // 思考内容节流上报（同 id 原地替换，前端看到文字逐字生长）
+          // 思考内容流式上报（~6fps，同 id 原地替换，前端看到文字逐字生长）
           const now = Date.now()
-          if (now - lastThinkEmit < 1200) return
+          if (now - lastThinkEmit < 150) return
           lastThinkEmit = now
-          job.onActivity?.('think', partial.trim().slice(0, 200), `think-${turns}`)
+          job.onActivity?.('think', partial.trim().slice(0, 800), `think-${turns}`)
         }, job.signal)
         break
       } catch (e) {
@@ -910,9 +913,9 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
     // P1 规划守卫：检测 AI 是否已输出规划（content 超过 80 字即视为规划完成）
     if (msg.content && msg.content.trim().length > 80) planDone = true
 
-    // 机芯实况：AI 的完整思考（替换流式片段）
+    // 机芯实况：AI 的完整思考（确保最终内容完整展示）
     if (msg.content && msg.content.trim()) {
-      job.onActivity?.('think', msg.content.trim().slice(0, 200), `think-${turns}`)
+      job.onActivity?.('think', msg.content.trim().slice(0, 800), `think-${turns}`)
     }
 
     if (!msg.tool_calls || msg.tool_calls.length === 0) {
