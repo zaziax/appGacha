@@ -81,7 +81,8 @@ async function completions(body: Record<string, unknown>): Promise<string> {
     content = parseSseContent(rawText)
   } else {
     try {
-      content = (JSON.parse(rawText) as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ?? ''
+      const msg = (JSON.parse(rawText) as { choices?: { message?: { content?: string; reasoning_content?: string } }[] }).choices?.[0]?.message
+      content = msg?.content || msg?.reasoning_content || ''
     } catch {
       content = parseSseContent(rawText)
     }

@@ -114,9 +114,9 @@ export function parseSseContent(raw: string): string {
     const json = trimmed.slice(5).trim()
     if (json === '[DONE]') break
     try {
-      const obj = JSON.parse(json) as { choices?: { delta?: { content?: string }; message?: { content?: string } }[] }
+      const obj = JSON.parse(json) as { choices?: { delta?: { content?: string; reasoning_content?: string }; message?: { content?: string; reasoning_content?: string } }[] }
       for (const c of obj.choices ?? []) {
-        const text = c.delta?.content ?? c.message?.content ?? ''
+        const text = c.delta?.content || c.delta?.reasoning_content || c.message?.content || c.message?.reasoning_content || ''
         if (text) parts.push(text)
       }
     } catch { /* 跳过无法解析的行 */ }

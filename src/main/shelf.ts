@@ -101,8 +101,9 @@ async function wishChatAi(messages: { role: string; content: string }[], systemP
           content = parseSseContent(rawText)
         } else {
           try {
-            const data = JSON.parse(rawText) as { choices?: { message?: { content?: string } }[] }
-            content = data.choices?.[0]?.message?.content ?? ''
+            const data = JSON.parse(rawText) as { choices?: { message?: { content?: string; reasoning_content?: string } }[] }
+            const msg = data.choices?.[0]?.message
+            content = msg?.content || msg?.reasoning_content || ''
           } catch {
             // JSON 解析失败最后尝试 SSE 回退
             logLine('[wishChat] JSON parse failed, trying SSE fallback')
@@ -511,7 +512,8 @@ export function registerShelfChannels(): void {
         content = parseSseContent(rawText)
       } else {
         try {
-          content = (JSON.parse(rawText) as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ?? ''
+          const msg = (JSON.parse(rawText) as { choices?: { message?: { content?: string; reasoning_content?: string } }[] }).choices?.[0]?.message
+          content = msg?.content || msg?.reasoning_content || ''
         } catch {
           content = parseSseContent(rawText)
         }
