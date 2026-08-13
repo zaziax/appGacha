@@ -840,11 +840,11 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
         stream = await streamCompletion(endpoint, messages, partial => {
-          // 思考内容流式上报（~6fps，同 id 原地替换，前端看到文字逐字生长）
+          // 思考内容流式上报（同 id 原地替换；前端缓冲后以恒定速率逐字揭示，保证丝滑）
           const now = Date.now()
-          if (now - lastThinkEmit < 150) return
+          if (now - lastThinkEmit < 60) return
           lastThinkEmit = now
-          job.onActivity?.('think', partial.trim().slice(0, 800), `think-${turns}`)
+          job.onActivity?.('think', partial.trim(), `think-${turns}`)
         }, job.signal)
         break
       } catch (e) {
@@ -915,7 +915,7 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
 
     // 机芯实况：AI 的完整思考（确保最终内容完整展示）
     if (msg.content && msg.content.trim()) {
-      job.onActivity?.('think', msg.content.trim().slice(0, 800), `think-${turns}`)
+      job.onActivity?.('think', msg.content.trim(), `think-${turns}`)
     }
 
     if (!msg.tool_calls || msg.tool_calls.length === 0) {

@@ -315,6 +315,7 @@
     "popUpgraded": "咔哒！「{{name}}」升级完成"
   },
   "feed": {
+    "thinking": "思考中",
     "listing": "查看装配舱文件…",
     "list": "查看装配舱文件清单",
     "reading": "读取 {{path}}…",

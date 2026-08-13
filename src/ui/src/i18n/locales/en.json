@@ -315,6 +315,7 @@
     "popUpgraded": "Click! \"{{name}}\" upgraded"
   },
   "feed": {
+    "thinking": "Thinking",
     "listing": "Listing chamber files…",
     "list": "Listed chamber files",
     "reading": "Reading {{path}}…",

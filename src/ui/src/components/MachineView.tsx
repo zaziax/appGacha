@@ -989,36 +989,98 @@ function ShineSweep() {
   )
 }
 
-// ---- 思考行：单行流式胶囊，完成后折叠，点击展开 ----
+// ---- 丝滑打字机：把目标文本按恒定速率逐字揭示，与流响应到达节奏解耦 ----
+// 流是突发式的（token 成批到达），这里把完整内容缓冲下来，以固定速度吐字，保证平滑
+const CHARS_PER_SEC = 80
+function useTypewriter(target: string, active: boolean): string {
+  const [count, setCount] = useState(0)
+  const targetRef = useRef(target)
+  targetRef.current = target
+  const floatRef = useRef(0)
+
+  useEffect(() => {
+    if (!active) return
+    let raf = 0
+    let last = performance.now()
+    const tick = (now: number) => {
+      const dt = Math.min(now - last, 100) // 切后台/卡顿后不要大步跳
+      last = now
+      floatRef.current = Math.min(targetRef.current.length, floatRef.current + CHARS_PER_SEC * dt / 1000)
+      const next = Math.floor(floatRef.current)
+      setCount(prev => (prev === next ? prev : next))
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [active])
+
+  if (!active) return target
+  return target.slice(0, count)
+}
+
+// ---- 思考行：进行中折叠为「思考中」状态，点击展开看实时详情 ----
 const ThinkRow = forwardRef<HTMLDivElement, {
   text: GachaActivity['text']; active: boolean; expanded: boolean; onToggle: () => void
   t: (key: string, params?: Record<string, unknown>) => string
 }>(function ThinkRow({ text, active, expanded, onToggle, t }, ref) {
   const content = tr(t, text)
+  const revealed = useTypewriter(content, active)
+  const thinking = t('feed.thinking')
+  // 展开后实时跟随：新内容落到尾部时滚入视野
+  const tailRef = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    if (active && expanded) tailRef.current?.scrollIntoView({ block: 'end' })
+  }, [revealed, active, expanded])
+
   return (
     <motion.div
       ref={ref}
       layout
       initial={{ opacity: 0, y: 8, scale: 0.94 }}
-      animate={{ opacity: active ? 1 : 0.55, y: 0, scale: active ? 1.03 : 0.98 }}
+      animate={{ opacity: active ? 1 : 0.55, y: 0, scale: active ? 1.02 : 0.98 }}
       transition={SPRING}
       onClick={onToggle}
-      className={`relative flex items-center gap-2.5 rounded-xl px-3 py-2 cursor-pointer select-none overflow-hidden ${
+      className={`relative flex ${expanded ? 'items-start' : 'items-center'} gap-2.5 rounded-xl px-3 py-2 cursor-pointer select-none overflow-hidden ${
         active ? 'bg-violet-100' : 'bg-transparent hover:bg-violet-100/50'
       }`}
     >
-      {active && <ShineSweep />}
-      <Brain className={`w-4 h-4 shrink-0 ${active ? 'text-violet-600' : 'text-violet-400'}`} strokeWidth={2.5} />
+      {active && !expanded && <ShineSweep />}
+      {/* 思考中：图标呼吸；完成：静止 */}
+      <motion.span
+        animate={active ? { scale: [1, 1.14, 1] } : { scale: 1 }}
+        transition={active ? { duration: 1.5, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.2 }}
+        className="shrink-0"
+      >
+        <Brain className={`w-4 h-4 ${active ? 'text-violet-600' : 'text-violet-400'}`} strokeWidth={2.5} />
+      </motion.span>
+
       {expanded ? (
-        <p className="flex-1 min-w-0 text-[12px] leading-relaxed font-bold text-text whitespace-pre-wrap break-words">{content}</p>
+        <div className="flex-1 min-w-0">
+          <p className="text-[12px] leading-relaxed font-bold text-text whitespace-pre-wrap break-words">
+            {active ? revealed : content}
+            {active && <BlinkingCursor />}
+          </p>
+          <span ref={tailRef} className="block h-px" aria-hidden />
+        </div>
+      ) : active ? (
+        <div className="flex-1 min-w-0 flex items-center gap-1.5">
+          <span className="text-[12px] font-bold text-violet-700">{thinking}</span>
+          <span className="flex items-center gap-[3px]">
+            {[0, 1, 2].map(d => (
+              <motion.span key={d}
+                className="w-1 h-1 rounded-full bg-violet-500"
+                animate={{ opacity: [0.25, 1, 0.25], y: [0, -2, 0] }}
+                transition={{ duration: 0.9, repeat: Infinity, delay: d * 0.16, ease: 'easeInOut' }} />
+            ))}
+          </span>
+        </div>
       ) : (
-        <p className={`flex-1 min-w-0 truncate text-[12px] font-bold ${active ? 'text-text' : 'text-muted'}`}>{content}</p>
+        <p className="flex-1 min-w-0 truncate text-[12px] font-bold text-muted">{content}</p>
       )}
-      {active ? <BlinkingCursor /> : (
-        <motion.span animate={{ rotate: expanded ? 180 : 0 }} transition={SPRING} className="shrink-0">
-          <ChevronDown className={`w-3.5 h-3.5 ${expanded ? 'text-violet-500' : 'text-muted/50'}`} />
-        </motion.span>
-      )}
+
+      <motion.span animate={{ rotate: expanded ? 180 : 0 }} transition={SPRING} className="shrink-0">
+        <ChevronDown className={`w-3.5 h-3.5 ${expanded ? 'text-violet-500' : active ? 'text-violet-400' : 'text-muted/50'}`} />
+      </motion.span>
     </motion.div>
   )
 })
