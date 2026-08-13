@@ -52,7 +52,8 @@ async function wishChatAi(messages: { role: string; content: string }[], systemP
   // 这些网络错误属于临时性故障，重试可恢复
   const RETRYABLE = new Set(['ERR_INCOMPLETE_CHUNKED_ENCODING', 'ERR_CONNECTION_RESET',
     'ERR_SOCKET_NOT_CONNECTED', 'ERR_HTTP2_SERVER_REFUSED_STREAM',
-    'ERR_EMPTY_RESPONSE', 'ERR_NETWORK_CHANGED', 'ERR_CONTENT_LENGTH_MISMATCH'])
+    'ERR_EMPTY_RESPONSE', 'ERR_NETWORK_CHANGED', 'ERR_CONTENT_LENGTH_MISMATCH',
+    'OUTPUT_TRUNCATED'])
 
   let lastError: Error | null = null
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -64,7 +65,7 @@ async function wishChatAi(messages: { role: string; content: string }[], systemP
         messages: [{ role: 'system', content: systemPrompt }, ...messages],
         response_format: { type: 'json_object' },
         temperature: 0.8,
-        max_tokens: 800,
+        max_tokens: 2000,  // 推理模型 reasoning_content 计入输出，800 会被截断导致 JSON 残缺
         stream: false  // 关流式 — 代理可能忽略"非流式"语义但仍能减少 SSE 截断风险
       }, { signal: controller.signal, timeout: 35_000 })
 
@@ -101,10 +102,16 @@ async function wishChatAi(messages: { role: string; content: string }[], systemP
           content = parseSseContent(rawText)
         } else {
           try {
-            const data = JSON.parse(rawText) as { choices?: { message?: { content?: string; reasoning_content?: string } }[] }
-            const msg = data.choices?.[0]?.message
+            const data = JSON.parse(rawText) as { choices?: { message?: { content?: string; reasoning_content?: string }; finish_reason?: string }[] }
+            const choice = data.choices?.[0]
+            // 推理模型可能因 max_tokens 不足被截断（finish_reason=length）→ 抛可重试错误
+            if (choice?.finish_reason === 'length') {
+              throw Object.assign(new Error('AI output truncated (finish_reason=length)'), { code: 'OUTPUT_TRUNCATED' })
+            }
+            const msg = choice?.message
             content = msg?.content || msg?.reasoning_content || ''
-          } catch {
+          } catch (e) {
+            if ((e as { code?: string }).code === 'OUTPUT_TRUNCATED') throw e
             // JSON 解析失败最后尝试 SSE 回退
             logLine('[wishChat] JSON parse failed, trying SSE fallback')
             content = parseSseContent(rawText)
@@ -138,6 +145,7 @@ async function wishChatAi(messages: { role: string; content: string }[], systemP
         msg.includes('ERR_INCOMPLETE') || msg.includes('ERR_CONNECTION') ||
         msg.includes('ERR_EMPTY') || msg.includes('ERR_SOCKET') ||
         msg.includes('Unexpected end of JSON input') || msg.includes('Unexpected token') ||
+        msg.includes('Unterminated string') ||
         msg.includes('Empty response body')
 
       logLine('[wishChat] error:',
@@ -502,7 +510,7 @@ export function registerShelfChannels(): void {
         ],
         response_format: { type: 'json_object' },
         temperature: 1.0,
-        max_tokens: 200
+        max_tokens: 1000  // 推理模型 reasoning_content 计入输出，避免截断
       }, { signal: controller.signal, timeout: 20_000 })
       if (!res.ok) throw new Error(`AI HTTP ${res.status}`)
       const rawText = await res.text()
