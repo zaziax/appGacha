@@ -197,7 +197,7 @@ export function SpaceView({ eggs, onToast, onChanged, dimmed }: Props) {
 
   return (
     <div className="h-full flex bg-cream">
-      {/* ═══ 左侧 tab 栏（无分隔线，靠底色区分） ═══ */}
+      {/* ═══ 左侧 tab 栏（稍深奶油底，右侧竖棍分隔） ═══ */}
       <div className="w-[200px] shrink-0 flex flex-col bg-[#F1EAE0]">
         <div ref={listRef} className="flex-1 overflow-y-auto shelf-scroll p-3 relative">
           {spaceEggs.length === 0 ? (
@@ -284,63 +284,64 @@ export function SpaceView({ eggs, onToast, onChanged, dimmed }: Props) {
         </div>
       </div>
 
-      {/* ═══ 右侧内容区：圆角卡片包裹；DOM 只留内缩空位，蛋的 WebContentsView 由主进程叠在这里 ═══ */}
-      <div className="flex-1 min-w-0 px-2 pt-2 pb-2">
-        <div className="h-full w-full rounded-2xl border-[3px] border-text/10 bg-white p-1" style={{ boxShadow: '4px 4px 0 rgba(92,64,51,0.08)' }}>
-          <div ref={contentRef} className="h-full w-full relative bg-[#FBFAF8] rounded-xl overflow-hidden">
-            {/* dimmed 占位：弹窗/面板打开时蛋视图隐藏，显示 3D 扭蛋冻结画面 */}
-            <AnimatePresence>
-              {dimmed && activeEgg && (
+      {/* 竖棍分隔：与扭蛋区同款，区分左侧 tab 栏与右侧内容区 */}
+      <div className="w-px bg-[#D8CCBB]" />
+
+      {/* ═══ 右侧内容区：去白盒，内容区直接浮在奶油底上；DOM 只留空位，蛋的 WebContentsView 由主进程叠在这里 ═══ */}
+      <div className="flex-1 min-w-0 p-2">
+        <div ref={contentRef} className="h-full w-full relative bg-cream rounded-xl overflow-hidden">
+          {/* dimmed 占位：弹窗/面板打开时蛋视图隐藏，显示 3D 扭蛋冻结画面 */}
+          <AnimatePresence>
+            {dimmed && activeEgg && (
+              <motion.div
+                className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-5
+                           bg-cream/60 rounded-xl"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.25 }}
+              >
+                {/* 3D 扭蛋 — 与侧边栏同款 CapsuleScene，复用全局 Canvas */}
                 <motion.div
-                  className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-5
-                             bg-[#FBFAF8]/60 rounded-xl"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.25 }}
+                  className="w-36 h-36 pointer-events-none"
+                  initial={{ scale: 0.5, y: 20 }}
+                  animate={{ scale: 1, y: 0 }}
+                  exit={{ scale: 0.5, y: -14 }}
+                  transition={{ type: 'spring', stiffness: 280, damping: 16, mass: 1.0 }}
                 >
-                  {/* 3D 扭蛋 — 与侧边栏同款 CapsuleScene，复用全局 Canvas */}
-                  <motion.div
-                    className="w-36 h-36 pointer-events-none"
-                    initial={{ scale: 0.5, y: 20 }}
-                    animate={{ scale: 1, y: 0 }}
-                    exit={{ scale: 0.5, y: -14 }}
-                    transition={{ type: 'spring', stiffness: 280, damping: 16, mass: 1.0 }}
-                  >
-                    <View className="w-full h-full">
-                      <CapsuleScene
-                        cupColor={eggColors(activeEgg.eggId).cup}
-                        contentColor={eggColors(activeEgg.eggId).content}
-                        dimmed
-                        hovered={false}
-                        phase={0}
-                        iconUrl={activeEgg.icon ? iconDataUrl(activeEgg.icon) : undefined}
-                      />
-                    </View>
-                  </motion.div>
-                  <motion.p
-                    className="text-[15px] font-extrabold text-text"
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.12, duration: 0.25 }}
-                  >
-                    {activeEgg.name}
-                  </motion.p>
+                  <View className="w-full h-full">
+                    <CapsuleScene
+                      cupColor={eggColors(activeEgg.eggId).cup}
+                      contentColor={eggColors(activeEgg.eggId).content}
+                      dimmed
+                      hovered={false}
+                      phase={0}
+                      iconUrl={activeEgg.icon ? iconDataUrl(activeEgg.icon) : undefined}
+                    />
+                  </View>
                 </motion.div>
-              )}
-            </AnimatePresence>
-            {spaceEggs.length === 0 && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 pointer-events-none">
-                <div
-                  className="w-[88px] h-[88px] rounded-full border-[3px] border-dashed border-text/25 flex items-center justify-center cursor-pointer hover:border-brand hover:bg-brand/[0.03] transition-colors pointer-events-auto"
-                  onClick={() => setPickerOpen(true)}
+                <motion.p
+                  className="text-[15px] font-extrabold text-text"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.12, duration: 0.25 }}
                 >
-                  <Plus className="w-7 h-7 text-[#d4cfc8]" strokeWidth={2.5} />
-                </div>
-                <p className="text-[13px] text-muted font-medium">{t('space.empty')}</p>
-              </div>
+                  {activeEgg.name}
+                </motion.p>
+              </motion.div>
             )}
-          </div>
+          </AnimatePresence>
+          {spaceEggs.length === 0 && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 pointer-events-none">
+              <div
+                className="w-[88px] h-[88px] rounded-full border-[3px] border-dashed border-text/25 flex items-center justify-center cursor-pointer hover:border-brand hover:bg-brand/[0.03] transition-colors pointer-events-auto"
+                onClick={() => setPickerOpen(true)}
+              >
+                <Plus className="w-7 h-7 text-[#d4cfc8]" strokeWidth={2.5} />
+              </div>
+              <p className="text-[13px] text-muted font-medium">{t('space.empty')}</p>
+            </div>
+          )}
         </div>
       </div>
 
