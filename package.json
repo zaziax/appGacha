@@ -22,6 +22,7 @@
     "dev": "tsc && cross-env APPGACHA_UI_DEV_URL=http://localhost:5173 electron .",
     "smoke": "npm run build && electron . --smoke",
     "test": "vitest run",
+    "pretest:db": "electron-rebuild -w better-sqlite3",
     "test:db": "tsc && node test-db.cjs",
     "test:all": "npm run test && npm run test:db",
     "pack": "npm run build && node -e \"try{require('fs').rmSync('release',{recursive:true,force:true})}catch(e){}\" && cross-env ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --dir",
