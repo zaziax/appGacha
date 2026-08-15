@@ -35,7 +35,8 @@ function senderWindow(event: IpcMainInvokeEvent): BrowserWindow {
   return win
 }
 
-const MAX_PICK_BYTES = 10 * 1024 * 1024
+// 系统对话框是沙箱内数据进出的唯一逃生口；进出两侧都封顶，防恶意蛋预填超大内容撑爆磁盘
+const MAX_DIALOG_BYTES = 10 * 1024 * 1024
 
 export function registerCapabilities(): void {
   handle('egg:storage:get', 'storage', (ctx, [key]) => storage.get(ctx, key as string))
@@ -72,12 +73,13 @@ export function registerCapabilities(): void {
     })
     if (res.canceled || res.filePaths.length === 0) return null
     const file = res.filePaths[0]
-    if (fs.statSync(file).size > MAX_PICK_BYTES) throw new Error(`pickFile: file exceeds ${MAX_PICK_BYTES} bytes`)
+    if (fs.statSync(file).size > MAX_DIALOG_BYTES) throw new Error(`pickFile: file exceeds ${MAX_DIALOG_BYTES} bytes`)
     return { name: file.split(/[\\/]/).pop(), content: fs.readFileSync(file, 'utf-8') }
   })
 
   handle('egg:ui:saveFile', null, async (_ctx, [content, defaultName], event) => {
     if (typeof content !== 'string') throw new Error('saveFile: content must be a string')
+    if (Buffer.byteLength(content) > MAX_DIALOG_BYTES) throw new Error(`saveFile: content exceeds ${MAX_DIALOG_BYTES} bytes`)
     const res = await dialog.showSaveDialog(senderWindow(event), {
       defaultPath: typeof defaultName === 'string' ? defaultName : undefined
     })
