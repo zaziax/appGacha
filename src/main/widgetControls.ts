@@ -1,4 +1,5 @@
-import { BrowserWindow, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, screen } from 'electron'
+import path from 'node:path'
 
 /**
  * D11 widget 安全出口：独立卫星控制窗。
@@ -25,69 +26,6 @@ interface DragSession {
   size: [number, number]         // 拖拽开始时锁定的 widget 尺寸，配合 setBounds 防 DPI 放大 bug
 }
 const dragSessions = new Map<number, DragSession>()
-
-const CTRL_HTML = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-  html, body { margin: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; }
-  .pill {
-    box-sizing: border-box; width: 100%; height: 100%;
-    display: flex; align-items: center; gap: 2px; padding: 4px;
-    background: rgba(30,30,36,.88); backdrop-filter: blur(8px);
-    border-radius: 99px; user-select: none;
-    font-family: system-ui, "Microsoft YaHei", sans-serif;
-  }
-  .grip {
-    flex: 1; height: 100%; display: flex; align-items: center; justify-content: center;
-    color: rgba(255,255,255,.45); cursor: grab; touch-action: none;
-  }
-  .grip.dragging { cursor: grabbing; color: rgba(255,255,255,.85); }
-  .pill button {
-    -webkit-app-region: no-drag;
-    width: 26px; height: 26px; flex: none; border: none; background: none;
-    border-radius: 99px; cursor: pointer; display: flex; align-items: center; justify-content: center;
-    color: rgba(255,255,255,.75); padding: 0; transition: background .15s, color .15s;
-  }
-  .pill button:hover { background: rgba(255,255,255,.16); color: #fff; }
-  .pill button.pinned { color: #e8843c; }
-  .pill button.close:hover { background: #c0574f; color: #fff; }
-  svg { width: 14px; height: 14px; display: block; }
-</style>
-</head>
-<body>
-<div class="pill">
-  <div class="grip" id="grip" title="拖动移动"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="18" r="1"/></svg></div>
-  <button id="pin" title="置顶"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></svg></button>
-  <button id="close" class="close" title="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
-</div>
-<script>
-  const { ipcRenderer } = require('electron')
-  document.getElementById('pin').addEventListener('click', () => ipcRenderer.send('ctrl:pin'))
-  document.getElementById('close').addEventListener('click', () => ipcRenderer.send('ctrl:close'))
-  ipcRenderer.on('ctrl:pinState', (_e, onTop) => document.getElementById('pin').classList.toggle('pinned', !!onTop))
-  document.documentElement.addEventListener('mouseenter', () => ipcRenderer.send('ctrl:enter'))
-  document.documentElement.addEventListener('mouseleave', () => ipcRenderer.send('ctrl:leave'))
-  // 握把自定义拖动：pointerdown 上报开始（指针捕获保证松手事件不丢），pointerup 上报结束
-  const grip = document.getElementById('grip')
-  grip.addEventListener('pointerdown', e => {
-    e.preventDefault()
-    grip.setPointerCapture(e.pointerId)
-    grip.classList.add('dragging')
-    ipcRenderer.send('ctrl:dragStart')
-  })
-  const endDrag = e => {
-    if (!grip.classList.contains('dragging')) return
-    grip.classList.remove('dragging')
-    if (grip.hasPointerCapture(e.pointerId)) grip.releasePointerCapture(e.pointerId)
-    ipcRenderer.send('ctrl:dragEnd')
-  }
-  grip.addEventListener('pointerup', endDrag)
-  grip.addEventListener('pointercancel', endDrag)
-</script>
-</body>
-</html>`
 
 export function registerWidgetControlEvents(): void {
   // widget 侧：鼠标进入/离开（preload 上报）
@@ -151,15 +89,17 @@ export function attachControls(widget: BrowserWindow): void {
     focusable: false,       // 不抢 widget 焦点
     show: false,
     webPreferences: {
-      // 纯宿主 UI，不运行任何蛋代码，可放开 nodeIntegration
-      nodeIntegration: true,
-      contextIsolation: false
+      // 与蛋窗口同一套沙箱三件套：页面脚本无 Node，只经 preload 暴露的窄桥通信
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: path.join(__dirname, '../preload/ctrl.js')
     }
   })
   ctrlByWidget.set(widget.id, ctrl)
   widgetByCtrl.set(ctrl.id, widget)
 
-  void ctrl.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(CTRL_HTML))
+  void ctrl.loadFile(path.join(app.getAppPath(), 'src', 'renderer', 'ctrl', 'index.html'))
 
   // 同步初始置顶状态
   ctrl.webContents.once('did-finish-load', () => {

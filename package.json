@@ -69,7 +69,8 @@
       "output": "release"
     },
     "files": [
-      "dist/**/*"
+      "dist/**/*",
+      "src/renderer/**/*"
     ],
     "extraResources": [
       {
