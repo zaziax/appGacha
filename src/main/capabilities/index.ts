@@ -109,8 +109,8 @@ export function registerCapabilities(): void {
   handle('egg:net:findRooms', 'network', () => coordinator.findRooms())
   handle('egg:net:joinRoom', 'network', (ctx, [idOrCode], event) =>
     coordinator.joinRoom(idOrCode as string, ctx.eggId, event.sender.id))
-  handle('egg:net:broadcast', 'network', (ctx, [roomId, msg], event) =>
+  handle('egg:net:broadcast', 'network', (_ctx, [roomId, msg], event) =>
     coordinator.broadcast(roomId as string, event.sender.id, msg))
-  handle('egg:net:close', 'network', (ctx, [roomId], event) =>
+  handle('egg:net:close', 'network', (_ctx, [roomId], event) =>
     coordinator.closeRoom(roomId as string, event.sender.id))
 }
