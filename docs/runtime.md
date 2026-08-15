@@ -36,7 +36,7 @@
 ```js
 new BrowserWindow({
   webPreferences: {
-    sandbox: true,              // Chromium OS 级沙箱
+    sandbox: true,              // Chromium 渲染沙箱（受限令牌 + 低完整性级别）；仍是同一 OS 用户，非容器/VM，见 docs/threat-model.md
     contextIsolation: true,
     nodeIntegration: false,
     preload: HOST_PRELOAD,      // 主应用的 preload，蛋无法替换
