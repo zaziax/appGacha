@@ -27,7 +27,8 @@
     "test:all": "npm run test && npm run test:db",
     "pack": "npm run build && node -e \"try{require('fs').rmSync('release',{recursive:true,force:true})}catch(e){}\" && cross-env ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --dir",
     "dist": "npm run build && node -e \"try{require('fs').rmSync('release',{recursive:true,force:true})}catch(e){}\" && cross-env ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder",
-    "rebuild": "electron-rebuild -f -w better-sqlite3"
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "postinstall": "electron-rebuild -w better-sqlite3"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.1",
