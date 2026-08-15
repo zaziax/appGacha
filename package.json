@@ -21,6 +21,7 @@
     "dev:ui": "vite --config src/ui/vite.config.ts",
     "dev": "tsc && cross-env APPGACHA_UI_DEV_URL=http://localhost:5173 electron .",
     "smoke": "npm run build && electron . --smoke",
+    "test": "vitest run",
     "pack": "npm run build && node -e \"try{require('fs').rmSync('release',{recursive:true,force:true})}catch(e){}\" && cross-env ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --dir",
     "dist": "npm run build && node -e \"try{require('fs').rmSync('release',{recursive:true,force:true})}catch(e){}\" && cross-env ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder",
     "rebuild": "electron-rebuild -f -w better-sqlite3"
@@ -49,7 +50,8 @@
     "tailwindcss": "^4.3.3",
     "three": "^0.185.1",
     "typescript": "^5.5.0",
-    "vite": "^8.1.5"
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
   },
   "build": {
     "appId": "com.appgacha.desktop",

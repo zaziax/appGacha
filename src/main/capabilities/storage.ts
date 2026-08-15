@@ -30,10 +30,16 @@ function load(ctx: EggContext): Record<string, unknown> {
 }
 
 function save(ctx: EggContext, data: Record<string, unknown>): void {
+  // 序列化一次，用落盘同款字节数做总量校验——杜绝「校验用紧凑、落盘用缩进」的口径不一致
+  // （否则 set 通过校验写入成功，下次 load 却因文件真实字节超限抛错，数据读不回来）
+  const serialized = JSON.stringify(data, null, 2)
+  if (Buffer.byteLength(serialized) > MAX_TOTAL_BYTES) {
+    throw new Error(`storage: total exceeds ${MAX_TOTAL_BYTES} bytes`)
+  }
   const file = storageFile(ctx)
   fs.mkdirSync(path.dirname(file), { recursive: true })
   const tmp = file + '.tmp'
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8')
+  fs.writeFileSync(tmp, serialized, 'utf-8')
   fs.renameSync(tmp, file)
 }
 
@@ -54,10 +60,7 @@ export function set(ctx: EggContext, key: string, value: unknown): void {
   const data = load(ctx)
   data[key] = value
   if (Object.keys(data).length > MAX_KEYS) throw new Error(`storage: too many keys (max ${MAX_KEYS})`)
-  if (Buffer.byteLength(JSON.stringify(data)) > MAX_TOTAL_BYTES) {
-    throw new Error(`storage: total exceeds ${MAX_TOTAL_BYTES} bytes`)
-  }
-  save(ctx, data)
+  save(ctx, data) // 总量校验在 save 内，用落盘同款序列化
 }
 
 export function del(ctx: EggContext, key: string): void {
