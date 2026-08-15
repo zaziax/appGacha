@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { assertSafeSql, hasLimitClause, MAX_QUERY_ROWS } from '../src/main/capabilities/dbGuard'
+import { assertSafeSql, hasLimitClause, MAX_QUERY_ROWS, MAX_RESULT_BYTES, rowBytes } from '../src/main/capabilities/dbGuard'
 
 // dbGuard 是 db 能力的安全第一道防线：在 better-sqlite3 编译/执行之前就拦住
 // ATTACH/VACUUM 等可逃逸 egg.db 的关键字。它是纯函数，无需 Electron/原生模块即可测。
@@ -56,9 +56,24 @@ describe('hasLimitClause', () => {
   })
 })
 
-describe('MAX_QUERY_ROWS', () => {
-  it('is a positive integer', () => {
+describe('rowBytes', () => {
+  it('measures structured-clone size — Buffer stays compact', () => {
+    const buf = Buffer.alloc(1024, 0x61)
+    // v8.serialize 对 Buffer 保持紧凑；JSON.stringify 会膨胀成逐字节数组（对照）
+    expect(rowBytes({ b: buf })).toBeLessThan(2048)
+    expect(JSON.stringify({ b: buf }).length).toBeGreaterThan(2048)
+  })
+
+  it('measures plain rows by serialized size', () => {
+    expect(rowBytes({ a: 1, b: 'x' })).toBeGreaterThan(0)
+  })
+})
+
+describe('limits', () => {
+  it('MAX_QUERY_ROWS and MAX_RESULT_BYTES are positive integers', () => {
     expect(Number.isInteger(MAX_QUERY_ROWS)).toBe(true)
     expect(MAX_QUERY_ROWS).toBeGreaterThan(0)
+    expect(Number.isInteger(MAX_RESULT_BYTES)).toBe(true)
+    expect(MAX_RESULT_BYTES).toBeGreaterThan(0)
   })
 })

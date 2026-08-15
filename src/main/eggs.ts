@@ -1,13 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type Database from 'better-sqlite3'
 import { EggManifest, KNOWN_PERMISSIONS } from '../shared/types'
 
 export interface EggContext {
   eggId: string
   dir: string
   manifest: EggManifest
-  db?: Database.Database
   /** 测试模式：egg.ai 返回 mock 数据，不发真实请求 */
   aiMock?: boolean
   /** 装配舱里的临时蛋，不在收藏柜陈列 */

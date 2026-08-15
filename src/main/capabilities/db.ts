@@ -1,43 +1,88 @@
-import Database from 'better-sqlite3'
-import fs from 'node:fs'
+import { utilityProcess } from 'electron'
 import path from 'node:path'
 import { EggContext } from '../eggs'
-import { MAX_QUERY_ROWS, assertSafeSql, hasLimitClause } from './dbGuard'
 
-// db 能力的安全边界：蛋只能操作自己的 data/egg.db，绝不能触碰蛋目录以外的文件系统。
-// SQL 层守卫（禁 ATTACH/VACUUM 等）见 dbGuard.ts；这里负责连接管理 + 读/写分离 + 行数封顶。
+// db 能力的宿主侧：真正的 SQL 在 dbWorker.ts（utilityProcess 独立进程）里跑，把 better-sqlite3
+// 的同步阻塞彻底隔离出主进程——恶意蛋跑 CROSS JOIN/递归 CTE 只会卡住它自己的子进程，
+// 主进程与其它蛋不受影响；超时则 kill() 硬杀该进程（即使卡在原生循环，OS 也立即回收 CPU），
+// 下次调用重建连接（SQLite WAL 自动恢复）。
 
-function getDb(ctx: EggContext): Database.Database {
-  if (!ctx.db) {
-    const dataDir = path.join(ctx.dir, 'data')
-    fs.mkdirSync(dataDir, { recursive: true })
-    ctx.db = new Database(path.join(dataDir, 'egg.db'))
-    ctx.db.pragma('journal_mode = WAL')
-  }
-  return ctx.db
+// 单次 SQL 的超时（毫秒）。可用 APPGACHA_DB_TIMEOUT_MS 覆盖，便于测试超时路径。
+const QUERY_TIMEOUT_MS = Number(process.env.APPGACHA_DB_TIMEOUT_MS) || 30_000
+
+interface Pending {
+  proc: Electron.UtilityProcess
+  resolve: (v: unknown) => void
+  reject: (e: Error) => void
+  timer: NodeJS.Timeout
 }
 
-export function exec(ctx: EggContext, sql: string, params?: unknown[]): { changes: number; lastInsertRowid: number } {
-  assertSafeSql(sql)
-  const stmt = getDb(ctx).prepare(sql)
-  if (stmt.reader) throw new Error('db: exec is for writes; use query() for SELECT')
-  const info = stmt.run(...((params ?? []) as never[]))
-  return { changes: info.changes, lastInsertRowid: Number(info.lastInsertRowid) }
+const procs = new WeakMap<EggContext, Electron.UtilityProcess>()
+const pending = new Map<number, Pending>()
+let nextId = 1
+
+function getProc(ctx: EggContext): Electron.UtilityProcess {
+  let p = procs.get(ctx)
+  if (p) return p
+  const dbPath = path.join(ctx.dir, 'data', 'egg.db')
+  p = utilityProcess.fork(path.join(__dirname, 'dbWorker.js'), [], {
+    env: { ...process.env, APPGACHA_DB_PATH: dbPath },
+  })
+  p.on('message', (msg: { id: number; ok: boolean; value?: unknown; error?: string }) => {
+    const pend = pending.get(msg.id)
+    if (!pend) return
+    pending.delete(msg.id)
+    clearTimeout(pend.timer)
+    if (msg.ok) pend.resolve(msg.value)
+    else pend.reject(new Error(msg.error ?? 'db: process error'))
+  })
+  p.on('exit', () => {
+    if (procs.get(ctx) === p) procs.delete(ctx)
+    failProc(p, new Error('db: process exited'))
+  })
+  procs.set(ctx, p)
+  return p
 }
 
-export function query(ctx: EggContext, sql: string, params?: unknown[]): unknown[] {
-  assertSafeSql(sql)
-  const db = getDb(ctx)
-  // 先编译原句判只读：数据修改 CTE（WITH ... DELETE）首关键字是 WITH，但 .reader=false，必须拦下
-  const probe = db.prepare(sql)
-  if (!probe.reader) throw new Error('db: query is read-only; use exec() for writes')
-  // 无 LIMIT 时追加 MAX+1：表里真有超限行数会抛错（而非静默截断丢数据），≤MAX 行则原样返回
-  const capped = hasLimitClause(sql) ? sql : `${sql.replace(/;\s*$/, '')} LIMIT ${MAX_QUERY_ROWS + 1}`
-  const stmt = capped === sql ? probe : db.prepare(capped)
-  const rows: unknown[] = []
-  for (const row of stmt.iterate(...((params ?? []) as never[]))) {
-    rows.push(row)
-    if (rows.length > MAX_QUERY_ROWS) throw new Error(`db: query exceeds ${MAX_QUERY_ROWS} rows — add a LIMIT`)
+// 拒绝某个子进程名下所有挂起请求（进程崩溃/退出/被超时强杀时调用）
+function failProc(p: Electron.UtilityProcess, err: Error): void {
+  for (const [id, pend] of pending) {
+    if (pend.proc !== p) continue
+    pending.delete(id)
+    clearTimeout(pend.timer)
+    pend.reject(err)
   }
-  return rows
+}
+
+function call(ctx: EggContext, op: 'exec' | 'query', sql: string, params?: unknown[]): Promise<unknown> {
+  const p = getProc(ctx)
+  const id = nextId++
+  return new Promise<unknown>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pending.delete(id)
+      if (procs.get(ctx) === p) procs.delete(ctx)
+      p.kill() // 硬杀独立进程：即使卡在原生循环，OS 也立即回收 CPU
+      reject(new Error(`db: ${op} timed out after ${QUERY_TIMEOUT_MS}ms`))
+    }, QUERY_TIMEOUT_MS)
+    pending.set(id, { proc: p, resolve, reject, timer })
+    p.postMessage({ id, op, sql, params })
+  })
+}
+
+export function exec(ctx: EggContext, sql: string, params?: unknown[]): Promise<{ changes: number; lastInsertRowid: number }> {
+  return call(ctx, 'exec', sql, params) as Promise<{ changes: number; lastInsertRowid: number }>
+}
+
+export function query(ctx: EggContext, sql: string, params?: unknown[]): Promise<unknown[]> {
+  return call(ctx, 'query', sql, params) as Promise<unknown[]>
+}
+
+// 关闭蛋的数据库子进程（窗口全关 / 蛋被移除时由 registry 调用）：拒绝挂起请求并硬杀进程，
+// 释放 SQLite 文件句柄。WAL 已提交数据安全，下次 open 自动恢复。
+export function close(ctx: EggContext): void {
+  const p = procs.get(ctx)
+  if (!p) return
+  procs.delete(ctx)
+  failProc(p, new Error('db: closed'))
+  p.kill()
 }

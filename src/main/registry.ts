@@ -1,4 +1,5 @@
 import { EggContext } from './eggs'
+import * as db from './capabilities/db'
 
 const byWebContents = new Map<number, EggContext>()
 
@@ -13,9 +14,8 @@ export function get(webContentsId: number): EggContext | undefined {
 export function unregister(webContentsId: number): void {
   const ctx = byWebContents.get(webContentsId)
   byWebContents.delete(webContentsId)
-  // 同一蛋没有其它存活窗口时关闭数据库连接
-  if (ctx?.db && ![...byWebContents.values()].some(c => c.eggId === ctx.eggId)) {
-    ctx.db.close()
-    ctx.db = undefined
+  // 同一蛋没有其它存活窗口时关闭数据库子进程（释放 SQLite 文件句柄）
+  if (ctx && ![...byWebContents.values()].some(c => c.eggId === ctx.eggId)) {
+    db.close(ctx)
   }
 }
