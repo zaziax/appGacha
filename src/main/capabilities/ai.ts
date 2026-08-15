@@ -18,7 +18,7 @@ const RATE_LIMIT_PER_MIN = 20
 // 每蛋滑动窗口限速
 const callLog = new Map<string, number[]>()
 
-function checkRate(eggId: string): void {
+export function checkRate(eggId: string): void {
   const now = Date.now()
   const log = (callLog.get(eggId) ?? []).filter(t => now - t < 60_000)
   if (log.length >= RATE_LIMIT_PER_MIN) {
@@ -28,7 +28,7 @@ function checkRate(eggId: string): void {
   callLog.set(eggId, log)
 }
 
-function validateMessages(messages: unknown): asserts messages is ChatMessage[] {
+export function validateMessages(messages: unknown): asserts messages is ChatMessage[] {
   if (!Array.isArray(messages) || messages.length === 0) {
     throw new Error('AI_BAD_REQUEST: messages 必须是非空数组')
   }
