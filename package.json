@@ -17,6 +17,7 @@
   "scripts": {
     "build": "tsc && vite build --config src/ui/vite.config.ts",
     "start": "chcp 65001 > nul && npm run build && electron .",
+    "start:mac": "npm run build && electron .",
     "start:legacy": "tsc && cross-env APPGACHA_UI=legacy electron .",
     "dev:ui": "vite --config src/ui/vite.config.ts",
     "dev": "tsc && cross-env APPGACHA_UI_DEV_URL=http://localhost:5173 electron .",
