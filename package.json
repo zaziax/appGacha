@@ -93,7 +93,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "AppGacha"
+      "shortcutName": "AppGacha",
+      "artifactName": "AppGacha-Setup.exe"
     },
     "mac": {
       "target": "dmg",
