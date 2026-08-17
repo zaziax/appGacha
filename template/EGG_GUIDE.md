@@ -222,6 +222,16 @@ import { marked } from './vendor/marked.esm.js'     // Markdown → HTML
 import QRCode from './vendor/qrcode.esm.js'         // 二维码生成
 import confetti from './vendor/canvas-confetti.esm.js' // 庆祝动效
 import * as THREE from './vendor/three.module.js'   // 3D 场景
+import * as math from './vendor/math.esm.js'        // 数学计算（公式求值、单位换算、矩阵）
+import * as Diff from './vendor/jsdiff.esm.js'      // 文本对比
+import { load as loadYaml, dump as dumpYaml } from './vendor/jsyaml.esm.js' // YAML 解析/格式化
+import ExcelJS from './vendor/exceljs.esm.js'       // Excel(.xlsx)/CSV 读写
+import pdfMake from './vendor/pdfmake.esm.js'       // PDF 生成（已内置默认字体）
+import Matter from './vendor/matter.esm.js'         // 2D 物理引擎
+import { animate } from './vendor/anime.esm.js'     // 补间动画
+import * as Tone from './vendor/tone.esm.js'        // Web Audio 合成/播放
+import p5 from './vendor/p5.esm.js'                 // 生成艺术 / 创意编程
+import katex from './vendor/katex.esm.js'           // LaTeX 公式渲染（样式自动注入，无需 <link>）
 ```
 
 使用原则：
@@ -233,13 +243,51 @@ import * as THREE from './vendor/three.module.js'   // 3D 场景
   - 数据为空时不要渲染空图表——展示空状态提示（图表区域全白会被用户认为 bug）
 - 日期计算**永远用 dayjs**，不要用原生 Date（月份从 0 开始、无 addDays 等坑）
 - 需要图表时**永远用 Chart.js**，不要手画 canvas 图表
+- 需要数学公式时**永远用 KaTeX** 渲染（`katex.render(tex, el)`），不要用纯文本数学符号（`x^2`、`lim`、`∫`）或图片
 - 3D 场景注意性能：widget 类帧率目标 30fps，面数 ≤ 5 万，避免后处理特效栈
-- CSV 解析不需要库：`text.split('\n').map(r => r.split(','))` + 首行表头映射即可
+- CSV 解析不需要库：`text.split('\n').map(r => r.split(','))` + 首行表头映射即可（复杂 CSV 含引号/换行/转义时改用 ExcelJS）
+
+**文件类库（ExcelJS / pdfmake）必须走二进制 I/O**：用 `egg.ui.pickBinary()` 拿 `{ name, bytes }`、`egg.ui.saveBinary(bytes, name)` 存回；蛋内用 `egg.fs.readBytes/writeBytes`。不要用文本版 `pickFile/saveFile/fs.read/write`——它们按 utf-8 处理，会破坏 xlsx/pdf 字节。
+
+**压缩/解压走 `egg.zip`（权限域 `zip`）**：沙箱里没有 Node zlib/stream，需要打包/拆包（比如把多张导出图片打成一个包、或解一个用户上传的 zip）时用宿主桥接，别自己找库实现。
+
+```js
+// 打包：内存进出，返回 zip 字节，再用 saveBinary 存到用户选的位置
+const bytes = await egg.zip.create([
+  { name: 'report.xlsx', data: xlsxBytes },
+  { name: 'images/chart.png', data: pngBytes }
+])
+await egg.ui.saveBinary(bytes, 'export.zip')
+
+// 解包：pickBinary 拿到的 zip 字节 → 一组 { name, data }
+const picked = await egg.ui.pickBinary([{ name: 'Zip', extensions: ['zip'] }])
+if (picked) {
+  const entries = await egg.zip.extract(picked.bytes)
+  for (const e of entries) await egg.fs.writeBytes(e.name, e.data)
+}
+```
+
+- `create` 的 `name` 用 `/` 分隔路径（反斜杠会被自动规整）；目录条目在 `extract` 时自动跳过，只返回文件。
+- 上限：单条目 ≤10MB，解压后总量 ≤50MB，条目数 ≤1000——超出会抛错（防压缩炸弹）。
+
+各新库 API 要点：
+
+- **ExcelJS**：`const wb = new ExcelJS.Workbook(); await wb.xlsx.load(bytes);` 读入，`await wb.xlsx.writeBuffer()` 导出（结果转 `new Uint8Array(buf)` 交给 saveBinary）。CSV 走 `wb.csv.readFile/writeFile`。工作表/单元格（`ws.addRow`、`cell.value`、样式）见官方文档，模型按需用。
+- **pdfmake**：`pdfMake.createPdf({ content: [...] }).download('a.pdf')`，或 `.getBlob()` 后 `saveBinary`。**内置 Roboto 字体不含中文字形**——中文内容导出会空白/方块，中文场景要么告知用户限制、要么改用「canvas 画图 → 图片」方案。
+- **math.js**：`math.evaluate('2 + 3')`、`math.unit('5 cm').to('m')`、`math.format(x, { notation: 'fixed', precision: 2 })`。高精度用 `math.bignumber('...')`。没有 default 导出，务必 `import * as math`。
+- **js-yaml**：`loadYaml(str)` / `dumpYaml(obj)`（对应 import 别名）。配置文件读写首选，别手写正则解析。
+- **jsdiff**：`Diff.diffLines(a, b)` 返回 `[{ value, added?, removed? }]` 逐段着色；`Diff.createTwoFilesPatch(oldName, newName, oldStr, newStr)` 出补丁；`Diff.applyPatch(oldStr, patch)` 应用。
+- **matter.js**：物理引擎**不含渲染**——`Matter.Engine.create()` 算物理，用 canvas 自己按 `Matter.Bodies.*` 的 position/angle 画图形。每帧 `Matter.Engine.update(engine, 16.67)` 推进，碰撞回调用 `Matter.Events.on(engine, 'collisionStart', ...)`。
+- **anime.js**：v4 命名导出 `animate`（**不是 default**）。`animate(targets, { translateX: 100, scale: 1.2, duration: 800, easing: 'spring(1, 80, 10, 0)' })`，多元素用 `stagger`。
+- **Tone.js**：音频必须先经**用户手势**启动——首次发声前 `await Tone.start()`，否则浏览器自动播放策略会静音。`const s = new Tone.Synth().toDestination(); s.triggerAttackRelease('C4', '8n');`；和弦用 `Tone.PolySynth`，采样用 `Tone.Sampler`。
+- **p5.js**：用**实例模式**（不要依赖全局 `window.setup/draw`）：`new p5(sk => { sk.setup = () => sk.createCanvas(w, h); sk.draw = () => { ... } })`。专用于生成艺术/创意编程，常规 UI 别用它。
+- **KaTeX**：`katex.render(tex, el, { throwOnError: false })` 把公式填进元素，或 `katex.renderToString(tex, { throwOnError: false })` 返回 HTML 字符串再插入。样式由库自动注入（无需 `<link>`）。文本里的 `$…$` / `$$…$$` 定界符需自行拆分并逐条渲染（库不自动扫全文）。
 
 ## manifest.permissions 可选值
 
-`storage` `db` `ai` `fs` `notify` `schedule` `window` `network`
+`storage` `db` `ai` `fs` `zip` `notify` `schedule` `window` `network`
 ——按需最小声明；`egg.ui`（toast/confirm/pickFile/saveFile）免声明。
+`zip`：压缩/解压（`egg.zip.create/extract`，内存进出不落盘）。
 `network`：局域网联机（`egg.net.createRoom/findRooms/joinRoom`，房间抽象，宿主封装全部网络细节）。
 
 ## 能力指南（read_guide）

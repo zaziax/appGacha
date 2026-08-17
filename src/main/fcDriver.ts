@@ -371,11 +371,25 @@ function buildUpgradeSystemPrompt(templateDir: string, lang: 'zh' | 'en'): strin
         "import QRCode from './vendor/qrcode.esm.js'        // 二维码",
         "import confetti from './vendor/canvas-confetti.esm.js' // 庆祝动效",
         "import * as THREE from './vendor/three.module.js'  // 3D",
+        "import * as math from './vendor/math.esm.js'       // 数学（求值、单位换算）",
+        "import * as Diff from './vendor/jsdiff.esm.js'     // 文本对比",
+        "import { load as loadYaml, dump as dumpYaml } from './vendor/jsyaml.esm.js' // YAML",
+        "import ExcelJS from './vendor/exceljs.esm.js'      // Excel(.xlsx)/CSV（需二进制 I/O）",
+        "import pdfMake from './vendor/pdfmake.esm.js'      // PDF 生成（默认字体不含中文）",
+        "import Matter from './vendor/matter.esm.js'        // 2D 物理",
+        "import { animate } from './vendor/anime.esm.js'    // 补间动画",
+        "import * as Tone from './vendor/tone.esm.js'       // 音频合成（先 await Tone.start()）",
+        "import p5 from './vendor/p5.esm.js'                // 生成艺术（实例模式）",
+        "import katex from './vendor/katex.esm.js'          // LaTeX 公式渲染（样式自动注入）",
         '```',
         '',
         '- **禁止 read_file 读 vendor/ 下的文件**（体积巨大，会撑爆上下文）',
         '- Chart.js: 切换 tab / 重绘前先 `chartInstance.destroy()`；canvas 父容器需要显式高度',
         '- 日期计算永远用 dayjs，不要用原生 Date',
+        '- 需要数学公式时永远用 KaTeX 渲染（katex.render），不要用纯文本数学符号（x^2、lim、∫）或图片',
+        '- 文件类库（ExcelJS/pdfmake）走二进制 I/O：`egg.ui.pickBinary/saveBinary`、`egg.fs.readBytes/writeBytes`，别用文本版（会破坏 xlsx/pdf 字节）',
+        '- 压缩/解压走 `egg.zip.create/extract`（权限域 `zip`）：打包多文件、解用户上传的 zip 用宿主桥接，别自己找库',
+        '- Tone.js 发声前必须 `await Tone.start()`（需用户手势）；p5 用实例模式 `new p5(sk => {...})`',
       ].join('\n')
     : [
         '## Available vendor libraries (under vendor/, import as needed)',
@@ -387,11 +401,25 @@ function buildUpgradeSystemPrompt(templateDir: string, lang: 'zh' | 'en'): strin
         "import QRCode from './vendor/qrcode.esm.js'        // QR codes",
         "import confetti from './vendor/canvas-confetti.esm.js' // Celebration effects",
         "import * as THREE from './vendor/three.module.js'  // 3D",
+        "import * as math from './vendor/math.esm.js'       // Math (eval, unit conversion)",
+        "import * as Diff from './vendor/jsdiff.esm.js'     // Text diff",
+        "import { load as loadYaml, dump as dumpYaml } from './vendor/jsyaml.esm.js' // YAML",
+        "import ExcelJS from './vendor/exceljs.esm.js'      // Excel(.xlsx)/CSV (needs binary I/O)",
+        "import pdfMake from './vendor/pdfmake.esm.js'      // PDF gen (default font lacks CJK)",
+        "import Matter from './vendor/matter.esm.js'        // 2D physics",
+        "import { animate } from './vendor/anime.esm.js'    // Tween animation",
+        "import * as Tone from './vendor/tone.esm.js'       // Audio synth (await Tone.start() first)",
+        "import p5 from './vendor/p5.esm.js'                // Creative coding (instance mode)",
+        "import katex from './vendor/katex.esm.js'          // LaTeX rendering (styles auto-injected)",
         '```',
         '',
         '- **Never read_file vendor/ files** (too large, will overflow context)',
         '- Chart.js: call `chartInstance.destroy()` before redraw; canvas parent needs explicit height',
         '- Always use dayjs for dates, never native Date',
+        '- Always use KaTeX for math formulas (katex.render), never plain-text math symbols (x^2, lim, ∫) or images',
+        '- File libs (ExcelJS/pdfmake) use binary I/O: `egg.ui.pickBinary/saveBinary`, `egg.fs.readBytes/writeBytes` (text variants corrupt xlsx/pdf bytes)',
+        '- Zip/unzip via `egg.zip.create/extract` (permission `zip`): bundle files or unzip user uploads through the host bridge',
+        '- Tone.js: `await Tone.start()` before any sound (requires user gesture); p5: instance mode `new p5(sk => {...})`',
       ].join('\n')
 
   const guides = zh
@@ -441,8 +469,8 @@ function buildUpgradeSystemPrompt(templateDir: string, lang: 'zh' | 'en'): strin
       ].join('\n')
 
   const perms = zh
-    ? '## manifest.permissions 可选值\n\n`storage` `db` `ai` `fs` `notify` `schedule` `window` `network`\n——按需最小声明；`egg.ui`（toast/confirm/pickFile/saveFile）免声明。'
-    : '## manifest.permissions values\n\n`storage` `db` `ai` `fs` `notify` `schedule` `window` `network`\n——declare minimally; `egg.ui` (toast/confirm/pickFile/saveFile) needs no declaration.'
+    ? '## manifest.permissions 可选值\n\n`storage` `db` `ai` `fs` `zip` `notify` `schedule` `window` `network`\n——按需最小声明；`egg.ui`（toast/confirm/pickFile/saveFile）免声明。'
+    : '## manifest.permissions values\n\n`storage` `db` `ai` `fs` `zip` `notify` `schedule` `window` `network`\n——declare minimally; `egg.ui` (toast/confirm/pickFile/saveFile) needs no declaration.'
 
   const flow = zh
     ? [
