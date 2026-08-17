@@ -34,6 +34,23 @@ export function write(ctx: EggContext, rel: string, content: unknown): void {
   fs.renameSync(tmp, abs)
 }
 
+export function readBytes(ctx: EggContext, rel: string): Uint8Array {
+  const abs = resolveSafe(ctx, rel)
+  const stat = fs.statSync(abs)
+  if (stat.size > MAX_FILE_BYTES) throw new Error(`fs: file exceeds ${MAX_FILE_BYTES} bytes`)
+  return fs.readFileSync(abs)
+}
+
+export function writeBytes(ctx: EggContext, rel: string, bytes: unknown): void {
+  if (!(bytes instanceof Uint8Array)) throw new Error('fs: content must be a Uint8Array')
+  if (bytes.byteLength > MAX_FILE_BYTES) throw new Error(`fs: content exceeds ${MAX_FILE_BYTES} bytes`)
+  const abs = resolveSafe(ctx, rel)
+  fs.mkdirSync(path.dirname(abs), { recursive: true })
+  const tmp = abs + '.tmp'
+  fs.writeFileSync(tmp, bytes)
+  fs.renameSync(tmp, abs)
+}
+
 export function list(ctx: EggContext, rel?: string): { name: string; isDir: boolean }[] {
   const abs = resolveSafe(ctx, rel ?? '.')
   if (!fs.existsSync(abs)) return []

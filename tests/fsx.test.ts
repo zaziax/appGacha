@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { read, write, list } from '../src/main/capabilities/fsx'
+import { read, write, list, readBytes, writeBytes } from '../src/main/capabilities/fsx'
 import type { EggContext } from '../src/main/eggs'
 
 // fsx 能力：egg.fs 的世界只有蛋 data/ 目录。resolveSafe 的路径穿越判空 + 10MB 上限。
@@ -70,5 +70,34 @@ describe('size cap', () => {
     mkdirSync(join(dir, 'data'), { recursive: true })
     writeFileSync(join(dir, 'data', 'big.txt'), 'x'.repeat(MAX_FILE_BYTES + 1), 'utf-8')
     expect(() => read(ctx, 'big.txt')).toThrow(/exceeds/)
+  })
+})
+
+describe('readBytes / writeBytes: 二进制往返', () => {
+  it('任意字节写入再读出，逐字节一致', () => {
+    const bytes = new Uint8Array([0, 1, 2, 127, 128, 255, 254, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a])
+    writeBytes(ctx, 'img.png', bytes)
+    const back = readBytes(ctx, 'img.png')
+    expect(back).toBeInstanceOf(Uint8Array)
+    expect(Buffer.compare(Buffer.from(back), Buffer.from(bytes))).toBe(0)
+  })
+
+  it('落盘内容不被 utf-8 重写', () => {
+    const bytes = new Uint8Array([0xff, 0xfe, 0x00, 0x80])
+    writeBytes(ctx, 'raw.bin', bytes)
+    expect(readFileSync(join(dir, 'data', 'raw.bin'))).toEqual(Buffer.from(bytes))
+  })
+
+  it('拒绝非 Uint8Array', () => {
+    expect(() => writeBytes(ctx, 'x', 'not bytes')).toThrow(/Uint8Array/)
+  })
+
+  it('拒绝超限', () => {
+    expect(() => writeBytes(ctx, 'big.bin', new Uint8Array(MAX_FILE_BYTES + 1))).toThrow(/exceeds/)
+  })
+
+  it('复用路径穿越与大小守卫', () => {
+    expect(() => writeBytes(ctx, '../escape.bin', new Uint8Array([1, 2, 3]))).toThrow(/escapes/)
+    expect(() => readBytes(ctx, '..')).toThrow(/escapes/)
   })
 })

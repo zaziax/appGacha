@@ -211,7 +211,13 @@ contextBridge.exposeInMainWorld('egg', {
   fs: {
     read: (path: string) => invoke('egg:fs:read', path),
     write: (path: string, content: string) => invoke('egg:fs:write', path, content),
-    list: (path?: string) => invoke('egg:fs:list', path)
+    list: (path?: string) => invoke('egg:fs:list', path),
+    readBytes: (path: string) => invoke('egg:fs:readBytes', path),
+    writeBytes: (path: string, bytes: Uint8Array) => invoke('egg:fs:writeBytes', path, bytes)
+  },
+  zip: {
+    create: (entries: { name: string; data: Uint8Array }[]) => invoke('egg:zip:create', entries),
+    extract: (data: Uint8Array) => invoke('egg:zip:extract', data)
   },
   notify: {
     send: (title: string, body: string) => invoke('egg:notify:send', title, body)
@@ -237,7 +243,9 @@ contextBridge.exposeInMainWorld('egg', {
     toast: (message: string) => { toast(message) },
     confirm: (message: string) => styledConfirm(String(message)),
     pickFile: (filters?: { name: string; extensions: string[] }[]) => invoke('egg:ui:pickFile', filters),
-    saveFile: (content: string, defaultName?: string) => invoke('egg:ui:saveFile', content, defaultName)
+    saveFile: (content: string, defaultName?: string) => invoke('egg:ui:saveFile', content, defaultName),
+    pickBinary: (filters?: { name: string; extensions: string[] }[]) => invoke('egg:ui:pickBinary', filters),
+    saveBinary: (bytes: Uint8Array, defaultName?: string) => invoke('egg:ui:saveBinary', bytes, defaultName)
   },
   // 窗口控制（供蛋代码主动调用）
   minimize: () => ipcRenderer.send('win:minimize'),

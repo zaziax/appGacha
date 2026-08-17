@@ -42,6 +42,17 @@ interface EggFs {
   write(path: string, content: string): Promise<void>
   /** 列出 data/ 下目录。权限域: fs */
   list(path?: string): Promise<{ name: string; isDir: boolean }[]>
+  /** 读取蛋内 data/ 下的文件为字节数组。权限域: fs */
+  readBytes(path: string): Promise<Uint8Array>
+  /** 写入字节到蛋内 data/ 下的文件，自动建目录。权限域: fs */
+  writeBytes(path: string, bytes: Uint8Array): Promise<void>
+}
+
+interface EggZip {
+  /** 把一组 { name, data } 打成 zip 字节（内存进出，不落盘）。权限域: zip。name 用 / 分隔。 */
+  create(entries: { name: string; data: Uint8Array }[]): Promise<Uint8Array>
+  /** 解压 zip 字节为一组 { name, data }。权限域: zip。目录条目自动跳过。 */
+  extract(data: Uint8Array): Promise<{ name: string; data: Uint8Array }[]>
 }
 
 interface EggNotify {
@@ -81,6 +92,10 @@ interface EggUi {
   pickFile(filters?: { name: string; extensions: string[] }[]): Promise<{ name: string; content: string } | null>
   /** 系统保存框，把文本内容存到用户选择的位置。免权限 */
   saveFile(content: string, defaultName?: string): Promise<{ saved: boolean }>
+  /** 系统文件选择框，返回二进制内容 { name, bytes }。免权限，10MB 上限。表格/图片文件进出的入口 */
+  pickBinary(filters?: { name: string; extensions: string[] }[]): Promise<{ name: string; bytes: Uint8Array } | null>
+  /** 系统保存框，把字节写到你选择的位置（图片/表格导出等）。免权限 */
+  saveBinary(bytes: Uint8Array, defaultName?: string): Promise<{ saved: boolean }>
 }
 
 /** 局域网房间发现信息 */
@@ -133,6 +148,7 @@ interface EggBridge {
   db: EggDb
   ai: EggAi
   fs: EggFs
+  zip: EggZip
   notify: EggNotify
   schedule: EggSchedule
   window: EggWindow

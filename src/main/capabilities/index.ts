@@ -7,6 +7,7 @@ import * as storage from './storage'
 import * as db from './db'
 import * as ai from './ai'
 import * as fsx from './fsx'
+import * as zip from './zip'
 import * as schedule from '../schedule'
 import { showNotification } from '../schedule'
 import * as coordinator from '../net/coordinator'
@@ -53,6 +54,11 @@ export function registerCapabilities(): void {
   handle('egg:fs:read', 'fs', (ctx, [rel]) => fsx.read(ctx, rel as string))
   handle('egg:fs:write', 'fs', (ctx, [rel, content]) => fsx.write(ctx, rel as string, content))
   handle('egg:fs:list', 'fs', (ctx, [rel]) => fsx.list(ctx, rel as string | undefined))
+  handle('egg:fs:readBytes', 'fs', (ctx, [rel]) => fsx.readBytes(ctx, rel as string))
+  handle('egg:fs:writeBytes', 'fs', (ctx, [rel, bytes]) => fsx.writeBytes(ctx, rel as string, bytes))
+
+  handle('egg:zip:create', 'zip', (_ctx, [entries]) => zip.create(entries))
+  handle('egg:zip:extract', 'zip', (_ctx, [data]) => zip.extract(data))
 
   handle('egg:notify:send', 'notify', (ctx, [title, body]) => {
     if (typeof title !== 'string' || typeof body !== 'string') {
@@ -85,6 +91,28 @@ export function registerCapabilities(): void {
     })
     if (res.canceled || !res.filePath) return { saved: false }
     fs.writeFileSync(res.filePath, content, 'utf-8')
+    return { saved: true }
+  })
+
+  handle('egg:ui:pickBinary', null, async (_ctx, [filters], event) => {
+    const res = await dialog.showOpenDialog(senderWindow(event), {
+      properties: ['openFile'],
+      filters: Array.isArray(filters) ? filters : undefined
+    })
+    if (res.canceled || res.filePaths.length === 0) return null
+    const file = res.filePaths[0]
+    if (fs.statSync(file).size > MAX_DIALOG_BYTES) throw new Error(`pickBinary: file exceeds ${MAX_DIALOG_BYTES} bytes`)
+    return { name: file.split(/[\\/]/).pop(), bytes: fs.readFileSync(file) }
+  })
+
+  handle('egg:ui:saveBinary', null, async (_ctx, [bytes, defaultName], event) => {
+    if (!(bytes instanceof Uint8Array)) throw new Error('saveBinary: content must be a Uint8Array')
+    if (bytes.byteLength > MAX_DIALOG_BYTES) throw new Error(`saveBinary: content exceeds ${MAX_DIALOG_BYTES} bytes`)
+    const res = await dialog.showSaveDialog(senderWindow(event), {
+      defaultPath: typeof defaultName === 'string' ? defaultName : undefined
+    })
+    if (res.canceled || !res.filePath) return { saved: false }
+    fs.writeFileSync(res.filePath, bytes)
     return { saved: true }
   })
 
