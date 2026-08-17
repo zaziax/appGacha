@@ -1,59 +1,70 @@
-/**
- * 构建 vendor ESM 库
- * 用法: node scripts/build-vendor.mjs
- * 输出: template/vendor/*.esm.js
- */
-import { buildSync } from 'esbuild'
-import { mkdirSync, copyFileSync } from 'node:fs'
-import { join } from 'node:path'
+// 生成 template/vendor/*.esm.js 的构建脚本。
+// 依赖 node_modules 里的库（见 package.json devDependencies），
+// 用 esbuild 把每个库打成「自包含浏览器 ESM」单文件。
+// 用法：node scripts/build-vendor.mjs
+import { build } from 'esbuild'
+import fs from 'node:fs'
+import path from 'node:path'
 
-const ROOT = join(import.meta.dirname, '..')
-const OUT = join(ROOT, 'template', 'vendor')
-mkdirSync(OUT, { recursive: true })
+const ROOT = path.resolve(import.meta.dirname, '..')
+const VENDOR = path.join(ROOT, 'template', 'vendor')
 
-const bundle = (entry, outfile, opts = {}) => {
-  buildSync({
-    entryPoints: [join(ROOT, 'node_modules', entry)],
-    bundle: true,
-    format: 'esm',
-    minify: true,
-    platform: 'browser',
-    target: 'es2022',
-    outfile: join(OUT, outfile),
-    ...opts
-  })
-  console.log(`  ✓ ${outfile}`)
-}
-
-console.log('Building vendor ESM libraries...')
-
-// three.js — ESM bundle + minify（AI 不读 vendor 文件，可读性无收益）
-bundle('three/build/three.module.js', 'three.module.js')
-
-// chart.js — 必须用 auto 入口：自动注册全部 controllers/elements/scales + 提供 default export
-// （dist/chart.js 是裸入口，new Chart({type:'doughnut'}) 会报 "not a registered controller"）
-bundle('chart.js/auto/auto.js', 'chart.esm.js')
-
-// dayjs — CJS → ESM
-bundle('dayjs/dayjs.min.js', 'dayjs.esm.js')
-
-// marked — 已有 ESM
-bundle('marked/lib/marked.esm.js', 'marked.esm.js')
-
-// qrcode — CJS browser 入口 → ESM（esbuild 从包入口解析，自动处理 browser 字段）
-buildSync({
-  entryPoints: ['qrcode'],
+const common = {
   bundle: true,
   format: 'esm',
-  minify: true,
   platform: 'browser',
-  target: 'es2022',
-  outfile: join(OUT, 'qrcode.esm.js'),
-  nodePaths: [join(ROOT, 'node_modules')]
-})
-console.log('  ✓ qrcode.esm.js')
+  minify: true,
+  target: 'es2020',
+  logLevel: 'warning',
+  absWorkingDir: ROOT,
+}
 
-// canvas-confetti — 原生 ESM (dist/confetti.module.mjs)
-bundle('canvas-confetti/dist/confetti.module.mjs', 'canvas-confetti.esm.js')
+// entry 为空表示「直接拷贝 dist 里已自包含的 ESM 文件」
+const jobs = [
+  // 注意：官方 three.module.js 拆分了 three.core.js（跨文件 import），单独拷贝会缺兄弟文件。
+  // 这里必须 bundle 成自包含单文件，否则 `import * as THREE` 在运行时解析 ./three.core.js 失败。
+  { entry: 'three', out: 'three.module.js' },
+  { entry: 'exceljs', out: 'exceljs.esm.js' },                       // browser 字段 → dist/exceljs.min.js（UMD→default）
+  { entry: 'mathjs', out: 'math.esm.js' },                          // exports["."].import → lib/esm（命名 + default）
+  { entry: 'scripts/vendor-entry/pdfmake.js', out: 'pdfmake.esm.js' }, // 注入 vfs 字体
+  { copy: 'node_modules/js-yaml/dist/js-yaml.mjs', out: 'jsyaml.esm.js' }, // 自包含，命名导出 load/dump
+  { entry: 'diff', out: 'jsdiff.esm.js' },                           // exports["."].import → libesm（命名导出）
+  { entry: 'matter-js/build/matter.js', out: 'matter.esm.js' },      // UMD→default 命名空间
+  { copy: 'node_modules/animejs/dist/bundles/anime.esm.js', out: 'anime.esm.js' }, // 自包含，命名导出 animate 等
+  { entry: 'tone/build/esm/index.js', out: 'tone.esm.js' },          // 命名导出 + 命名空间用法
+  { copy: 'node_modules/p5/lib/p5.esm.min.js', out: 'p5.esm.js' },   // 自包含，default 导出
+  { entry: 'scripts/vendor-entry/katex.js', out: 'katex.esm.js' },    // 运行时注入 CSS；字体/CSS 在 katex/ 子目录
+]
 
-console.log('Done.')
+fs.mkdirSync(VENDOR, { recursive: true })
+
+for (const job of jobs) {
+  const target = path.join(VENDOR, job.out)
+  if (job.copy) {
+    fs.copyFileSync(path.join(ROOT, job.copy), target)
+    console.log(`copy   ${job.copy} → ${job.out}`)
+  } else {
+    await build({
+      ...common,
+      entryPoints: [job.entry],
+      outfile: target,
+    })
+    console.log(`bundle ${job.entry} → ${job.out}`)
+  }
+}
+
+// KaTeX 是第一个带资产子目录的 vendor：CSS + 字体（CSP font-src 'self' 只许本地字体，不能内联 data:）。
+// 字体只拷 .woff2（Electron=Chromium 必支持；CSS 里的 .woff/.ttf 是 fallback，运行时用不到）。
+fs.mkdirSync(path.join(VENDOR, 'katex'), { recursive: true })
+fs.copyFileSync(
+  path.join(ROOT, 'node_modules/katex/dist/katex.min.css'),
+  path.join(VENDOR, 'katex', 'katex.min.css'),
+)
+fs.cpSync(
+  path.join(ROOT, 'node_modules/katex/dist/fonts'),
+  path.join(VENDOR, 'katex', 'fonts'),
+  { recursive: true, filter: (src) => fs.statSync(src).isDirectory() || src.endsWith('.woff2') },
+)
+console.log('copy   katex.min.css + fonts(.woff2) → katex/')
+
+console.log('\n完成。检查每个文件头尾确认导出形状与无残留裸导入。')

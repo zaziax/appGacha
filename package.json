@@ -42,18 +42,28 @@
     "@types/yauzl": "^3.4.0",
     "@types/yazl": "^3.3.1",
     "@vitejs/plugin-react": "^6.0.3",
+    "animejs": "^4.5.0",
     "canvas-confetti": "^1.9.4",
     "chart.js": "^4.5.1",
     "cross-env": "^10.1.0",
     "dayjs": "^1.11.21",
+    "diff": "^9.0.0",
     "electron": "37.2.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.1",
+    "exceljs": "^4.4.0",
+    "js-yaml": "^5.3.0",
+    "katex": "^0.18.4",
     "lucide-static": "^1.25.0",
     "marked": "^18.0.7",
+    "mathjs": "^15.2.0",
+    "matter-js": "^0.20.0",
+    "p5": "^2.3.2",
+    "pdfmake": "^0.3.11",
     "qrcode": "^1.5.4",
     "tailwindcss": "^4.3.3",
     "three": "^0.185.1",
+    "tone": "^15.1.22",
     "typescript": "^5.5.0",
     "vite": "^8.1.5",
     "vitest": "^4.1.10"
@@ -105,7 +115,9 @@
       "protocols": [
         {
           "name": "AppGacha",
-          "schemes": ["appgacha"]
+          "schemes": [
+            "appgacha"
+          ]
         }
       ],
       "extendInfo": {
@@ -114,15 +126,21 @@
             "CFBundleTypeName": "AppGacha Egg",
             "CFBundleTypeRole": "Viewer",
             "LSHandlerRank": "Owner",
-            "LSItemContentTypes": ["com.appgacha.egg"],
-            "CFBundleTypeExtensions": ["gacha"]
+            "LSItemContentTypes": [
+              "com.appgacha.egg"
+            ],
+            "CFBundleTypeExtensions": [
+              "gacha"
+            ]
           }
         ],
         "UTExportedTypeDeclarations": [
           {
             "UTTypeIdentifier": "com.appgacha.egg",
             "UTTypeTagSpecification": {
-              "public.filename-extension": ["gacha"],
+              "public.filename-extension": [
+                "gacha"
+              ],
               "public.mime-type": "application/x-appgacha-egg"
             }
           }
@@ -130,14 +148,19 @@
       }
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "icon": "assets/icon.png",
       "category": "Utility"
     },
     "protocols": [
       {
         "name": "AppGacha",
-        "schemes": ["appgacha"]
+        "schemes": [
+          "appgacha"
+        ]
       }
     ]
   },

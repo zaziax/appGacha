@@ -358,10 +358,13 @@ export async function runUpgrade(
     if (fs.existsSync(templateVendor)) {
       const stagingVendor = path.join(stagingDir, 'vendor')
       for (const f of fs.readdirSync(templateVendor)) {
-        if (!fs.existsSync(path.join(stagingVendor, f))) {
-          fs.mkdirSync(stagingVendor, { recursive: true })
-          fs.copyFileSync(path.join(templateVendor, f), path.join(stagingVendor, f))
-        }
+        if (fs.existsSync(path.join(stagingVendor, f))) continue
+        fs.mkdirSync(stagingVendor, { recursive: true })
+        const src = path.join(templateVendor, f)
+        const dst = path.join(stagingVendor, f)
+        // 带资产子目录的 vendor（如 KaTeX 的 katex/）：目录递归复制，普通文件直接拷
+        if (fs.statSync(src).isDirectory()) copyDir(src, dst)
+        else fs.copyFileSync(src, dst)
       }
     }
     patchManifest(stagingDir, m => { m.eggId = tempId })
@@ -679,8 +682,15 @@ function stripUnusedVendor(dir: string): void {
   }
   scanImports('')
 
+  // 带资产子目录的 vendor（如 KaTeX 的 katex/）：主文件被 import 时连带保留其子目录
+  const COMPANION_DIRS: Record<string, string> = { 'katex.esm.js': 'katex' }
   for (const file of fs.readdirSync(vendorDir)) {
-    if (!referenced.has(file)) fs.rmSync(path.join(vendorDir, file), { force: true })
+    if (referenced.has(file)) continue
+    let keep = false
+    for (const [main, dir] of Object.entries(COMPANION_DIRS)) {
+      if (referenced.has(main) && file === dir) { keep = true; break }
+    }
+    if (!keep) fs.rmSync(path.join(vendorDir, file), { recursive: true, force: true })
   }
   // vendor 目录空了则整个移除
   if (fs.readdirSync(vendorDir).length === 0) fs.rmSync(vendorDir, { recursive: true, force: true })
