@@ -8,7 +8,9 @@ export function dataRoot(...p: string[]): string {
   return path.join(base, ...p)
 }
 
-// 随应用分发的只读资源（蛋模板等）
+// 随应用分发的只读资源（蛋模板等）。打包后 template/assets 走 extraResources，
+// 落在 resources/（asar 之外）——继续用 getAppPath() 会指到 asar 内部不存在的路径（ENOENT）。
 export function appRoot(...p: string[]): string {
-  return path.join(app.getAppPath(), ...p)
+  const base = app.isPackaged ? process.resourcesPath : app.getAppPath()
+  return path.join(base, ...p)
 }
