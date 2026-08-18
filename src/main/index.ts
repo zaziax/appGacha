@@ -10,12 +10,13 @@ import { initSchedules } from './schedule'
 import { dataRoot } from './paths'
 import { initLogging } from './log'
 import { runSmoke, runShelfSmoke, runPipelineFailSmoke, runUpgradeSmoke, runLayoutProbe } from './smoke'
+import { runGolden, GOLDEN_CORE, GOLDEN_FULL, goldenFakeDriver } from './golden'
 import { sweepStaging } from './pipeline'
 import * as net from './net/coordinator'
 import { initTray, destroyTray } from './tray'
 import { openEgg, getOpenWindowEggIds } from './eggWindow'
 import { openEggSmart, getSpaceEggIds } from './space'
-import { getAppSettings, getEggAutoStart, isSyncDisabledForEgg } from './settings'
+import { getAppSettings, getAiSettings, getEggAutoStart, isSyncDisabledForEgg } from './settings'
 import { syncEgg } from './sync'
 import { peekGachaManifest } from './gachaPkg'
 import { registerAssociations } from './assoc'
@@ -34,14 +35,20 @@ const isSmoke = process.argv.includes('--smoke')
 // 布局探针：electron . --probe <蛋目录>，离屏量应用壳几何 + 截图（dist/probe-<name>.png）
 const probeIdx = process.argv.indexOf('--probe')
 const probeDir = probeIdx >= 0 ? process.argv[probeIdx + 1] : undefined
-if (!isSmoke && !probeDir) initLogging()
+// 金标愿望集：electron . --golden [core|full|fake]，跑真实/假驱动逐蛋出蛋+探针验收，落报告 dist/golden/report.md
+const goldenIdx = process.argv.indexOf('--golden')
+const goldenMode: 'core' | 'full' | 'fake' | null = goldenIdx >= 0
+  ? (process.argv[goldenIdx + 1] === 'full' ? 'full' : process.argv[goldenIdx + 1] === 'fake' ? 'fake' : 'core')
+  : null
+const isHeadless = isSmoke || !!probeDir || !!goldenMode
+if (!isHeadless) initLogging()
 
 // ── 单实例：双击 .gacha / appgacha:// 协议唤起转发给首实例 ──
 // smoke/probe 是短命进程，不抢锁（避免被开发实例挡住）
 let pendingFiles: string[] = []
 /** 冷启动时 .gacha 导入冲突排队：收藏柜窗口还没建，等建完再发 IPC */
 const pendingImportConflicts: Array<{ file: string; eggId: string; name: string }> = []
-if (!isSmoke && !probeDir) {
+if (!isHeadless) {
   if (!app.requestSingleInstanceLock()) {
     app.quit()
   } else {
@@ -113,14 +120,14 @@ app.whenReady().then(async () => {
   sweepStaging()
 
   // P2 局域网联机：UDP 发现 + 隐藏 WebRTC 宿主窗（smoke 模式不启动，避免干扰测试）
-  if (!isSmoke) net.init().catch(e => console.error('[net] init failed:', e.message))
+  if (!isHeadless) net.init().catch(e => console.error('[net] init failed:', e.message))
 
   const eggs = discoverEggs(dataRoot('eggs'))
   console.log(`[appgacha] loaded ${eggs.length} egg(s): ${eggs.map(e => e.manifest.name).join(', ') || '(none)'}`)
-  if (!isSmoke && !probeDir) initSchedules(eggs)
+  if (!isHeadless) initSchedules(eggs)
 
   // 文件关联 + 协议注册 + 启动参数路由（双击 .gacha / appgacha:// 唤起）
-  if (!isSmoke && !probeDir) {
+  if (!isHeadless) {
     registerAssociations()
     // 冷启动双击 .gacha：先 await 导入完成再建收藏柜窗口，
     // 避免 UI 拉列表时导入还没完、蛋不入架
@@ -144,6 +151,37 @@ app.whenReady().then(async () => {
     if (!(await runPipelineFailSmoke())) failed = true
     if (!(await runUpgradeSmoke())) failed = true
     app.exit(failed ? 1 : 0)
+    return
+  }
+
+  if (goldenMode) {
+    try {
+      const wishes = goldenMode === 'full' ? GOLDEN_FULL : GOLDEN_CORE
+      if (goldenMode === 'fake') {
+        console.log(`[golden] 自检模式（假驱动，${wishes.length} 条，只验框架不验 AI）`)
+        const report = await runGolden(wishes, goldenFakeDriver)
+        // 假驱动产的是最小蛋，必然过不了结构校验/语义探针——自检只看框架本身：
+        // 每条都跑完「出蛋→离屏起蛋→探针/截图→清理」且无异常，即算框架健康。
+        const frameworkOk = report.results.every(r => r.error === undefined && r.screenshot !== undefined)
+        for (const r of report.results) {
+          const ok = r.error === undefined && r.screenshot !== undefined
+          console.log(`[golden] 自检 ${r.id}: ${ok ? '框架 OK' : '框架异常'}${r.error ? ' — ' + r.error : ''}`)
+        }
+        app.exit(frameworkOk ? 0 : 1)
+      } else {
+        if (getAiSettings() === null) {
+          console.error('[golden] AI 未配置：请先在设置里配置模型，或用 `--golden fake` 自检框架')
+          app.exit(2)
+          return
+        }
+        console.log(`[golden] 开始跑 ${wishes.length} 条金标愿望（真实驱动）`)
+        const report = await runGolden(wishes)
+        app.exit(report.passed === report.total ? 0 : 1)
+      }
+    } catch (e) {
+      console.error('[golden] 运行异常:', (e as Error).message)
+      app.exit(1)
+    }
     return
   }
 
