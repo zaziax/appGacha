@@ -656,12 +656,13 @@ async function safeRename(from: string, to: string): Promise<void> {
 }
 
 /**
- * 剥离未被 import 的 vendor 文件 + 开发参考文件（icons-manifest.json）。
+ * 剥离未被 import 的 vendor 文件 + 开发参考文件（icons-manifest.json / guides）。
  * 蛋保持自包含可移植，不用的库不占体积。
  */
 function stripUnusedVendor(dir: string): void {
-  // icons-manifest.json 是生成时的参考清单，运行时不需要
+  // 生成期参考文件，运行时不需要：图标清单 + 专题指南（read_guide 读的是原始模板目录 appRoot('template')，蛋内副本纯冗余）
   fs.rmSync(path.join(dir, 'icons-manifest.json'), { force: true })
+  fs.rmSync(path.join(dir, 'guides'), { recursive: true, force: true })
 
   const vendorDir = path.join(dir, 'vendor')
   if (!fs.existsSync(vendorDir)) return
