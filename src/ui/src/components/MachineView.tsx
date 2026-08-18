@@ -494,6 +494,7 @@ function StepClarify({ questions, chatLog, chatIndex, roundStart, aiLoading, onA
 }) {
   const { t } = useTranslation()
   const [input, setInput] = useState('')
+  const [selected, setSelected] = useState<string[]>([]) // 多选中的参考方向（每个问题独立）
   const [revealedIdx, setRevealedIdx] = useState(-1) // 已浮现的问题索引（高水位）
   const endRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -506,6 +507,7 @@ function StepClarify({ questions, chatLog, chatIndex, roundStart, aiLoading, onA
     el.style.height = Math.min(el.scrollHeight, 88) + 'px'
   }
   useEffect(() => { autoGrow() }, [input])
+  useEffect(() => { setSelected([]) }, [chatIndex]) // 切到新问题时清空选中
 
   const currentQ = chatIndex - roundStart < questions.length
     ? questions[chatIndex - roundStart]
@@ -524,8 +526,11 @@ function StepClarify({ questions, chatLog, chatIndex, roundStart, aiLoading, onA
 
   const send = () => {
     if (waiting) return
-    onAnswer(input)
+    // 多选参考方向 + 自由输入合并成一条答案
+    const parts = [...selected, input.trim()].filter(s => s && s.trim())
+    onAnswer(parts.join('、'))
     setInput('')
+    setSelected([])
   }
 
   return (
@@ -593,13 +598,16 @@ function StepClarify({ questions, chatLog, chatIndex, roundStart, aiLoading, onA
       {currentQ && !waiting && currentQ.options.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 pb-2">
           <span className="text-[11px] font-bold text-muted/50">{t('wish.reference')}</span>
-          {currentQ.options.map(opt => (
-            <button key={opt}
-              onClick={() => { sfx.tick(); setInput(opt) }}
-              className="px-2.5 py-1 rounded-lg text-[11px] font-extrabold border-2 border-text/15 bg-white/70 text-muted hover:border-brand/40 hover:text-brand transition-all active:translate-y-0.5">
-              {opt}
-            </button>
-          ))}
+          {currentQ.options.map(opt => {
+            const on = selected.includes(opt)
+            return (
+              <button key={opt}
+                onClick={() => { sfx.tick(); setSelected(prev => prev.includes(opt) ? prev.filter(x => x !== opt) : [...prev, opt]) }}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold border-2 transition-all active:translate-y-0.5 ${on ? 'border-brand bg-brand/10 text-brand' : 'border-text/15 bg-white/70 text-muted hover:border-brand/40 hover:text-brand'}`}>
+                {on ? '✓ ' : ''}{opt}
+              </button>
+            )
+          })}
         </div>
       )}
 
@@ -1028,16 +1036,22 @@ const ThinkRow = forwardRef<HTMLDivElement, {
   const thinking = t('feed.thinking')
   // 展开后实时跟随：新内容落到尾部时滚入视野
   const tailRef = useRef<HTMLSpanElement>(null)
+  // 展开实时跟随：节流 + 平滑，避免打字机逐字推进时每帧 scrollIntoView 造成的高频抖动
+  const lastFollow = useRef(0)
   useEffect(() => {
-    if (active && expanded) tailRef.current?.scrollIntoView({ block: 'end' })
+    if (!active || !expanded) return
+    const now = performance.now()
+    if (now - lastFollow.current < 120) return
+    lastFollow.current = now
+    tailRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
   }, [revealed, active, expanded])
 
   return (
     <motion.div
       ref={ref}
-      layout
+      layout="position"
       initial={{ opacity: 0, y: 8, scale: 0.94 }}
-      animate={{ opacity: active ? 1 : 0.55, y: 0, scale: active ? 1.02 : 0.98 }}
+      animate={{ opacity: active ? 1 : 0.55, y: 0, scale: active && !expanded ? 1.02 : 1 }}
       transition={SPRING}
       onClick={onToggle}
       className={`relative flex ${expanded ? 'items-start' : 'items-center'} gap-2.5 rounded-xl px-3 py-2 cursor-pointer select-none overflow-hidden ${
