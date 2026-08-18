@@ -115,6 +115,14 @@ body {
 /* 当 body 使用 flex 布局时自动撑满（推荐写法） */
 body.app-shell { display: flex; flex-direction: column; }
 
+/* 全屏沉浸容器（游戏/3D 画布、悬浮实体）：避开顶部标题栏，铺满剩余窗口。
+   standard 窗口由 preload 注入 --titlebar-h: 38px；widget 无标题栏、也不该用此类。 */
+.fullscreen {
+  position: fixed;
+  inset: 0;
+  top: var(--titlebar-h, 38px);
+}
+
 /* ---- 排版 ---- */
 h1 { font-size: 20px; font-weight: 700; }
 h2 { font-size: 16px; font-weight: 700; }

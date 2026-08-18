@@ -265,6 +265,7 @@ function injectTitleBar(): void {
   bar.id = '__egg_titlebar'
   bar.innerHTML = `
     <style>
+      :root { --titlebar-h: 38px; }   /* 标题栏高度，供沉浸式布局避开：calc(var(--titlebar-h) + …) */
       #__egg_titlebar {
         position: fixed; top: 0; left: 0; right: 0; z-index: 2147483646;
         height: 38px; display: flex; align-items: center; justify-content: space-between;

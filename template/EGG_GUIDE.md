@@ -83,6 +83,15 @@ vendor/              ← 宿主预置的第三方 ESM 库（不要修改，按�
 - **桌面时钟/widget**：完全不携带 chrome——窗口即内容
 - 无论你选什么结构，操作入口清晰、信息层次分明即可
 
+**沉浸式布局避开标题栏（游戏/3D/全屏画布必读）**
+
+standard 窗口的 38px 标题栏是 `position: fixed` 覆盖在顶部，`body` 的 `padding-top` 只对文档流生效——**`position: fixed/absolute`、`100vh`、`window.innerHeight` 都锚定视口、无视 padding，会把顶部控件和画布顶到标题栏底下。**
+
+- 全屏画布/场景容器：套 `.fullscreen`（base.css 已提供），或 `position: fixed; top: var(--titlebar-h, 38px); right: 0; bottom: 0; left: 0`
+- 顶部悬浮控件（计分/HUD/工具栏）：`top: calc(var(--titlebar-h, 38px) + 12px)`，**禁止裸 `top: 12px`**
+- 画布尺寸：JS 里取容器 `clientWidth` / `clientHeight`，**禁止用 `window.innerHeight` 或 `100vh` 当内容高度**
+- widget 窗口无标题栏（无 `--titlebar-h`），以上规则不适用
+
 **硬要求（不可违背）**：`<title>` 写应用名、禁止在 toolbar/content 标题区重复应用名、standard 窗口宿主栏自动提供关闭/退出机制。**仅 standard 窗口如此；widget 窗口不注入标题栏。**
 
 ## 窗口形态（manifest.window）—— 桌面应用的核心差异
