@@ -41,6 +41,8 @@ export interface GoldenWish {
   wish: string
   /** 页面内探针（在 PROBE_UTILS 作用域内执行，return { pass, checks }）。null = 仅健康检查（只测出蛋率，不测指标达成率） */
   probe: string | null
+  /** 探针验证边界说明：端到端可验则不写；仅验证本地 UI 面时标注（报告展示用，非断言） */
+  probeNote?: string
   /** 期望覆盖的权限域（报告展示用，非断言） */
   perms?: string[]
 }
@@ -59,6 +61,7 @@ export interface GoldenResult {
   blank?: boolean
   crashed?: boolean
   probe?: GoldenProbeResult
+  probeNote?: string
   screenshot?: string
   error?: string
   durationMs?: number
@@ -226,7 +229,8 @@ export const GOLDEN_CORE: GoldenWish[] = [
 ]
 
 // ─── 全量 10 条：核心 4 + 补充 6（覆盖剩余形态/能力域）───
-// 补充 6 的语义探针是 TODO：先以健康检查（出蛋率）统计，达标线待后续补。
+// 补充 6 分层断言：本地可端到端验证的（番茄钟倒计时/体重折线/KaTeX 渲染）做完整断言；
+// 跨设备/未来时点/真实 AI 的（联机/定时通知/真模型）退到「UI 入口 + 触发反馈」的本地面，边界见各条 probeNote。
 const GOLDEN_EXTRA: GoldenWish[] = [
   {
     id: 'pomodoro-widget',
@@ -235,7 +239,30 @@ const GOLDEN_EXTRA: GoldenWish[] = [
     difficulty: 'medium',
     perms: ['notify'],
     wish: '做一个番茄钟悬浮组件（widget）：一个圆形的倒计时悬浮窗，25 分钟工作倒计时，到点提醒，可以开始/暂停/重置。',
-    probe: null
+    probeNote: '验证倒计时显示、控制按钮、点开始后倒计时走动；到点提醒（notify）未端到端验证',
+    probe: `
+  const checks = []
+  const btns = $all('button')
+  const btnText = btns.map(b => (b.innerText || '').trim()).join(' ').toLowerCase()
+  const hasStart = /开始|继续|start|begin|play/i.test(btnText)
+  checks.push({ name: '有倒计时控制按钮', pass: btns.length > 0 && hasStart, detail: '按钮 ' + btns.length + ' 个' })
+
+  const beforeText = bodyText()
+  const hasTime = /[0-9]{1,3}:[0-9]{2}/.test(beforeText) || /倒计时|分钟|剩余|min|timer/i.test(beforeText)
+  checks.push({ name: '有倒计时显示', pass: hasTime, detail: hasTime ? '已找到时间文本' : '未见时间文本' })
+
+  let ticking = false
+  try {
+    const startBtn = btns.find(b => /开始|继续|start|begin|play/i.test((b.innerText || '')))
+    if (startBtn) startBtn.click()
+    await wait(2500)
+    ticking = bodyText() !== beforeText
+  } catch (e) {
+    checks.push({ name: '倒计时走动', pass: false, detail: String(e) })
+  }
+  checks.push({ name: '倒计时在走', pass: ticking, detail: ticking ? '点击后时间文本已变化' : (hasStart ? '点击后无变化' : '无开始按钮可点') })
+
+  return { pass: checks.every(c => c.pass), checks }`
   },
   {
     id: 'tictactoe-lan',
@@ -244,7 +271,31 @@ const GOLDEN_EXTRA: GoldenWish[] = [
     difficulty: 'hard',
     perms: ['network'],
     wish: '做一个联机井字棋：创建一个房间得到邀请码，另一台设备输入邀请码加入，双方轮流落子，实时同步，判定胜负。',
-    probe: null
+    probeNote: '仅验证「创建房间 → 出现邀请码」的本地 UI 面，未验证真实 P2P 联机同步',
+    probe: `
+  const checks = []
+  const btns = $all('button')
+  const btnText = btns.map(b => (b.innerText || '').trim()).join(' ').toLowerCase()
+  const hasCreate = /创建|新建|建房|开房|host|create/i.test(btnText)
+  checks.push({ name: '有创建房间入口', pass: hasCreate, detail: '按钮 ' + btns.length + ' 个' })
+
+  let codeAppeared = false
+  let drove = false
+  try {
+    const createBtn = btns.find(b => /创建|新建|建房|开房|host|create/i.test((b.innerText || '')))
+    if (createBtn) {
+      createBtn.click()
+      drove = true
+      await wait(1500)
+      const t = bodyText()
+      codeAppeared = /邀请码|房间号|房间码|invite|code/i.test(t) || /[a-z0-9]{4,8}/i.test(t)
+    }
+  } catch (e) {
+    checks.push({ name: '生成邀请码', pass: false, detail: String(e) })
+  }
+  checks.push({ name: '点击后出现邀请码', pass: codeAppeared, detail: codeAppeared ? '已出现房间标识' : (drove ? '点击后未见邀请码' : '无创建入口可点') })
+
+  return { pass: checks.every(c => c.pass), checks }`
   },
   {
     id: 'weight-chart',
@@ -253,7 +304,31 @@ const GOLDEN_EXTRA: GoldenWish[] = [
     difficulty: 'medium',
     perms: ['db', 'storage'],
     wish: '做一个体重记录工具：输入日期和体重添加记录，列表展示历史记录，并用折线图展示体重变化趋势。',
-    probe: null
+    probe: `
+  const checks = []
+  const inputs = $all('input')
+  const btns = $all('button')
+  checks.push({ name: '有输入与添加按钮', pass: inputs.length > 0 && btns.length > 0, detail: '输入 ' + inputs.length + ' / 按钮 ' + btns.length })
+
+  let added = false
+  try {
+    const rowsSel = 'li, .list-item, tr, [class*="row"], [class*="item"]'
+    const beforeRows = $all(rowsSel).length
+    const beforeText = bodyText()
+    for (const i of inputs.slice(0, 4)) setValue(i, i.type === 'date' ? '2024-01-01' : '70')
+    const addBtn = btns.find(b => /添加|新增|记录|保存|add|save/i.test((b.innerText || ''))) || btns[0]
+    if (addBtn) { addBtn.click(); await wait(600) }
+    const afterRows = $all(rowsSel).length
+    added = afterRows > beforeRows || bodyText() !== beforeText
+  } catch (e) {
+    checks.push({ name: '新增记录', pass: false, detail: String(e) })
+  }
+  checks.push({ name: '可新增一条记录', pass: added, detail: added ? '列表已增长' : '操作后无变化' })
+
+  const canvas = $all('canvas')
+  checks.push({ name: '有折线图载体', pass: canvas.length > 0, detail: 'canvas ' + canvas.length + ' 个' })
+
+  return { pass: checks.every(c => c.pass), checks }`
   },
   {
     id: 'math-formula',
@@ -262,7 +337,29 @@ const GOLDEN_EXTRA: GoldenWish[] = [
     difficulty: 'medium',
     perms: [],
     wish: '做一个数学公式卡：输入或选择 LaTeX 公式，用 KaTeX 渲染显示，比如勾股定理、二次公式、欧拉公式。',
-    probe: null
+    probe: `
+  const checks = []
+  const entrySel = 'input, select, button'
+  const entryCount = $all(entrySel).length
+  checks.push({ name: '有公式输入或预设', pass: entryCount > 0, detail: '输入/下拉/按钮共 ' + entryCount + ' 个' })
+
+  const katexSel = '.katex, .katex-display, math, [class*="katex"]'
+  let rendered = $all(katexSel).length > 0
+  try {
+    if (!rendered) {
+      const input = $all('input')[0]
+      if (input) setValue(input, 'E=mc^2')
+      const btn = $all('button')[0]
+      if (btn) btn.click()
+      await wait(700)
+      rendered = $all(katexSel).length > 0
+    }
+  } catch (e) {
+    checks.push({ name: '渲染公式', pass: false, detail: String(e) })
+  }
+  checks.push({ name: '渲染出公式', pass: rendered, detail: rendered ? '已检测到 KaTeX/MathML 输出' : '未见 .katex 渲染' })
+
+  return { pass: checks.every(c => c.pass), checks }`
   },
   {
     id: 'ai-vocab',
@@ -271,7 +368,32 @@ const GOLDEN_EXTRA: GoldenWish[] = [
     difficulty: 'medium',
     perms: ['ai'],
     wish: '做一个 AI 背单词卡：随机展示一个单词，调用 AI 生成例句和中文释义，可以标记已掌握，记录学习进度。',
-    probe: null
+    probeNote: 'AI 调用走 mock（aiMock=true），验证「点生成 → 出例句/释义」完整链路，非真实模型',
+    probe: `
+  const checks = []
+  const btns = $all('button')
+  const btnText = btns.map(b => (b.innerText || '').trim()).join(' ').toLowerCase()
+  const hasGen = /生成|下一个|换一个|例句|释义|generate|next|example/i.test(btnText)
+  const wordShown = bodyText().length > 0
+  checks.push({ name: '有单词展示与生成入口', pass: wordShown && hasGen, detail: '正文 ' + (wordShown ? '有' : '空') + ' / 按钮 ' + btns.length + ' 个' })
+
+  let responded = false
+  let drove = false
+  try {
+    const beforeText = bodyText()
+    const genBtn = btns.find(b => /生成|下一个|换一个|例句|释义|generate|next/i.test((b.innerText || ''))) || btns[0]
+    if (genBtn) {
+      genBtn.click()
+      drove = true
+      await wait(1500)
+      responded = bodyText().length > beforeText.length
+    }
+  } catch (e) {
+    checks.push({ name: '生成例句/释义', pass: false, detail: String(e) })
+  }
+  checks.push({ name: '生成后有例句/释义', pass: responded, detail: responded ? '内容已刷新' : (drove ? '点击后无新增内容' : '无生成按钮可点') })
+
+  return { pass: checks.every(c => c.pass), checks }`
   },
   {
     id: 'reminder',
@@ -280,7 +402,28 @@ const GOLDEN_EXTRA: GoldenWish[] = [
     difficulty: 'medium',
     perms: ['schedule', 'notify'],
     wish: '做一个定时提醒工具：设定一个时间（如每天 21:00 或一次性倒计时），到点弹出系统通知提醒。',
-    probe: null
+    probeNote: '仅验证「设置 → 出现确认反馈」的本地 UI 面，未验证到点系统通知（notify）',
+    probe: `
+  const checks = []
+  const inputs = $all('input')
+  const btns = $all('button')
+  const setBtn = btns.find(b => /设置|提醒|保存|确认|确定|开始|set|save|ok/i.test((b.innerText || '')))
+  checks.push({ name: '有时间输入与设置按钮', pass: inputs.length > 0 && !!setBtn, detail: '输入 ' + inputs.length + ' / 设置按钮 ' + (setBtn ? '有' : '无') })
+
+  let confirmed = false
+  try {
+    if (setBtn) {
+      const beforeText = bodyText()
+      setBtn.click()
+      await wait(800)
+      confirmed = bodyText() !== beforeText
+    }
+  } catch (e) {
+    checks.push({ name: '设置确认', pass: false, detail: String(e) })
+  }
+  checks.push({ name: '点设置后有确认反馈', pass: confirmed, detail: confirmed ? '已出现确认反馈' : (setBtn ? '点击后无变化' : '无设置按钮') })
+
+  return { pass: checks.every(c => c.pass), checks }`
   }
 ]
 
@@ -383,7 +526,8 @@ async function runGoldenWish(w: GoldenWish, driver: GoldenDriver): Promise<Golde
   const t0 = Date.now()
   const res: GoldenResult = {
     id: w.id, name: w.name, category: w.category, difficulty: w.difficulty,
-    pass: false, stage: 'generated'
+    pass: false, stage: 'generated',
+    probeNote: w.probeNote
   }
   console.log(`\n[golden] ${w.id} 「${w.name}」(${w.difficulty}) 开始出蛋…`)
 
@@ -512,6 +656,7 @@ function writeReport(report: GoldenReport): { md: string; json: string } {
       lines.push(`- 语义探针：${r.probe.pass ? '通过' : '未通过'}`)
       for (const c of r.probe.checks) lines.push(`  - ${c.pass ? '✅' : '❌'} ${c.name}${c.detail ? ' — ' + c.detail : ''}`)
       if (r.probe.error) lines.push(`  - 探针异常：${r.probe.error}`)
+      if (r.probeNote) lines.push(`  - 探针边界：${r.probeNote}`)
     }
     if (r.screenshot) lines.push(`- 截图：${r.screenshot}`)
     lines.push('')

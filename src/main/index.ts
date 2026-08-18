@@ -156,7 +156,7 @@ app.whenReady().then(async () => {
 
   if (goldenMode) {
     try {
-      const wishes = goldenMode === 'full' ? GOLDEN_FULL : GOLDEN_CORE
+      const wishes = goldenMode === 'core' ? GOLDEN_CORE : GOLDEN_FULL
       if (goldenMode === 'fake') {
         console.log(`[golden] 自检模式（假驱动，${wishes.length} 条，只验框架不验 AI）`)
         const report = await runGolden(wishes, goldenFakeDriver)
