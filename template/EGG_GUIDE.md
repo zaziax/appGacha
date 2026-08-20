@@ -112,35 +112,93 @@ standard 窗口的 38px 标题栏是 `position: fixed` 覆盖在顶部，`body` 
 ### 两种形态
 
 - **standard**（默认，可省略）：带标题栏的常规窗口，布局撑满窗口（用上面的应用壳结构）。适合大多数应用。
-- **widget**：透明无边框悬浮组件。宿主不注入标题栏，整个窗口透明。**widget 内部还有两种截然不同的范式，选错范式会毁掉整个体验——务必先读下一节。**
+- **widget**：透明无边框悬浮组件。宿主不注入标题栏，整个窗口的物理画布仍是矩形，但用户只能看到你有意绘制的实体。**形状和长宽比例自由，边界与交互行为严格受限。**
 
-### widget 两范式：先回答一个分水岭问题
+### widget 的成功标准：隐藏物理窗口，服从有限画布
 
-> **把内容直接扔到任意一张壁纸上，还能看清吗？**
->
-> - 看不清（文字、列表、按钮、数字）→ **容器型**：必须有一块背景承托
-> - 看得清（自发光、自带轮廓的视觉实体）→ **悬浮实体型**：不该有任何背景
+widget 可以是圆形时钟、纵向 TODO、横向状态条、不规则宠物或 3D 实体。不要从形状判断它是不是 widget；判断标准是它是否常驻、可扫视、可直接操作，并且所有状态完整生活在固定画布内。
 
-这不是「2D 用容器、3D 用实体」——2D 的桌面宠物是「看」的对象，照样走实体型；3D 的数据面板是「读」的信息，照样走容器型。**判断依据是「读」还是「看」，不是维度。**
+四项行为契约（任何 widget 都必须满足）：
 
-#### 范式 A：容器型（要读的信息）
+1. **边界契约**：所有可见像素（实体、阴影、光晕、动画）完整位于窗口内；禁止在矩形边缘突然截断。
+2. **可读性契约**：信息区域在纯黑、纯白、复杂壁纸和文字页面上都清晰；透明只用于实体外的「洞」，不穿透需要阅读的内容。
+3. **交互可达契约**：每个按钮、菜单和设置项都能完整显示或通过受控滚动抵达；`body` 和根容器绝不溢出。
+4. **状态契约**：次级功能优先原位换页；不能保证完整入画的 popover、下拉菜单和 dialog 一律禁止。
 
-典型：悬浮 TODO、便签、时钟、倒计时、计算器、番茄钟。
+### 必须使用 Widget Shell（形状无关）
 
-1. **半透明毛玻璃底**：`background: rgba(...)` + `backdrop-filter: blur(...)`——文字有对比度可读，又透出底下壁纸的色调，保持悬浮感。**不要用实心不透明色块**，那是一块铁板。
-2. **形状必须非矩形**：`border-radius: 50%` 圆形、`border-radius: 999px` 胶囊、`clip-path: polygon(...)` 异形。一旦容器是撑满窗口的直角矩形，它就退化成一个普通窗口，widget 的存在意义归零。
-3. **光晕/阴影收敛在形状内**：box-shadow 可以加在圆角形状上，但**容器不要顶满窗口边缘**——任何贴到窗口边缘的像素都会被方形窗口裁切，暴露出「这其实是个方窗」。
+模板已提供受保护的 `widget.css` 和 `widget.js`。创建 widget 时必须：
 
-#### 范式 B：悬浮实体型（要看的实体）
+```html
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="widget.css">
+<link rel="stylesheet" href="style.css">
+...
+<body class="widget-body">
+  <main class="widget-shell" data-widget-shell>
+    <div class="widget-surface" data-widget-surface>
+      <section class="widget-page" data-widget-page="main" data-active="true">
+        <!-- 核心信息与直接操作 -->
+        <button data-widget-go="settings" aria-label="设置">...</button>
+      </section>
+      <section class="widget-page" data-widget-page="settings">
+        <header class="widget-page-header">
+          <button class="widget-back" data-widget-back aria-label="返回">...</button>
+          <span class="widget-page-title">设置</span>
+        </header>
+        <div class="widget-scroll"><!-- 设置项，可受控滚动 --></div>
+      </section>
+    </div>
+  </main>
+  <script type="module" src="widget.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+```
 
-典型：3D 太阳系、3D 模型展示、桌面宠物、悬浮星球。**这是本项目区别于网页托管的魔法时刻——实体直接悬浮在用户壁纸上，透明区域看到桌面。** 设计哲学：桌面即背景，无界即设计。
+- `widget-shell` 固定并裁切在透明 BrowserWindow 内。
+- `widget-surface` 默认与窗口边缘相距 14px，这是透明安全带；通过 CSS 变量可以增加，禁止减到 8px 以下。
+- `widget-page` 是固定画布内的页面；`data-widget-go` / `data-widget-back` 由 `widget.js` 管理换页，Esc 也会返回。
+- `widget-scroll` 是唯一推荐的溢出方式。列表可以滚动，整个窗口和 surface 不滚动。
+- 可自由覆盖 `--widget-surface-radius`、宽高、`clip-path`、颜色和布局；模板不限制最终形状。
+- 悬浮实体给 `widget-surface` 加 `widget-entity`，取消默认底板，但继续使用安全边界与页面能力。
+- manifest 必须明确声明 width / height；widget 只有 96px 的宿主技术下限，不使用形状模板限制比例。
+- **禁止修改 `widget.css` / `widget.js`**；个性化样式全部写在 `style.css`。
 
-四条铁律（违反任何一条都会杀死漂浮感）：
+### 信息容器与悬浮实体
 
-1. **只画愿望里的实体**：许愿太阳系就只有太阳和行星。**禁止**添加星空、粒子、渐变底色等一切「氛围装饰」——桌面壁纸是唯一的背景，你加的每一粒「星空」都是多余的。
-2. **零容器**：承载 canvas 的容器必须全透明，**禁止** background、border、box-shadow（含光晕）。光晕会被方形窗口裁切，反而把窗口边界「描」出来。
-3. **不贴窗口边缘**：实体居中央，四周保留透明缓冲区，**撑满或溢出窗口是大忌**（3D 取景数学见下方 three.js 避坑第一条）。贴边的像素会被窗口裁切，暴露边界。
-4. **WebGL 透明**：`new THREE.WebGLRenderer({ alpha: true })` + `scene.background = null`。
+先问：把内容直接放到任意壁纸上还能看清吗？
+
+- 文字、列表、按钮、数字等需要阅读 → 使用有底板的 `widget-surface`。
+- 宠物、3D 模型、星球等主要是观看的实体 → 使用 `widget-entity`，实体外全透明。
+
+信息容器要求：
+
+- 主底板默认接近不透明，alpha 建议 `0.92~0.98`；**禁止将「透明窗口」误解成「内容半透明」**。
+- 不依赖 `backdrop-filter` 保证可读性；它在透明 Electron 窗口上不能跨平台可靠模糊桌面。
+- 文字、数字、图标与实体本身 `opacity: 1`，文字颜色 alpha ≥ 0.9。
+- 圆、方、长方形、条状和自定义 `clip-path` 都合法；长方形 TODO 是完全合理的 widget。
+
+悬浮实体要求：
+
+- 只画愿望里的实体，不添加假背景、星空或铺满画布的氛围层。
+- canvas 和容器全透明，禁止 background、border、外部阴影。
+- WebGL 使用 `new THREE.WebGLRenderer({ alpha: true })` 和 `scene.background = null`。
+
+### 阴影与透明安全带
+
+- widget 默认禁止大范围外部 `box-shadow` 和 `filter: drop-shadow()`；优先使用细描边、内阴影和实体内部渐变。
+- 必须使用外阴影时：blur ≤ 8px、alpha ≤ 0.18，并把 `--widget-safe-inset` 提高到至少 18px。
+- 可见实体大小不等于 BrowserWindow 大小。希望看到 240px 实体时，应申请约 276~288px 的窗口，为透明安全带预留空间。
+- 动画的最大缩放、位移和粒子也计入可见边界，不能只验证静止帧。
+
+### 有限画布的交互哲学
+
+- 第一页只呈现一个主要价值和少量直接操作（glance first）。
+- 设置优先替换当前页面，不在实体外另弹矩形面板。
+- 小量设置用原位页面；较多设置放进 `.widget-scroll`；复杂文本输入或深层管理应改用 standard 窗口。
+- 菜单不是绝对禁止，但只有能证明在所有位置、所有状态下完整位于安全区域内时才可使用；否则换页。
+- 根页面禁止滚动条；受控滚动区域必须有足够的视觉暗示，并能滚到最后一个操作项。
+- widget 保持稳定占位，`egg.window.setSize()` 不得用于补救设计不下的菜单。
 
 three.js 避坑（你看不见渲染结果，以下每条都要靠数学在生成时自我验证）：
 
@@ -149,28 +207,25 @@ three.js 避坑（你看不见渲染结果，以下每条都要靠数学在生�
 - **比例要风格化**：桌面展示不是天文模拟。实体要夸张放大（行星直径 ≥ 轨道半径的 1/10），别把「真实比例」塞进小窗口——那只会得到一堆看不见的点。
 - **标签要可读**：名称 sprite 要足够大，颜色与壁纸有对比。
 
-### 选型参考
+### 选型参考（只是建议，不是形状或尺寸许可表）
 
-| 愿望举例 | 形态 | 范式 | 尺寸建议 |
+| 愿望举例 | 形态 | 表面 | 尺寸建议 |
 |---|---|---|---|
 | 记账本、记事本、背单词 | standard | — | 900×640（默认，可省略） |
 | 计算器 | standard | — | 380×520 |
-| 悬浮 TODO、便签、备忘录 | widget | 容器型 | 280×380 |
-| 悬浮时钟、倒计时、番茄钟、迷你计数器 | widget | 容器型 | 240×240 |
-| 3D 太阳系、3D 模型、桌面宠物、悬浮星球 | widget | 悬浮实体型 | 320~480 |
+| 悬浮 TODO、便签、备忘录 | widget | 信息容器 | 300×420～380×560，列表内部滚动 |
+| 悬浮时钟、倒计时、番茄钟 | widget | 信息容器 | 260×260～320×320 |
+| 横向状态、快捷控制 | widget | 信息容器 | 320×100～520×160 |
+| 3D 模型、桌面宠物、悬浮星球 | widget | 悬浮实体 | 320～520 |
 
-### widget 通用要点（两范式都适用）
+### widget 通用要点
 
-1. **body 背景必须透明**：`body { background: transparent; }`
-2. **不用画窗口控制按钮**：用户悬停窗口时右上角自动浮现控制钮（关闭/置顶），这是宿主提供的安全出口，**不要移除它**
-3. **悬浮类应用建议 `alwaysOnTop: true`**（时钟/计时器/宠物/星体）
-4. 尺寸钳制 240~1600，越界声明会被自动纠正；widget 宁小勿大
-5. widget 内容精简，一屏内呈现核心信息，不要滚动条
-6. **透明度只用于「窗口的洞」，绝不用于「内容」**：
-   - body/容器背景可以透明——那是让桌面透出来的洞
-   - 容器型底板可以半透明毛玻璃，但 alpha 不低于 0.55（再低文字就没有承托了）
-   - 文字、数字、图标、实体本身必须 `opacity: 1`（rgba 的 alpha ≥ 0.9），禁止把「透明悬浮」的设计风格泛化到内容上
-   - 验收标准：把 widget 想象成放在纯黑和纯白两张壁纸上，内容都必须清晰可读
+1. `body` 使用 `widget-body`，背景由 `widget.css` 强制透明。
+2. 不用画关闭、置顶和拖动按钮；宿主 hover 控制条负责这些安全出口。
+3. 悬浮类应用建议 `alwaysOnTop: true`。
+4. 尺寸按内容自由选择；不要过度放大，但必须为透明安全带留足空间。
+5. 第一屏精简；长列表放进 `.widget-scroll`，不是强塞进一屏。
+6. 验收前必须逐个进入所有 `data-widget-page`，确认没有内容不可达或边界裁切。
 
 ## 桌面应用设计准则
 

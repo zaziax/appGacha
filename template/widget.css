@@ -1,0 +1,132 @@
+/*
+ * AppGacha Widget Shell
+ * 形状无关的透明窗口骨架：只约束安全边界、页面状态与可达滚动，
+ * 不限定圆形、方形、长条或任何具体视觉风格。
+ */
+
+html:has(body.widget-body),
+body.widget-body {
+  width: 100%;
+  height: 100%;
+  background: transparent !important;
+  overflow: hidden;
+}
+
+body.widget-body {
+  padding: 0 !important;
+  display: block;
+  overscroll-behavior: none;
+}
+
+.widget-shell[data-widget-shell] {
+  --widget-safe-inset: 14px;
+  --widget-surface-bg: rgba(43, 44, 51, 0.96);
+  --widget-surface-color: #fff;
+  --widget-surface-border: rgba(255, 255, 255, 0.16);
+  --widget-surface-radius: 24px;
+  --widget-page-padding: 18px;
+
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  contain: layout paint style;
+  isolation: isolate;
+  color: var(--widget-surface-color);
+  font-family: var(--font, system-ui, "Microsoft YaHei", sans-serif);
+}
+
+/*
+ * 可见实体。AI 可以自由修改宽高比例、radius、clip-path 与内部布局；
+ * 外侧 inset 是透明安全带，禁止把阴影或动画画进安全带以外。
+ */
+.widget-surface[data-widget-surface] {
+  position: absolute;
+  inset: var(--widget-safe-inset);
+  overflow: hidden;
+  background: var(--widget-surface-bg);
+  color: var(--widget-surface-color);
+  border: 1px solid var(--widget-surface-border);
+  border-radius: var(--widget-surface-radius);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  opacity: 1;
+  isolation: isolate;
+}
+
+/* 无容器实体（3D、宠物等）只借用边界与页面能力，不获得底板。 */
+.widget-surface.widget-entity {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.widget-page[data-widget-page] {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--widget-page-padding);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(7%);
+  transition: opacity 160ms ease, transform 180ms ease, visibility 0s linear 180ms;
+}
+
+.widget-page[data-widget-page][data-active="true"] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(0);
+  transition-delay: 0s;
+}
+
+/* 页面内唯一推荐的溢出方式：受控滚动，不让 body 或 surface 溢出。 */
+.widget-scroll {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.widget-scroll::-webkit-scrollbar { width: 0; height: 0; }
+
+.widget-page-header {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.widget-page-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.widget-back {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.10);
+  color: inherit;
+  cursor: pointer;
+}
+.widget-back:hover { background: rgba(255, 255, 255, 0.17); }
+
+@media (prefers-reduced-motion: reduce) {
+  .widget-page[data-widget-page] { transition: none; }
+}
+

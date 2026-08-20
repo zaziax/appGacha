@@ -59,7 +59,7 @@ manifest 新增 `window` 字段：
 ```
 
 - **standard**（默认）：现有行为，注入标题栏，尺寸取 manifest 声明（钳制 240~1600）
-- **widget**：`transparent: true` + `frame: false` + 不注入标题栏；蛋用 CSS 自绘形状（圆、胶囊、clip-path 异形）
+- **widget**：`transparent: true` + `frame: false` + 不注入标题栏；尺寸比例自由（仅保留 96px 技术下限），蛋用 Widget Shell 在透明安全带内自绘形状
 - **widget 安全退出（定论）**：宿主注入 **hover 浮钮**——鼠标悬停窗口时角落浮现半透明控制钮（关闭/置顶开关），z-index 最高，蛋代码无法覆盖或移除
 - 智能体根据应用类型自主决定窗口形态与尺寸（计算器 380×520、悬浮时钟 220×220、记账本 900×640）
 - 后续可扩展：`setShape` / `setClickThrough` 等运行时微调 API，等愿望逼出来再加

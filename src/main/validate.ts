@@ -28,6 +28,7 @@ export function validateEgg(dir: string): ValidationIssue[] {
 
   // manifest
   let manifest: Record<string, unknown> | null = null
+  let isWidget = false
   try {
     manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf-8'))
   } catch (e) {
@@ -60,9 +61,18 @@ export function validateEgg(dir: string): ValidationIssue[] {
         if (win.type !== undefined && win.type !== 'standard' && win.type !== 'widget') {
           add('manifest.json', 'window.type 只能是 "standard" 或 "widget"')
         }
+        isWidget = win.type === 'widget'
         for (const k of ['width', 'height'] as const) {
           if (win[k] !== undefined && (typeof win[k] !== 'number' || !Number.isFinite(win[k] as number))) {
             add('manifest.json', `window.${k} 必须是数字`)
+          }
+        }
+        if (isWidget) {
+          for (const k of ['width', 'height'] as const) {
+            if (typeof win[k] !== 'number') add('manifest.json', `widget 必须明确声明 window.${k}`)
+            else if ((win[k] as number) < 96 || (win[k] as number) > 1600) {
+              add('manifest.json', `widget 的 window.${k} 必须在 96~1600 之间`)
+            }
           }
         }
         for (const k of ['alwaysOnTop', 'autoStart'] as const) {
@@ -75,6 +85,36 @@ export function validateEgg(dir: string): ValidationIssue[] {
   }
 
   if (!fs.existsSync(path.join(dir, 'index.html'))) add('index.html', '入口文件缺失')
+
+  // widget 专项结构：必须使用形状无关的系统骨架，避免每颗蛋从零实现边界与换页。
+  if (isWidget) {
+    const indexPath = path.join(dir, 'index.html')
+    let html = ''
+    try { html = fs.readFileSync(indexPath, 'utf-8') } catch { /* 入口缺失已在上方报告 */ }
+    const hasClassAndAttr = (className: string, attrName: string) => {
+      const classFirst = new RegExp(`<[^>]*class=["'][^"']*\\b${className}\\b[^"']*["'][^>]*${attrName}(?:\\s|=|>)`, 'i')
+      const attrFirst = new RegExp(`<[^>]*${attrName}(?:\\s|=|>)[^>]*class=["'][^"']*\\b${className}\\b[^"']*["']`, 'i')
+      return classFirst.test(html) || attrFirst.test(html)
+    }
+    if (!fs.existsSync(path.join(dir, 'widget.css')) || !/href=["'](?:\.\/)?widget\.css(?:[?#][^"']*)?["']/i.test(html)) {
+      add('index.html', 'widget 必须引用受保护的 widget.css')
+    }
+    if (!fs.existsSync(path.join(dir, 'widget.js')) || !/<script\b[^>]*\btype=["']module["'][^>]*\bsrc=["'](?:\.\/)?widget\.js(?:[?#][^"']*)?["']|<script\b[^>]*\bsrc=["'](?:\.\/)?widget\.js(?:[?#][^"']*)?["'][^>]*\btype=["']module["']/i.test(html)) {
+      add('index.html', 'widget 必须引用受保护的 widget.js')
+    }
+    if (!/<body\b[^>]*class=["'][^"']*\bwidget-body\b[^"']*["']/i.test(html)) {
+      add('index.html', 'widget 的 body 必须使用 widget-body')
+    }
+    if (!hasClassAndAttr('widget-shell', 'data-widget-shell')) {
+      add('index.html', 'widget 缺少 class="widget-shell" data-widget-shell 根节点')
+    }
+    if (!hasClassAndAttr('widget-surface', 'data-widget-surface')) {
+      add('index.html', 'widget 缺少 class="widget-surface" data-widget-surface 可见实体')
+    }
+    if (!hasClassAndAttr('widget-page', 'data-widget-page=["\'][^"\']+["\']')) {
+      add('index.html', 'widget 至少需要一个具名的 class="widget-page" data-widget-page')
+    }
+  }
 
   // 逐文件扫描（跳过 data/）
   let total = 0

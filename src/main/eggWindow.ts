@@ -26,9 +26,9 @@ export function prepareEggSession(egg: EggContext): string {
   return partition
 }
 
-/** 窗口尺寸钳制 240~1600，防智障声明 */
-const clampSize = (v: number | undefined, fallback: number): number =>
-  v === undefined || !Number.isFinite(v) ? fallback : Math.min(1600, Math.max(240, Math.round(v)))
+/** standard 保留桌面应用下限；widget 只保留安全出口所需的技术下限。 */
+const clampSize = (v: number | undefined, fallback: number, min: number): number =>
+  v === undefined || !Number.isFinite(v) ? fallback : Math.min(1600, Math.max(min, Math.round(v)))
 
 // 收藏柜点击入口：已开的蛋聚焦，未开的创建
 export function openEgg(egg: EggContext): BrowserWindow {
@@ -66,8 +66,8 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
   const isMac = process.platform === 'darwin'
 
   const win = new BrowserWindow({
-    width: clampSize(spec.width, 900),
-    height: clampSize(spec.height, 640),
+    width: clampSize(spec.width, isWidget ? 320 : 900, isWidget ? 96 : 240),
+    height: clampSize(spec.height, isWidget ? 320 : 640, isWidget ? 96 : 240),
     // macOS 标准窗用原生交通灯（widget 必须保持 frameless 透明）
     frame: isMac && !isWidget ? true : false,
     ...(isMac && !isWidget ? {

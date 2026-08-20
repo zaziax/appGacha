@@ -121,13 +121,14 @@ export function registerCapabilities(): void {
     senderWindow(event).setAlwaysOnTop(flag === true)
   })
 
-  handle('egg:window:setSize', 'window', (_ctx, [w, h], event) => {
+  handle('egg:window:setSize', 'window', (ctx, [w, h], event) => {
     const width = Math.round(Number(w))
     const height = Math.round(Number(h))
     if (!Number.isFinite(width) || !Number.isFinite(height)) throw new Error('setSize: width/height must be numbers')
+    const isWidget = ctx.manifest.window?.type === 'widget'
     senderWindow(event).setSize(
-      Math.min(Math.max(width, 200), 2400),
-      Math.min(Math.max(height, 150), 1600)
+      Math.min(Math.max(width, isWidget ? 96 : 200), isWidget ? 1600 : 2400),
+      Math.min(Math.max(height, isWidget ? 96 : 150), 1600)
     )
   })
 

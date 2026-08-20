@@ -57,7 +57,7 @@ export const KNOWN_PERMISSIONS: Permission[] = [
 export interface EggWindowSpec {
   /** standard=带标题栏常规窗口；widget=透明无边框悬浮组件（蛋用 CSS 自绘形状） */
   type?: 'standard' | 'widget'
-  /** 初始宽高（钳制 240~1600） */
+  /** 初始宽高（standard 240~1600；widget 96~1600） */
   width?: number
   height?: number
   alwaysOnTop?: boolean

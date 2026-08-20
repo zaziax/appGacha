@@ -11,7 +11,7 @@ import { runFcDriver, DriverResult, ActivityType, IpcText } from './fcDriver'
 import { logLine } from './log'
 import { generateEggDoc } from './eggDoc'
 
-export const PIPELINE_VERSION = '0.1'
+export const PIPELINE_VERSION = '0.2'
 const CHECKPOINT_VERSION = 1
 const MAX_ROUNDS = 3
 
@@ -367,6 +367,12 @@ export async function runUpgrade(
         else fs.copyFileSync(src, dst)
       }
     }
+    // 回补受保护的 widget shell：旧蛋升级成/继续升级 widget 时可迁移到统一骨架。
+    for (const file of ['widget.css', 'widget.js']) {
+      const src = appRoot('template', file)
+      const dst = path.join(stagingDir, file)
+      if (fs.existsSync(src) && !fs.existsSync(dst)) fs.copyFileSync(src, dst)
+    }
     patchManifest(stagingDir, m => { m.eggId = tempId })
 
     // ② 旋钮转动：增量进化（驱动自检走的是"无数据全新安装"路径）
@@ -433,7 +439,7 @@ export async function runUpgrade(
       fs.rmSync(path.join(stagingDir, 'data'), { recursive: true, force: true })
       if (!t.ok) {
         const error: IpcText = { key: 'err.migrateFailed', params: { detail:
-          (t.error ?? [t.crashed ? '渲染进程崩溃' : '', t.blank ? '页面空白' : '', ...t.consoleErrors].filter(Boolean).join('；')) } }
+          (t.error ?? [t.crashed ? '渲染进程崩溃' : '', t.blank ? '页面空白' : '', ...t.consoleErrors, ...t.widgetIssues].filter(Boolean).join('；')) } }
         archiveFailure(stagingDir, tempId, upgradeWish, { ...result, ok: false, error })
         onProgress({ stage: 'fail', detail: error })
         return { ok: false, error }
@@ -663,6 +669,15 @@ function stripUnusedVendor(dir: string): void {
   // 生成期参考文件，运行时不需要：图标清单 + 专题指南（read_guide 读的是原始模板目录 appRoot('template')，蛋内副本纯冗余）
   fs.rmSync(path.join(dir, 'icons-manifest.json'), { force: true })
   fs.rmSync(path.join(dir, 'guides'), { recursive: true, force: true })
+
+  // standard 蛋不携带 widget 专用骨架；widget 蛋由验收保证已正确引用。
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf-8'))
+    if (manifest.window?.type !== 'widget') {
+      fs.rmSync(path.join(dir, 'widget.css'), { force: true })
+      fs.rmSync(path.join(dir, 'widget.js'), { force: true })
+    }
+  } catch { /* manifest 错误会在验收阶段报告，这里不阻断清理 */ }
 
   const vendorDir = path.join(dir, 'vendor')
   if (!fs.existsSync(vendorDir)) return
