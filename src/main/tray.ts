@@ -36,7 +36,12 @@ export function initTray(): void {
   if (tray) return
 
   const icon = nativeImage.createFromPath(trayIconPath())
-  tray = new Tray(icon.resize({ width: 16, height: 16 }))
+  const sized = icon.resize({ width: 16, height: 16 })
+  if (process.platform === 'darwin') {
+    // mac 菜单栏模板图：忽略颜色、按 alpha 轮廓着色，自动适配深浅色模式
+    sized.setTemplateImage(true)
+  }
+  tray = new Tray(sized)
   tray.setToolTip(t('trayTooltip'))
   tray.setContextMenu(buildTrayMenu())
   tray.on('double-click', () => showShelfWindow())

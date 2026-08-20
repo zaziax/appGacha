@@ -111,7 +111,10 @@
       "artifactName": "AppGacha-Setup.exe"
     },
     "mac": {
-      "target": "dmg",
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "assets/icon.png",
       "category": "public.app-category.utilities",
       "bundleVersion": "0.1.0",
