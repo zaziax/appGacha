@@ -1,4 +1,4 @@
-import { getSpace, spaceAdd, spaceRemove, spaceReorder, spaceActivate, spaceSetBounds, spaceSetVisible, onSpaceFocusEvent } from '../space'
+import { getSpace, spaceAdd, spaceRemove, spaceConfigure, spaceReorder, spaceActivate, spaceSetBounds, spaceSetVisible, onSpaceFocusEvent } from '../space'
 import { sendToShelf } from '../shelfWindow'
 import { handle } from './ipc'
 
@@ -11,6 +11,8 @@ export function registerSpaceChannels(): void {
   handle('space:add', (eggId) => spaceAdd(eggId as string))
 
   handle('space:remove', (eggId) => spaceRemove(eggId as string))
+
+  handle('space:configure', (config) => spaceConfigure(config))
 
   handle('space:reorder', (ids) => spaceReorder(ids))
 

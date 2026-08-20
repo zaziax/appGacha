@@ -205,6 +205,7 @@ export interface ShelfBridge {
   spaceGet(): Promise<SpaceConfig>
   spaceAdd(eggId: string): Promise<SpaceConfig>
   spaceRemove(eggId: string): Promise<SpaceConfig>
+  spaceConfigure(config: { eggs: string[]; active?: string | null }): Promise<SpaceConfig>
   spaceReorder(ids: string[]): Promise<SpaceConfig>
   spaceActivate(eggId: string): Promise<void>
   spaceSetBounds(b: { x: number; y: number; width: number; height: number }): Promise<void>

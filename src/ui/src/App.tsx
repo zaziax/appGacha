@@ -353,7 +353,7 @@ export default function App() {
               animate={{ opacity: 1, y: 0, transition: { type: 'spring', stiffness: 200, damping: 20, mass: 0.8 } }}
               exit={{ opacity: 0, transition: { duration: 0.15, ease: 'easeOut' } }}
             >
-              <SpaceView eggs={eggs} onToast={showToast} onChanged={refresh} dimmed={modalOpen} />
+              <SpaceView eggs={eggs} categories={catData} onToast={showToast} dimmed={modalOpen} />
             </motion.div>
           ) : (
             <motion.div

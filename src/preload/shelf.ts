@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('shelf', {
   spaceGet: () => invoke('space:get'),
   spaceAdd: (eggId: string) => invoke('space:add', eggId),
   spaceRemove: (eggId: string) => invoke('space:remove', eggId),
+  spaceConfigure: (config: { eggs: string[]; active?: string | null }) => invoke('space:configure', config),
   spaceReorder: (ids: string[]) => invoke('space:reorder', ids),
   spaceActivate: (eggId: string) => invoke('space:activate', eggId),
   spaceSetBounds: (b: { x: number; y: number; width: number; height: number }) => invoke('space:setBounds', b),

@@ -188,6 +188,37 @@ export function spaceRemove(eggId: string): SpaceConfig {
   return cfg
 }
 
+/**
+ * 一次性提交空间成员与激活项。
+ * 编辑面板使用原子配置，避免批量增删时反复落盘和暴露中间状态。
+ */
+export function spaceConfigure(value: unknown): SpaceConfig {
+  const input = value as { eggs?: unknown; active?: unknown } | undefined
+  if (!input || !Array.isArray(input.eggs) || !input.eggs.every(id => typeof id === 'string')) {
+    throw new Error('invalid space config')
+  }
+
+  const requested = input.eggs as string[]
+  const nextEggs = sanitize(requested)
+  // 不静默吞掉重复、已删除或 widget 项，避免 UI 误以为保存成功。
+  if (nextEggs.length !== requested.length) throw new Error('invalid egg in space config')
+
+  const current = getSpace()
+  const requestedActive = typeof input.active === 'string' ? input.active : null
+  const active = requestedActive && nextEggs.includes(requestedActive)
+    ? requestedActive
+    : (current.active && nextEggs.includes(current.active) ? current.active : (nextEggs[0] ?? null))
+  const cfg: SpaceConfig = { eggs: nextEggs, active }
+  // 先完成唯一一次持久化；写入失败时不提前销毁任何正在运行的视图。
+  save(cfg)
+  activeId = active
+  for (const eggId of current.eggs) {
+    if (!nextEggs.includes(eggId)) destroyView(eggId)
+  }
+  applyActive()
+  return cfg
+}
+
 /** 拖拽排序：UI 提交完整有序列表 */
 export function spaceReorder(ids: unknown): SpaceConfig {
   if (!Array.isArray(ids)) throw new Error('invalid order')
