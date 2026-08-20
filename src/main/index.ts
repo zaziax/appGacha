@@ -3,7 +3,7 @@ import { app, protocol, BrowserWindow, Menu } from 'electron'
 import fs from 'node:fs'
 import { discoverEggs, getEgg } from './eggs'
 import { registerCapabilities } from './capabilities'
-import { createShelfWindow, sendToShelf, isShelfWindowReady } from './shelfWindow'
+import { createShelfWindow, sendToShelf, showShelfWindow, isShelfWindowReady } from './shelfWindow'
 import { registerShelfChannels, registerWindowControls, bindWindowStateEvents, importGachaFile } from './shelf'
 import { registerWidgetControlEvents } from './widgetControls'
 import { initSchedules } from './schedule'
@@ -20,6 +20,7 @@ import { getAppSettings, getAiSettings, getEggAutoStart, isSyncDisabledForEgg } 
 import { syncEgg } from './sync'
 import { peekGachaManifest } from './gachaPkg'
 import { registerAssociations } from './assoc'
+import { setupMacMenu } from './menu'
 import { handleCallback } from './auth'
 import { initAutoUpdater, stopAutoUpdater } from './updater'
 
@@ -46,6 +47,8 @@ if (!isHeadless) initLogging()
 // ── 单实例：双击 .gacha / appgacha:// 协议唤起转发给首实例 ──
 // smoke/probe 是短命进程，不抢锁（避免被开发实例挡住）
 let pendingFiles: string[] = []
+/** 冷启动时 open-url 投递的 appgacha:// 协议 URL（macOS 可能先于 ready 触发，排队等就绪后处理） */
+let pendingUrls: string[] = []
 /** 冷启动时 .gacha 导入冲突排队：收藏柜窗口还没建，等建完再发 IPC */
 const pendingImportConflicts: Array<{ file: string; eggId: string; name: string }> = []
 if (!isHeadless) {
@@ -58,6 +61,12 @@ if (!isHeadless) {
       e.preventDefault()
       if (app.isReady()) void routeLaunchArgs([filePath])
       else pendingFiles.push(filePath)
+    })
+    // macOS：appgacha:// 协议 URL 走 open-url 事件（与 Win/Linux 的 second-instance argv 不同）
+    app.on('open-url', (e, url) => {
+      e.preventDefault()
+      if (app.isReady()) void routeLaunchArgs([url])
+      else pendingUrls.push(url)
     })
   }
 }
@@ -110,8 +119,12 @@ async function routeLaunchArgs(argv: string[]): Promise<void> {
 }
 
 app.whenReady().then(async () => {
-  // 移除默认菜单栏（Windows/Linux 上 Electron 默认显示 File/Edit/View 等菜单）
-  Menu.setApplicationMenu(null)
+  if (process.platform === 'darwin') {
+    setupMacMenu()  // macOS：最小原生菜单，Cmd+Q / Cmd+C/V 等标准快捷键依赖菜单角色
+  } else {
+    // 移除默认菜单栏（Windows/Linux 上 Electron 默认显示 File/Edit/View 等菜单）
+    Menu.setApplicationMenu(null)
+  }
 
   registerCapabilities()
   registerShelfChannels()
@@ -134,6 +147,9 @@ app.whenReady().then(async () => {
     await routeLaunchArgs(process.argv)
     for (const f of pendingFiles) await routeLaunchArgs([f])
     pendingFiles = []
+    // 冷启动 open-url（macOS 协议深链）同队列处理
+    for (const u of pendingUrls) await routeLaunchArgs([u])
+    pendingUrls = []
   }
 
   if (probeDir) {
@@ -235,9 +251,16 @@ app.on('render-process-gone', (_event, webContents, details) => {
 // P3 托盘常驻：关窗口 ≠ 退出，只有托盘菜单”退出”才真正 quit
 app.on('window-all-closed', () => {
   if (isSmoke) return
+  if (process.platform === 'darwin') return   // macOS 惯例：关窗后应用驻留 Dock，Cmd+Q 才退出
   const { minimizeToTray } = getAppSettings()
   if (!minimizeToTray) app.quit()
   // minimizeToTray=true 时不做任何事，应用继续在托盘运行
+})
+
+// macOS：点击 Dock 图标恢复收藏柜窗口（应用可能已无窗口）
+app.on('activate', () => {
+  if (isHeadless) return
+  if (app.isReady()) showShelfWindow()
 })
 
 app.on('before-quit', async (event) => {

@@ -15,6 +15,23 @@ const msgs = {
   showShelf: { en: 'Show Shelf', zh: '显示收藏柜' },
   quit: { en: 'Quit', zh: '退出' },
   windowTitle: { en: 'AppGacha', zh: '应用扭蛋机' },
+  // ─── macOS 应用菜单 ───
+  about: { en: 'About AppGacha', zh: '关于 AppGacha' },
+  services: { en: 'Services', zh: '服务' },
+  hide: { en: 'Hide AppGacha', zh: '隐藏 AppGacha' },
+  hideOthers: { en: 'Hide Others', zh: '隐藏其他' },
+  unhide: { en: 'Show All', zh: '全部显示' },
+  edit: { en: 'Edit', zh: '编辑' },
+  undo: { en: 'Undo', zh: '撤销' },
+  redo: { en: 'Redo', zh: '重做' },
+  cut: { en: 'Cut', zh: '剪切' },
+  copy: { en: 'Copy', zh: '复制' },
+  paste: { en: 'Paste', zh: '粘贴' },
+  selectAll: { en: 'Select All', zh: '全选' },
+  window: { en: 'Window', zh: '窗口' },
+  minimize: { en: 'Minimize', zh: '最小化' },
+  zoom: { en: 'Zoom', zh: '缩放' },
+  front: { en: 'Bring All to Front', zh: '前置全部窗口' },
 }
 
 export function getLang(): Lang {
