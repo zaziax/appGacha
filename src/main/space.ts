@@ -90,6 +90,8 @@ function createView(egg: EggContext): WebContentsView {
       partition
     }
   })
+  // 内容区圆角：蛋是原生 WebContentsView，DOM 的 rounded-xl 裁不到它，需主进程显式裁角（与 UI 的 rounded-xl=12px 对齐）
+  view.setBorderRadius(12)
   const wc = view.webContents
   // R2: 登记 webContents → 蛋，权限检查只认这张表
   registry.register(wc.id, egg)
