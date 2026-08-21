@@ -75,7 +75,7 @@ export function TitleBar({ view, onViewChange, gachaRunning, gachaStage, onImpor
       <div className="flex-1" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties} />
 
       {/* Center: View Toggle — no-drag (only the toggle itself) */}
-      <div style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+      <div className="titlebar-nav" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
         <div className="flex gap-1 bg-[#E8DED1] rounded-full p-1">
           <button onClick={() => onViewChange('machine')}
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-extrabold transition-colors ${

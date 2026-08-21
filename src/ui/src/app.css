@@ -58,6 +58,47 @@ html, body, #root {
 .shelf-scroll::-webkit-scrollbar-thumb:hover { background: rgba(92,64,51,0.30); }
 .shelf-scroll { scrollbar-width: thin; scrollbar-color: rgba(92,64,51,0.14) transparent; }
 
+/* ==== 扭蛋机工作舞台：窗口始终双栏，宽屏只扩展舞台外留白 ==== */
+.machine-stage {
+  container-type: inline-size;
+  --machine-focus-inset: clamp(32px, calc(32vh - 210px), 320px);
+}
+
+/* 高窗口不贴顶：左右内容沿同一起始线随高度下沉，停在上半屏的视觉中心。 */
+@media (min-height: 760px) {
+  .machine-rail {
+    justify-content: flex-start;
+    padding-top: var(--machine-focus-inset);
+  }
+
+  .machine-workflow {
+    padding-top: var(--machine-focus-inset);
+  }
+}
+
+/* 最窄仍维持双栏，通过缩放机器本体为右侧操作区让路。 */
+.gacha-machine-model {
+  width: 300px;
+  height: 448px;
+  transform-origin: center center;
+}
+@media (max-width: 700px) {
+  .gacha-machine-model { transform: scale(0.78); }
+}
+@media (min-width: 701px) and (max-width: 800px) {
+  .gacha-machine-model { transform: scale(0.9); }
+}
+
+/* 宽屏时导航相对窗口真正居中；常规/窄窗继续使用安全的弹性布局。 */
+@media (min-width: 1100px) {
+  .titlebar-nav {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1;
+  }
+}
+
 /* ==== ConfirmDialog 弹入动画 ==== */
 @keyframes popIn {
   from { opacity: 0; transform: scale(0.92) translateY(10px); }

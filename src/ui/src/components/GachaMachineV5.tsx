@@ -128,7 +128,8 @@ export function GachaMachineV5({ stage, running, resultReady, onReveal, mood = '
 
   return (
     <div className="flex flex-col items-center select-none gap-2.5">
-      <motion.div
+      <div className="gacha-machine-model shrink-0">
+        <motion.div
         animate={
           mood === 'thinking' ? { rotate: [0, 1.2, -1.2, 0.8, -0.8, 0] }
           : mood === 'excited' ? { y: [0, -4, 0, -2, 0] }
@@ -336,7 +337,8 @@ export function GachaMachineV5({ stage, running, resultReady, onReveal, mood = '
             </>
           )}
         </div>
-      </motion.div>
+        </motion.div>
+      </div>
 
 
       {/* ======== 全屏开奖仪式（复用 V4） ======== */}

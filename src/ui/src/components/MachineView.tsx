@@ -274,18 +274,20 @@ export function MachineView({ onToast, onEggCreated }: Props) {
   // 如果正在扭蛋或已有结果，显示进度/结果面板
   if (gacha.running || gacha.result) {
     return (
-      <div className="flex h-full">
-        <div className="w-[38%] min-w-[280px] max-w-[340px] flex items-center justify-center overflow-hidden bg-cream">
-          <GachaMachineV5 stage={gacha.running ? gacha.stage : null} running={gacha.running} resultReady={resultReady} icon={gacha.result?.icon} onReveal={() => setRevealed(true)} />
-        </div>
-        <div className="w-px bg-[#D8CCBB]" />
-        <div className="flex-1 flex flex-col min-w-0 bg-cream">
-          <ProgressPanel
-            gacha={gacha} revealed={revealed} resultReady={resultReady}
-            onOpen={() => { if (gacha.result?.eggId) shelf.open(gacha.result.eggId).catch(e => onToast(e.message)); clearGachaResult(); resetWizard(); onEggCreated() }}
-            onRetry={() => { dismissResult(); resetWizard() }}
-            onClose={() => { clearGachaResult(); resetWizard(); onEggCreated() }}
-          />
+      <div className="h-full bg-cream">
+        <div className="machine-stage mx-auto flex h-full w-full max-w-[1280px]">
+          <div className="machine-rail w-[clamp(240px,38vw,360px)] shrink-0 flex flex-col items-center justify-center overflow-hidden bg-cream">
+            <GachaMachineV5 stage={gacha.running ? gacha.stage : null} running={gacha.running} resultReady={resultReady} icon={gacha.result?.icon} onReveal={() => setRevealed(true)} />
+          </div>
+          <div className="w-px shrink-0 bg-[#D8CCBB]" />
+          <div className="machine-workflow flex-1 flex flex-col min-w-0 bg-cream">
+            <ProgressPanel
+              gacha={gacha} revealed={revealed} resultReady={resultReady}
+              onOpen={() => { if (gacha.result?.eggId) shelf.open(gacha.result.eggId).catch(e => onToast(e.message)); clearGachaResult(); resetWizard(); onEggCreated() }}
+              onRetry={() => { dismissResult(); resetWizard() }}
+              onClose={() => { clearGachaResult(); resetWizard(); onEggCreated() }}
+            />
+          </div>
         </div>
       </div>
     )
@@ -298,121 +300,131 @@ export function MachineView({ onToast, onEggCreated }: Props) {
   const goStep = (s: Step) => { sfx.pop(); setStep(s) }
 
   return (
-    <div className="flex h-full">
-      {/* Left: Gacha Visual */}
-      <div className="w-[38%] min-w-[280px] max-w-[340px] flex flex-col items-center justify-center gap-4 overflow-hidden bg-cream">
-        <GachaMachineV5 stage={null} running={false} resultReady={false} onReveal={() => {}}
-          mood={aiLoading ? 'thinking' : (step === 'visual' || step === 'confirm') ? 'excited' : 'idle'} />
-      </div>
+    <div className="h-full bg-cream">
+      <div className="machine-stage mx-auto flex h-full w-full max-w-[1280px]">
+        {/* Left: Gacha Visual — 始终保留双栏；窄窗只缩放机器，不折叠为单栏 */}
+        <div className="machine-rail w-[clamp(240px,38vw,360px)] shrink-0 flex flex-col items-center justify-center gap-4 overflow-hidden bg-cream">
+          <GachaMachineV5 stage={null} running={false} resultReady={false} onReveal={() => {}}
+            mood={aiLoading ? 'thinking' : (step === 'visual' || step === 'confirm') ? 'excited' : 'idle'} />
+        </div>
 
-      <div className="w-px bg-[#D8CCBB]" />
+        <div className="w-px shrink-0 bg-[#D8CCBB]" />
 
-      {/* Right: Step Wizard */}
-      <div className="flex-1 flex flex-col min-w-0 bg-cream">
+        {/* Right: Step Wizard */}
+        <div className="machine-workflow flex-1 flex flex-col min-w-0 bg-cream">
         {/* 断点续建提示 */}
         {pendingBuild && !gacha.running && !gacha.result && (
-          <motion.div className="mx-5 mt-4 p-4 rounded-xl bg-[#FFF8E7] border border-[#E6D5A8] flex items-center gap-3"
-            initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={SPRING}>
-            <RefreshCw className="w-5 h-5 text-[#B8860B] shrink-0" />
-            <div className="flex-1 min-w-0">
-              <div className="text-[13px] font-extrabold text-[#5c4033]">{t('checkpoint.title')}</div>
-              <div className="text-[12px] text-[#8B7355] mt-0.5 leading-relaxed">
-                {t('checkpoint.desc', { wish: pendingBuild.wish.length > 40 ? pendingBuild.wish.slice(0, 40) + '…' : pendingBuild.wish, turns: pendingBuild.turns })}
+          <div className="px-6 pt-4">
+            <motion.div className="mx-auto w-full max-w-[800px] p-4 rounded-xl bg-[#FFF8E7] border border-[#E6D5A8] flex items-center gap-3"
+              initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={SPRING}>
+              <RefreshCw className="w-5 h-5 text-[#B8860B] shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] font-extrabold text-[#5c4033]">{t('checkpoint.title')}</div>
+                <div className="text-[12px] text-[#8B7355] mt-0.5 leading-relaxed">
+                  {t('checkpoint.desc', { wish: pendingBuild.wish.length > 40 ? pendingBuild.wish.slice(0, 40) + '…' : pendingBuild.wish, turns: pendingBuild.turns })}
+                </div>
               </div>
-            </div>
-            <div className="flex gap-2 shrink-0">
-              <button className="px-3 py-1.5 rounded-lg bg-[#B8860B] text-white text-[12px] font-extrabold
-                hover:bg-[#9A7209] transition-colors disabled:opacity-60"
-                disabled={resuming}
-                onClick={async () => {
-                  setResuming(true)
-                  try {
-                    await shelf.resumeBuild(pendingBuild.eggId)
-                    beginGacha(pendingBuild.isUpgrade
-                      ? { eggId: pendingBuild.realEggId, name: pendingBuild.upgradeName }
-                      : null)
+              <div className="flex gap-2 shrink-0">
+                <button className="px-3 py-1.5 rounded-lg bg-[#B8860B] text-white text-[12px] font-extrabold
+                  hover:bg-[#9A7209] transition-colors disabled:opacity-60"
+                  disabled={resuming}
+                  onClick={async () => {
+                    setResuming(true)
+                    try {
+                      await shelf.resumeBuild(pendingBuild.eggId)
+                      beginGacha(pendingBuild.isUpgrade
+                        ? { eggId: pendingBuild.realEggId, name: pendingBuild.upgradeName }
+                        : null)
+                      setPendingBuild(null)
+                    } catch (e) { onToast((e as Error).message) }
+                    finally { setResuming(false) }
+                  }}>
+                  {resuming ? <Loader2 className="w-4 h-4 animate-spin" /> : t('checkpoint.resume')}
+                </button>
+                <button className="px-3 py-1.5 rounded-lg text-[12px] font-extrabold text-[#8B7355]
+                  hover:bg-[#F0E6D2] transition-colors"
+                  onClick={async () => {
+                    await shelf.abandonBuild(pendingBuild.eggId)
                     setPendingBuild(null)
-                  } catch (e) { onToast((e as Error).message) }
-                  finally { setResuming(false) }
-                }}>
-                {resuming ? <Loader2 className="w-4 h-4 animate-spin" /> : t('checkpoint.resume')}
-              </button>
-              <button className="px-3 py-1.5 rounded-lg text-[12px] font-extrabold text-[#8B7355]
-                hover:bg-[#F0E6D2] transition-colors"
-                onClick={async () => {
-                  await shelf.abandonBuild(pendingBuild.eggId)
-                  setPendingBuild(null)
-                }}>
-                {t('checkpoint.discard')}
-              </button>
-            </div>
-          </motion.div>
+                  }}>
+                  {t('checkpoint.discard')}
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
 
         {/* Progress header */}
         <div className="px-6 pt-5 pb-3">
-          <div className="flex items-center gap-2 mb-3">
-            <Egg className="w-5 h-5 text-brand" strokeWidth={2.5} />
-            <span className="text-[14px] font-extrabold text-text">
-              {isUpgrade ? t('wish.upgradeTitle', { name: gacha.upgrade?.name }) : t('wish.wishTitle')}
-            </span>
-            {isUpgrade && (
-              <button onClick={cancelUpgrade} title={t('wish.cancelUpgrade')}
-                className="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-extrabold text-muted border-2 border-transparent hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition-all">
-                <X className="w-3.5 h-3.5" strokeWidth={2.8} /> {t('wish.cancelUpgrade')}
-              </button>
-            )}
-          </div>
-          {/* Step dots */}
-          <div className="flex items-center gap-1.5">
-            {steps.map((s, i) => (
-              <div key={s} className="flex items-center gap-1.5">
-                <div className={`h-2 rounded-full transition-all duration-300 ${i === stepIndex ? 'w-6 bg-brand' : i < stepIndex ? 'w-2 bg-brand/50' : 'w-2 bg-text/15'}`} />
-              </div>
-            ))}
+          <div className="mx-auto w-full max-w-[800px]">
+            <div className="flex items-center gap-2 mb-3">
+              <Egg className="w-5 h-5 text-brand" strokeWidth={2.5} />
+              <span className="text-[14px] font-extrabold text-text">
+                {isUpgrade ? t('wish.upgradeTitle', { name: gacha.upgrade?.name }) : t('wish.wishTitle')}
+              </span>
+              {isUpgrade && (
+                <button onClick={cancelUpgrade} title={t('wish.cancelUpgrade')}
+                  className="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-extrabold text-muted border-2 border-transparent hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition-all">
+                  <X className="w-3.5 h-3.5" strokeWidth={2.8} /> {t('wish.cancelUpgrade')}
+                </button>
+              )}
+            </div>
+            {/* Step dots */}
+            <div className="flex items-center gap-1.5">
+              {steps.map((s, i) => (
+                <div key={s} className="flex items-center gap-1.5">
+                  <div className={`h-2 rounded-full transition-all duration-300 ${i === stepIndex ? 'w-6 bg-brand' : i < stepIndex ? 'w-2 bg-brand/50' : 'w-2 bg-text/15'}`} />
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
         {/* Step content */}
         <div className="flex-1 overflow-y-auto px-6 pt-4 pb-1 chat-scroll">
-          <AnimatePresence mode="wait">
-            {step === 'wish' && (
-              <StepWish key="wish" wishText={wishText} setWishText={setWishText}
-                aiLoading={aiLoading} onSubmit={submitWish} isUpgrade={isUpgrade}
-                suggestions={suggestions} suggestLoading={suggestLoading} onDice={fetchSuggestions} />
-            )}
-            {step === 'clarify' && (
-              <StepClarify key="clarify" questions={questions} chatLog={chatLog}
-                chatIndex={chatIndex} roundStart={roundStart} aiLoading={aiLoading}
-                onAnswer={submitOneAnswer} onSkipAll={skipAllQuestions} />
-            )}
-            {step === 'visual' && (
-              <StepVisual key="visual" styleNote={styleNote} override={styleOverride}
-                onOverride={setStyleOverride} hue={hue} onHue={setHue}
-                scheme={scheme} onScheme={setScheme} onNext={() => goStep('confirm')} />
-            )}
-            {step === 'confirm' && (
-              <StepConfirm key="confirm" wishText={wishText} qaHistory={qaHistory}
-                styleNote={styleNote} styleOverride={styleOverride} hue={hue} scheme={scheme}
-                isUpgrade={isUpgrade} onLaunch={launchGacha} />
-            )}
-          </AnimatePresence>
+          <div className={`mx-auto w-full ${step === 'clarify' ? 'max-w-[800px]' : 'max-w-[760px]'}`}>
+            <AnimatePresence mode="wait">
+              {step === 'wish' && (
+                <StepWish key="wish" wishText={wishText} setWishText={setWishText}
+                  aiLoading={aiLoading} onSubmit={submitWish} isUpgrade={isUpgrade}
+                  suggestions={suggestions} suggestLoading={suggestLoading} onDice={fetchSuggestions} />
+              )}
+              {step === 'clarify' && (
+                <StepClarify key="clarify" questions={questions} chatLog={chatLog}
+                  chatIndex={chatIndex} roundStart={roundStart} aiLoading={aiLoading}
+                  onAnswer={submitOneAnswer} onSkipAll={skipAllQuestions} />
+              )}
+              {step === 'visual' && (
+                <StepVisual key="visual" styleNote={styleNote} override={styleOverride}
+                  onOverride={setStyleOverride} hue={hue} onHue={setHue}
+                  scheme={scheme} onScheme={setScheme} onNext={() => goStep('confirm')} />
+              )}
+              {step === 'confirm' && (
+                <StepConfirm key="confirm" wishText={wishText} qaHistory={qaHistory}
+                  styleNote={styleNote} styleOverride={styleOverride} hue={hue} scheme={scheme}
+                  isUpgrade={isUpgrade} onLaunch={launchGacha} />
+              )}
+            </AnimatePresence>
+          </div>
         </div>
 
         {/* Back button */}
         {stepIndex > 0 && (
           <div className="px-6 pt-1.5 pb-3">
-            <button onClick={() => {
-              sfx.blip()
-              const prev = steps[stepIndex - 1]
-              setStep(prev)
-              if (prev === 'wish') { setQuestions([]); setQaHistory([]); setChatLog([]); setChatIndex(0); setRoundStart(0); setClarifyRound(0) }
-            }}
-              className="flex items-center gap-1.5 text-[13px] font-bold text-muted hover:text-text transition-colors">
-              <ArrowLeft className="w-3.5 h-3.5" /> {t('wish.back')}
-            </button>
+            <div className="mx-auto w-full max-w-[800px]">
+              <button onClick={() => {
+                sfx.blip()
+                const prev = steps[stepIndex - 1]
+                setStep(prev)
+                if (prev === 'wish') { setQuestions([]); setQaHistory([]); setChatLog([]); setChatIndex(0); setRoundStart(0); setClarifyRound(0) }
+              }}
+                className="flex items-center gap-1.5 text-[13px] font-bold text-muted hover:text-text transition-colors">
+                <ArrowLeft className="w-3.5 h-3.5" /> {t('wish.back')}
+              </button>
+            </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   )
@@ -534,9 +546,9 @@ function StepClarify({ questions, chatLog, chatIndex, roundStart, aiLoading, onA
   }
 
   return (
-    <motion.div {...fadeSlide} className="h-full flex flex-col">
-      {/* 消息区（内部滚动，外层不滚） */}
-      <div className="flex-1 min-h-0 overflow-y-auto chat-scroll pr-1 flex flex-col gap-3 pb-2">
+    <motion.div {...fadeSlide} className="flex flex-col">
+      {/* 消息区随内容自然增长，到达上限后才内部滚动，避免宽屏时输入栏沉到底部 */}
+      <div className="min-h-[96px] max-h-[42vh] overflow-y-auto chat-scroll pr-1 flex flex-col gap-3 pb-2">
         {chatLog.map((m, i) => m.kind === 'q' ? (
           <motion.div key={i} className="flex items-start gap-2.5"
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
@@ -1170,7 +1182,7 @@ function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose 
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Stage header */}
-      <div className="px-6 pt-5 pb-3 flex items-center gap-3">
+      <div className="mx-auto w-full max-w-[920px] px-6 pt-5 pb-3 flex items-center gap-3">
         {gacha.running ? (
           <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}>
             <Sparkles className="w-5 h-5 text-brand" strokeWidth={2.5} />
@@ -1210,7 +1222,7 @@ function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose 
 
       {/* Live feed（去白盒：动态直接浮在奶油背景上） */}
       {(gacha.running || resultReady) && (
-        <div className="flex-1 min-h-0 overflow-y-auto mx-4 mb-4 chat-scroll">
+        <div className="flex-1 min-h-0 w-full max-w-[920px] mx-auto px-4 mb-4 overflow-y-auto overflow-x-hidden chat-scroll">
           <div className="px-2 py-3 flex flex-col gap-1.5">
             {gacha.activities.length === 0 && gacha.running && (
               <div className="flex items-center gap-2 px-3 py-2">
