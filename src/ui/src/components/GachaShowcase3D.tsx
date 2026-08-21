@@ -280,7 +280,7 @@ export function ShowcaseBalls({ agitatedRef, resultReady, count = BALL_COUNT, wa
       <ambientLight intensity={warmCabinet ? 0.5 : 0.35} />
       <directionalLight position={[3, 5, 4]} intensity={warmCabinet ? 1.3 : 1.45} color={warmCabinet ? '#FFF4DB' : '#FFFFFF'} />
       <directionalLight position={[-3, 1, -3]} intensity={warmCabinet ? 0.46 : 0.55} color={warmCabinet ? '#D7E7F8' : '#c4ddf5'} />
-      {warmCabinet && <pointLight position={[0, 1.35, 1.35]} intensity={0.7} color="#FFE2A8" distance={4.2} />}
+      {warmCabinet && <pointLight position={[0, 1.35, 1.35]} intensity={0.45} color="#FFE2A8" distance={4.2} />}
       <pointLight position={[0, -1.2, 1.5]} intensity={warmCabinet ? 0.5 : 0.4} color="#ffe8c4" />
     </>
   )

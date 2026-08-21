@@ -23,6 +23,7 @@ interface Props {
 const C = {
   ink: '#5C4033', coral: '#DE5A56', cream: '#F7EEE5', paper: '#FFFDF9',
   yellow: '#FFD36A', mint: '#9ADBC8', blue: '#9FC5EC', peach: '#F6D8C7',
+  coralDark: '#B8403C',
 }
 
 type RevealStep = 'idle' | 'turning' | 'dropped' | 'ceremony'
@@ -99,7 +100,7 @@ export function AppAssemblyStage({
       <div className="wish-stage-model shrink-0">
         <div className="relative h-[448px] w-[300px]">
           <SoftBackdrop active={active} color={heroColor} />
-          <div className="absolute left-1/2 top-[38px] z-10 -translate-x-1/2">
+          <div className="absolute left-1/2 top-[14px] z-10 -translate-x-1/2">
             <AnimatePresence>{thinking && <ThinkingDots />}</AnimatePresence>
             <SoftGachaMachine
               active={active}
@@ -114,7 +115,7 @@ export function AppAssemblyStage({
               onReveal={reveal}
             />
           </div>
-          <div className="absolute left-1/2 top-[410px] h-[13px] w-[210px] -translate-x-1/2 rounded-[50%] bg-[#5C4033]/13 blur-[0.3px]" />
+          <div className="absolute left-1/2 top-[414px] h-[13px] w-[210px] -translate-x-1/2 rounded-[50%] bg-[#5C4033]/16 blur-[0.3px]" />
         </div>
       </div>
 
@@ -166,53 +167,46 @@ function SoftGachaMachine({ active, progress, palette, heroColor, assembling, ag
   const colors = [palette[0] ?? C.yellow, palette[1] ?? C.mint, palette[2] ?? C.blue]
 
   return (
-    <motion.div className="relative h-[360px] w-[236px]"
+    <motion.div className="relative h-[400px] w-[236px]"
       animate={assembling ? { rotate: [0, -0.8, 0.8, -0.45, 0], y: [0, -2, 0] } : { y: active ? [0, -2, 0] : 0 }}
       transition={assembling
         ? { duration: 1.1, repeat: Infinity, repeatDelay: 0.7, ease: 'easeInOut' }
         : { duration: 3.4, repeat: Infinity, ease: 'easeInOut' }}>
 
-      <div className="absolute left-[18px] top-[10px] h-[336px] w-[205px] rounded-[44px] bg-[#CDAF9B] opacity-35" />
+      <div className="absolute left-[18px] top-[9px] h-[388px] w-[205px] rounded-[25px] bg-[#8F5C51] opacity-24" />
 
-      {/* 单一连续外壳：玻璃仓与控制区嵌入同一块机身，不再用顶冠和横梁分段。 */}
-      <div className="absolute left-[21px] top-0 h-[346px] w-[194px] rounded-[42px] border-[3px]"
-        style={{ borderColor: C.ink, background: C.paper, boxShadow: '5px 7px 0 rgba(92,64,51,0.12), inset 0 3px 0 white, inset 0 -10px 0 rgba(246,216,199,0.35)' }}>
-        <div className="absolute left-[10px] top-[10px] h-[190px] w-[168px] overflow-hidden rounded-[31px] border-[3px]"
+      {/* 旧红机箱的塔式比例，内部继续使用当前 3D 与交互内核。 */}
+      <div className="absolute left-[21px] top-0 h-[388px] w-[194px] overflow-hidden rounded-[22px] border-[4px]"
+        style={{ borderColor: C.ink, background: C.coral, boxShadow: '7px 7px 0 rgba(92,64,51,0.16), inset 0 3px 0 rgba(255,255,255,0.20)' }}>
+        <div className="absolute inset-x-0 bottom-0 h-[76px] border-t-[4px]"
+          style={{ borderColor: C.ink, background: C.coralDark }} />
+
+        <div className="absolute left-[10px] top-[10px] h-[190px] w-[168px] overflow-hidden rounded-[12px] border-[4px]"
           style={{
             borderColor: C.ink,
-            background: `radial-gradient(ellipse at 52% 8%, rgba(255,244,214,0.36) 0%, rgba(255,235,197,0.10) 38%, transparent 64%), linear-gradient(155deg, #56687C 0%, #435467 52%, #344252 100%)`,
+            background: 'linear-gradient(155deg, #627489 0%, #4B5C6F 52%, #394757 100%)',
             boxShadow: 'inset 0 0 16px rgba(15,24,35,0.28), inset 0 3px 0 rgba(255,255,255,0.14)',
           }}>
-          <motion.div className="absolute inset-0"
-            animate={{ opacity: active ? 1 : 0.46, filter: active ? 'saturate(1)' : 'saturate(0.35)' }}
-            transition={{ duration: 0.45 }}>
+          <div className="absolute inset-0">
             <Canvas gl={{ antialias: true, alpha: true }} dpr={[1, 1.5]}>
               <ShowcaseBalls agitatedRef={agitatedRef} resultReady={resultReady} count={6} warmCabinet />
             </Canvas>
-          </motion.div>
-          <div className="pointer-events-none absolute inset-x-[18px] top-[-8px] h-[104px]"
-            style={{ background: 'radial-gradient(ellipse at 50% 0%, rgba(255,250,230,0.42) 0%, rgba(255,240,205,0.15) 38%, transparent 72%)' }} />
+          </div>
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-[112px]"
+            style={{ background: 'linear-gradient(180deg, rgba(255,248,226,0.14) 0%, rgba(255,240,205,0.04) 52%, transparent 100%)' }} />
           <div className="pointer-events-none absolute inset-x-[12px] bottom-[-2px] h-[48px]"
             style={{ background: 'radial-gradient(ellipse at 50% 100%, rgba(255,201,113,0.22) 0%, rgba(255,213,145,0.08) 46%, transparent 76%)' }} />
           <div className="pointer-events-none absolute left-[17px] top-[-18px] h-[202px] w-[18px] -rotate-[25deg] rounded-full bg-white/10" />
           <div className="pointer-events-none absolute left-[44px] top-[-24px] h-[195px] w-[8px] -rotate-[25deg] rounded-full bg-white/6" />
-          <motion.div className="absolute right-[10px] top-[10px] h-2.5 w-2.5 rounded-full"
-            style={{ background: resultReady ? C.yellow : active ? C.mint : '#7D8792', boxShadow: resultReady ? `0 0 10px ${C.yellow}` : 'none' }}
-            animate={resultReady ? { opacity: [0.45, 1, 0.45], scale: [0.9, 1.15, 0.9] } : { opacity: 0.7 }}
-            transition={{ duration: 1.25, repeat: Infinity }} />
         </div>
 
-        {/* 横梁下仍露出一段珊瑚红，让上下功能区有明确但连续的节奏。 */}
-        <div className="absolute inset-x-0 top-[212px] h-[14px]"
-          style={{ background: C.coral, boxShadow: 'inset 0 3px 0 rgba(255,255,255,0.22), inset 0 -2px 0 rgba(92,64,51,0.10)' }} />
-
-        <div className="absolute inset-x-0 bottom-0 h-[143px]">
+        <div className="absolute inset-x-0 bottom-0 z-10 h-[174px]">
           <Knob ready={resultReady} revealStep={revealStep} label={revealLabel} onReveal={onReveal} />
           <StageLights progress={progress} colors={colors} />
 
-          <div className="absolute bottom-[10px] right-[10px] h-[43px] w-[100px] overflow-hidden rounded-[12px_12px_16px_16px] border-[3px]"
+          <div className="absolute bottom-[12px] left-1/2 h-[52px] w-[112px] -translate-x-1/2 overflow-hidden rounded-[11px_11px_16px_16px] border-[4px]"
             style={{ borderColor: C.ink, background: '#3B2C24', boxShadow: 'inset 0 5px 8px rgba(0,0,0,0.28)' }}>
-            <div className="absolute inset-x-[15px] top-0 h-[8px] rounded-b-[6px] bg-[#DE5A56]" />
+            <div className="absolute inset-x-[12px] top-0 h-[11px] rounded-b-[7px] bg-[#DE5A56]" />
             <AnimatePresence>
               {revealStep === 'dropped' && (
                 <motion.div className="absolute left-1/2 top-[8px] h-[27px] w-[27px] -translate-x-1/2 overflow-hidden rounded-full border-2"
@@ -230,7 +224,7 @@ function SoftGachaMachine({ active, progress, palette, heroColor, assembling, ag
       </div>
 
       {/* 主要结构节点：与一体外壳相扣，而不是重新拆成上下两个箱体。 */}
-      <div className="absolute left-[13px] top-[194px] z-20 h-[20px] w-[210px] rounded-full border-[3px]"
+      <div className="absolute left-[13px] top-[194px] z-20 h-[20px] w-[210px] rounded-full border-[4px]"
         style={{ borderColor: C.ink, background: C.cream, boxShadow: '0 3px 0 rgba(92,64,51,0.12), inset 0 3px 0 white' }}>
         <span className="absolute left-[14px] top-[5px] h-[5px] w-[5px] rounded-full bg-[#8F7664]" />
         <span className="absolute right-[14px] top-[5px] h-[5px] w-[5px] rounded-full bg-[#8F7664]" />
@@ -256,7 +250,7 @@ function Knob({ ready, revealStep, label, onReveal }: { ready: boolean; revealSt
         ? { scale: [1, 0.91, 1], y: [0, 3, 0], rotate: 0 }
         : ready && !busy
           ? { scale: [1, 1, 1.065, 0.975, 1], rotate: [0, 0, -2, 2, 0] }
-          : { scale: 1, opacity: ready ? 1 : 0.72, rotate: 0 }}
+          : { scale: 1, opacity: 1, rotate: 0 }}
       whileHover={ready ? { scale: 1.06, y: -1 } : undefined}
       whileTap={ready ? { scale: 0.95, y: 2 } : undefined}
       transition={turning
@@ -304,8 +298,8 @@ function StageLights({ progress, colors }: { progress: number; colors: string[] 
       {lights.map(({ at, Icon }, i) => {
         const on = progress >= at
         return <motion.div key={at} className="flex h-[25px] w-[25px] items-center justify-center rounded-[8px] border-2"
-          style={{ borderColor: C.ink, background: on ? colors[i] : '#E5DDD3', color: on ? C.ink : '#A99B8F' }}
-          animate={{ scale: on ? [0.8, 1.12, 1] : 1, opacity: on ? 1 : 0.58 }} transition={{ duration: 0.4 }}>
+          style={{ borderColor: C.ink, background: on ? colors[i] : '#E7DED4', color: on ? C.ink : '#9C8E82' }}
+          animate={{ scale: on ? [0.8, 1.12, 1] : 1 }} transition={{ duration: 0.4 }}>
           <Icon className="h-3.5 w-3.5" strokeWidth={2.5} />
         </motion.div>
       })}
