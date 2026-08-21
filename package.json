@@ -115,7 +115,7 @@
         "dmg",
         "zip"
       ],
-      "icon": "assets/icon.png",
+      "icon": "build/icon.icns",
       "category": "public.app-category.utilities",
       "bundleVersion": "0.1.0",
       "protocols": [

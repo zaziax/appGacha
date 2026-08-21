@@ -11,3 +11,4 @@ app.log
 .workbuddy
 release
 _build.log
+.DS_Store
