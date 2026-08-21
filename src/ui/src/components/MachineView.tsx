@@ -420,8 +420,8 @@ export function MachineView({ onToast, onEggCreated }: Props) {
         </div>
 
         {/* Step content */}
-        <div className="flex-1 overflow-y-auto px-6 pt-4 pb-1 chat-scroll">
-          <div className={`mx-auto w-full ${step === 'clarify' ? 'max-w-[800px]' : 'max-w-[760px]'}`}>
+        <div className={`flex-1 px-6 pt-4 pb-1 chat-scroll ${step === 'clarify' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+          <div className={`mx-auto w-full ${step === 'clarify' ? 'max-w-[800px] h-full' : 'max-w-[760px]'}`}>
             <AnimatePresence mode="wait">
               {step === 'wish' && (
                 <StepWish key="wish" wishText={wishText} setWishText={setWishText}
@@ -585,9 +585,9 @@ function StepClarify({ questions, chatLog, chatIndex, roundStart, aiLoading, onA
   }
 
   return (
-    <motion.div {...fadeSlide} className="flex flex-col">
-      {/* 消息区随内容自然增长，到达上限后才内部滚动，避免宽屏时输入栏沉到底部 */}
-      <div className="min-h-[96px] max-h-[42vh] overflow-y-auto chat-scroll pr-1 flex flex-col gap-3 pb-2">
+    <motion.div {...fadeSlide} className="flex h-full flex-col">
+      {/* 消息区固定占满剩余高度、内部滚动，输入栏始终沉底，问题多寡不再撑动布局 */}
+      <div className="flex-1 min-h-0 overflow-y-auto chat-scroll pr-1 flex flex-col gap-3 pb-2">
         {chatLog.map((m, i) => m.kind === 'q' ? (
           <motion.div key={i} className="flex items-start gap-2.5"
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
@@ -647,7 +647,7 @@ function StepClarify({ questions, chatLog, chatIndex, roundStart, aiLoading, onA
 
       {/* 参考方向 chips（当前问题的，填入输入栏） */}
       {currentQ && !waiting && currentQ.options.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 pb-2">
+        <div className="flex flex-wrap items-center gap-1.5 pb-2 shrink-0">
           <span className="text-[11px] font-bold text-muted/50">{t('wish.reference')}</span>
           {currentQ.options.map(opt => {
             const on = selected.includes(opt)
