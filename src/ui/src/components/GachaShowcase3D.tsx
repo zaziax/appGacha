@@ -8,7 +8,7 @@ import { sfx } from '../sound'
 
 /* ================================================================
    扭蛋机共享 3D 模块：橱窗球体物理 + 全屏开奖仪式
-   由 GachaMachineV5（当前生产版）引用
+   由轻拟物扭蛋机与旧版机器共享
    ================================================================ */
 
 // 扭蛋壳配色（高饱和糖果色，冷底上颗颗分明）
@@ -61,7 +61,12 @@ interface Ball3D {
   trail: THREE.Vector3[]
 }
 
-export function ShowcaseBalls({ agitatedRef, resultReady, count = BALL_COUNT }: { agitatedRef: React.MutableRefObject<boolean>, resultReady: boolean, count?: number }) {
+export function ShowcaseBalls({ agitatedRef, resultReady, count = BALL_COUNT, warmCabinet = false }: {
+  agitatedRef: React.MutableRefObject<boolean>
+  resultReady: boolean
+  count?: number
+  warmCabinet?: boolean
+}) {
   const gl = useThree(s => s.gl)
   const scene = useThree(s => s.scene)
   const ballRefs = useRef<(THREE.Group | null)[]>([])
@@ -272,10 +277,11 @@ export function ShowcaseBalls({ agitatedRef, resultReady, count = BALL_COUNT }: 
       ))}
 
       {/* 灯光（对标收藏柜：强主光 + 冷色轮廓光，拉开明暗对比） */}
-      <ambientLight intensity={0.35} />
-      <directionalLight position={[3, 5, 4]} intensity={1.45} />
-      <directionalLight position={[-3, 1, -3]} intensity={0.55} color="#c4ddf5" />
-      <pointLight position={[0, -1.2, 1.5]} intensity={0.4} color="#ffe8c4" />
+      <ambientLight intensity={warmCabinet ? 0.5 : 0.35} />
+      <directionalLight position={[3, 5, 4]} intensity={warmCabinet ? 1.3 : 1.45} color={warmCabinet ? '#FFF4DB' : '#FFFFFF'} />
+      <directionalLight position={[-3, 1, -3]} intensity={warmCabinet ? 0.46 : 0.55} color={warmCabinet ? '#D7E7F8' : '#c4ddf5'} />
+      {warmCabinet && <pointLight position={[0, 1.35, 1.35]} intensity={0.7} color="#FFE2A8" distance={4.2} />}
+      <pointLight position={[0, -1.2, 1.5]} intensity={warmCabinet ? 0.5 : 0.4} color="#ffe8c4" />
     </>
   )
 }

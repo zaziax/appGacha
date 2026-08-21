@@ -4,7 +4,7 @@ import { Sparkles, Egg, ArrowLeft, ArrowRight, Loader2, Wand2, Brain, Wrench, Pe
 import { useTranslation } from 'react-i18next'
 import { shelf, GachaProgress, GachaResult, GachaActivity, WishQuestion, PendingBuild } from '../shelf'
 import { getGachaState, subscribeGacha, beginGacha, clearGachaResult, dismissResult, setGachaUpgrade } from '../gachaStore'
-import { GachaMachineV5 } from './GachaMachineV5'
+import { AppAssemblyStage } from './AppAssemblyStage'
 import { sfx } from '../sound'
 import { tr } from '../i18n'
 
@@ -271,13 +271,42 @@ export function MachineView({ onToast, onEggCreated }: Props) {
     } catch (err) { onToast((err as Error).message) }
   }
 
+  // 左侧机器持续呈现同一颗“愿望蛋”从点亮到成形，而不是复制右侧的文字进度。
+  const heroActive = wishText.trim().length >= 2
+  const heroColor = hue === null ? '#FFC857' : hslToHex(hue, 60, 50)
+  const selectedScheme = SCHEMES.find(s => s.id === scheme) ?? SCHEMES[0]
+  const machinePalette = hue === null
+    ? []
+    : selectedScheme.offsets.slice(0, 3).map(offset => {
+        const derivedHue = ((hue + offset) % 360 + 360) % 360
+        return hslToHex(derivedHue, 58, 54)
+      })
+  const journeyProgress = step === 'wish'
+    ? (heroActive ? 0.18 : 0)
+    : step === 'clarify'
+      ? Math.min(0.64, 0.3 + qaHistory.length * 0.09)
+      : step === 'visual'
+        ? 0.78
+        : 0.94
+
   // 如果正在扭蛋或已有结果，显示进度/结果面板
   if (gacha.running || gacha.result) {
     return (
       <div className="h-full bg-cream">
         <div className="machine-stage mx-auto flex h-full w-full max-w-[1280px]">
           <div className="machine-rail w-[clamp(240px,38vw,360px)] shrink-0 flex flex-col items-center justify-center overflow-hidden bg-cream">
-            <GachaMachineV5 stage={gacha.running ? gacha.stage : null} running={gacha.running} resultReady={resultReady} icon={gacha.result?.icon} onReveal={() => setRevealed(true)} />
+            <AppAssemblyStage
+              stage={gacha.running ? gacha.stage : null}
+              running={gacha.running}
+              resultReady={resultReady}
+              icon={gacha.result?.icon}
+              onReveal={() => setRevealed(true)}
+              journeyProgress={1}
+              heroActive={true}
+              heroColor={heroColor}
+              palette={machinePalette}
+              revealLabel={t('progress.reveal')}
+            />
           </div>
           <div className="w-px shrink-0 bg-[#D8CCBB]" />
           <div className="machine-workflow flex-1 flex flex-col min-w-0 bg-cream">
@@ -302,10 +331,20 @@ export function MachineView({ onToast, onEggCreated }: Props) {
   return (
     <div className="h-full bg-cream">
       <div className="machine-stage mx-auto flex h-full w-full max-w-[1280px]">
-        {/* Left: Gacha Visual — 始终保留双栏；窄窗只缩放机器，不折叠为单栏 */}
+        {/* Left: Wish state visual — 始终保留双栏；窄窗只缩放舞台，不折叠为单栏 */}
         <div className="machine-rail w-[clamp(240px,38vw,360px)] shrink-0 flex flex-col items-center justify-center gap-4 overflow-hidden bg-cream">
-          <GachaMachineV5 stage={null} running={false} resultReady={false} onReveal={() => {}}
-            mood={aiLoading ? 'thinking' : (step === 'visual' || step === 'confirm') ? 'excited' : 'idle'} />
+          <AppAssemblyStage
+            stage={null}
+            running={false}
+            resultReady={false}
+            onReveal={() => {}}
+            journeyProgress={journeyProgress}
+            heroActive={heroActive}
+            heroColor={heroColor}
+            palette={machinePalette}
+            thinking={aiLoading}
+            revealLabel={t('progress.reveal')}
+          />
         </div>
 
         <div className="w-px shrink-0 bg-[#D8CCBB]" />
@@ -1207,7 +1246,7 @@ function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose 
             <p className="text-[11px] font-bold text-muted/60 mt-0.5">{fmtElapsed(elapsed)}</p>
           )}
           {resultReady && (
-            <p className="text-[12px] font-bold text-brand mt-0.5">{t('progress.turnKnob')}</p>
+            <p className="text-[12px] font-bold text-brand mt-0.5">{t('progress.reveal')}</p>
           )}
         </div>
         {/* 取消按钮 */}

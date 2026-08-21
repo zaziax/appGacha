@@ -75,6 +75,11 @@ export const sfx = {
     tone(784, { at: 0.14, dur: 0.09, gain: 0.07 })
     tone(1047, { at: 0.21, dur: 0.24, gain: 0.09 })
   },
+  /** 操作就绪：轻快双音，只在可操作状态出现时播放一次 */
+  ready(): void {
+    tone(659, { dur: 0.09, gain: 0.045, type: 'triangle' })
+    tone(988, { at: 0.085, dur: 0.16, gain: 0.06, type: 'triangle' })
+  },
 
   // ─── 扭蛋机物理音效 ───
 
