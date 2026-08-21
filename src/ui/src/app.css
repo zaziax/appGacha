@@ -96,6 +96,32 @@ html, body, #root {
   .wish-stage-model { transform: scale(0.9); }
 }
 
+/* 宽屏高窗口：左侧是视觉舞台，不继续沿用普通窗口的小尺寸和靠上定位。 */
+@media (min-width: 1400px) and (min-height: 900px) {
+  .machine-rail {
+    width: 380px !important;
+    justify-content: center;
+    padding-top: 0;
+    padding-bottom: clamp(48px, 8vh, 92px);
+  }
+
+  .wish-stage-model {
+    transform: scale(1.15);
+  }
+}
+
+/* 2K/超宽全屏再提高一个层级，但限制上限，避免机器压迫右侧工作区。 */
+@media (min-width: 2000px) and (min-height: 1100px) {
+  .machine-rail {
+    width: 410px !important;
+    padding-bottom: clamp(72px, 8vh, 112px);
+  }
+
+  .wish-stage-model {
+    transform: scale(1.22);
+  }
+}
+
 /* 宽屏时导航相对窗口真正居中；常规/窄窗继续使用安全的弹性布局。 */
 @media (min-width: 1100px) {
   .titlebar-nav {
