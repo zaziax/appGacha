@@ -6,11 +6,11 @@ import { t } from './i18n'
 let tray: Tray | null = null
 
 function trayIconPath(): string {
+  // mac 菜单栏用模板图（单色 alpha 轮廓，系统自动着色）；win/linux 用彩色图标
+  const name = process.platform === 'darwin' ? 'trayTemplate.png' : 'icon.png'
   // 打包后 extraResources 复制到 resources/，dev 模式直接用 assets/
-  if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'assets', 'icon.png')
-  }
-  return path.join(app.getAppPath(), 'assets', 'icon.png')
+  const base = app.isPackaged ? process.resourcesPath : app.getAppPath()
+  return path.join(base, 'assets', name)
 }
 
 /** 仅「退出」的托盘菜单：mac 右键弹出 / Windows 右键自动显示 */
