@@ -13,13 +13,9 @@ function trayIconPath(): string {
   return path.join(app.getAppPath(), 'assets', 'icon.png')
 }
 
-function buildTrayMenu(): Electron.Menu {
+/** 仅「退出」的托盘菜单：mac 右键弹出 / Windows 右键自动显示 */
+function buildQuitMenu(): Electron.Menu {
   return Menu.buildFromTemplate([
-    {
-      label: t('showShelf'),
-      click: () => showShelfWindow()
-    },
-    { type: 'separator' },
     {
       label: t('quit'),
       click: () => {
@@ -43,15 +39,23 @@ export function initTray(): void {
   }
   tray = new Tray(sized)
   tray.setToolTip(t('trayTooltip'))
-  tray.setContextMenu(buildTrayMenu())
-  tray.on('double-click', () => showShelfWindow())
+  if (process.platform === 'darwin') {
+    // macOS：不设常驻菜单 → 单击直接显示收藏柜；右键弹「退出」菜单
+    tray.on('click', () => showShelfWindow())
+    tray.on('right-click', () => tray?.popUpContextMenu(buildQuitMenu()))
+  } else {
+    // Windows/Linux：左键单击显示收藏柜，右键自动弹出「退出」菜单
+    tray.setContextMenu(buildQuitMenu())
+    tray.on('click', () => showShelfWindow())
+  }
 }
 
-/** 语言变更后重建托盘菜单（标签刷新） */
+/** 语言变更后重建托盘菜单（退出标签刷新） */
 export function rebuildTrayMenu(): void {
   if (!tray) return
   tray.setToolTip(t('trayTooltip'))
-  tray.setContextMenu(buildTrayMenu())
+  // macOS 的退出菜单是右键临时弹出、无常驻菜单可刷；Windows 的右键菜单重建
+  if (process.platform !== 'darwin') tray.setContextMenu(buildQuitMenu())
 }
 
 export function destroyTray(): void {
