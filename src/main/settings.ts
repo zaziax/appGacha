@@ -54,6 +54,22 @@ interface SettingsFile {
   eggCategory?: Record<string, string>
   /** 扭蛋空间配置：有序蛋列表 + 上次激活项 */
   space?: { eggs: string[]; active?: string }
+  /** widget 在本机各显示器上的宿主位置（设备相关，不参与蛋内容同步） */
+  widgetPlacements?: Record<string, WidgetPlacement>
+}
+
+/** widget 的本机位置快照。相对坐标用于分辨率、任务栏和缩放变化后的安全恢复。 */
+export interface WidgetPlacement {
+  displayId: string
+  x: number
+  y: number
+  width: number
+  height: number
+  relativeX: number
+  relativeY: number
+  workArea: { x: number; y: number; width: number; height: number }
+  scaleFactor: number
+  updatedAt: number
 }
 
 function settingsPath(): string {
@@ -315,5 +331,18 @@ export function getSpaceConfig(): SpaceConfig {
 export function setSpaceConfig(c: SpaceConfig): void {
   const f = readFile()
   f.space = { eggs: c.eggs, active: c.active ?? undefined }
+  writeFile(f)
+}
+
+// ─── widget 本机位置 ───
+
+export function getWidgetPlacement(eggId: string): WidgetPlacement | null {
+  return readFile().widgetPlacements?.[eggId] ?? null
+}
+
+export function setWidgetPlacement(eggId: string, placement: WidgetPlacement): void {
+  const f = readFile()
+  if (!f.widgetPlacements) f.widgetPlacements = {}
+  f.widgetPlacements[eggId] = placement
   writeFile(f)
 }

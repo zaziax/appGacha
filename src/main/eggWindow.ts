@@ -7,6 +7,7 @@ import * as registry from './registry'
 import { attachControls } from './widgetControls'
 import { onEggClosed } from './net/coordinator'
 import { syncEgg } from './sync'
+import { bindWidgetPlacement, resolveWidgetPosition } from './widgetPlacement'
 
 const preparedPartitions = new Set<string>()
 const openWindows = new Map<string, BrowserWindow>()
@@ -64,10 +65,14 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
   const spec = egg.manifest.window ?? {}
   const isWidget = spec.type === 'widget'
   const isMac = process.platform === 'darwin'
+  const width = clampSize(spec.width, isWidget ? 320 : 900, isWidget ? 96 : 240)
+  const height = clampSize(spec.height, isWidget ? 320 : 640, isWidget ? 96 : 240)
+  const restoredPosition = isWidget ? resolveWidgetPosition(egg.eggId, width, height) : undefined
 
   const win = new BrowserWindow({
-    width: clampSize(spec.width, isWidget ? 320 : 900, isWidget ? 96 : 240),
-    height: clampSize(spec.height, isWidget ? 320 : 640, isWidget ? 96 : 240),
+    width,
+    height,
+    ...restoredPosition,
     // macOS 标准窗用原生交通灯（widget 必须保持 frameless 透明）
     frame: isMac && !isWidget ? true : false,
     ...(isMac && !isWidget ? {
@@ -120,6 +125,7 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
   // 拦截后原生标题保持构造时的空串，失焦幽灵栏无内容可画。standard 窗保留同步（任务栏显示蛋名是期望行为）。
   if (isWidget) {
     win.on('page-title-updated', (event) => { event.preventDefault() })
+    bindWidgetPlacement(win, egg.eggId)
   }
 
   bindWindowStateEvents(win.webContents.id)
