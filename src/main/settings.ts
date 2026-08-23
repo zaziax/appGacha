@@ -18,6 +18,9 @@ interface ProviderKeyStore {
   plain?: string  // 系统不支持加密时的降级
 }
 
+/** 关闭主窗口时的行为：ask=每次询问 / tray=缩到托盘 / quit=直接退出 */
+export type CloseBehavior = 'ask' | 'tray' | 'quit'
+
 interface SettingsFile {
   ai?: {
     baseURL: string
@@ -33,16 +36,17 @@ interface SettingsFile {
   app?: {
     /** 登录时自动启动主应用 */
     autoStartApp?: boolean
-    /** 关窗口时最小化到托盘（而非退出） */
-    minimizeToTray?: boolean
-    /** 用户是否已明确选择过关闭行为（询问框”记住选择”或设置面板改动后置 true） */
-    closeActionKnown?: boolean
+    /** 关闭主窗口时的行为：ask=每次询问 / tray=缩到托盘 / quit=直接退出 */
+    closeBehavior?: CloseBehavior
     /** 界面音效开关（默认开） */
     soundEnabled?: boolean
     /** UI 语言（en / zh），默认跟随系统 */
     lang?: 'en' | 'zh'
     /** 自动检查更新（默认开） */
     autoUpdate?: boolean
+    // 旧版二态字段：仅用于读取时迁移到 closeBehavior，不再写入
+    minimizeToTray?: boolean
+    closeActionKnown?: boolean
   }
   /** 逐蛋自启动覆盖（eggId → bool）。未列出的蛋用 manifest.window.autoStart 出厂默认值 */
   eggAutoStart?: Record<string, boolean>
@@ -179,9 +183,8 @@ export function clearProviderKey(providerId: string): void {
 
 export interface AppSettings {
   autoStartApp: boolean
-  minimizeToTray: boolean
-  /** 用户是否已明确选择过关闭行为（关闭时询问框的”记住选择”或设置面板改动后置 true） */
-  closeActionKnown?: boolean
+  /** 关闭主窗口时的行为：ask=每次询问 / tray=缩到托盘 / quit=直接退出 */
+  closeBehavior: CloseBehavior
   /** 界面音效（默认开） */
   soundEnabled: boolean
   /** 自动检查更新（默认开） */
@@ -194,8 +197,9 @@ export function getAppSettings(): AppSettings {
   const f = readFile()
   return {
     autoStartApp: f.app?.autoStartApp ?? false,
-    minimizeToTray: f.app?.minimizeToTray ?? (process.platform !== 'darwin'),  // Windows 默认托盘；macOS 默认 Dock
-    closeActionKnown: f.app?.closeActionKnown ?? false,
+    // 迁移旧二态字段：未记住 → 每次询问；记住且托盘 → 托盘；记住且退出 → 直接退出
+    closeBehavior: f.app?.closeBehavior
+      ?? (f.app?.closeActionKnown ? (f.app?.minimizeToTray ? 'tray' : 'quit') : 'ask'),
     soundEnabled: f.app?.soundEnabled ?? true,
     autoUpdate: f.app?.autoUpdate ?? true,
     version: app.getVersion()

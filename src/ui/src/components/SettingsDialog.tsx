@@ -12,7 +12,7 @@ import {
   X,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { shelf, type UpdateStatus } from '../shelf'
+import { shelf, type UpdateStatus, type CloseBehavior } from '../shelf'
 import { sfx, setSoundEnabled } from '../sound'
 import { getLangPref, setLangPref, type LangPref } from '../i18n'
 import { providerIcon } from '../config/providerIcons'
@@ -52,7 +52,7 @@ export function SettingsDialog({ onClose, onToast }: Props) {
   const [section, setSection] = useState<SettingsSection>('general')
 
   const [autoStartApp, setAutoStartApp] = useState(false)
-  const [minimizeToTray, setMinimizeToTray] = useState(true)
+  const [closeBehavior, setCloseBehavior] = useState<CloseBehavior>('ask')
   const [soundOn, setSoundOn] = useState(true)
   const [autoUpdate, setAutoUpdate] = useState(true)
   const [appVersion, setAppVersion] = useState('')
@@ -120,7 +120,7 @@ export function SettingsDialog({ onClose, onToast }: Props) {
 
     shelf.getAppSettings().then(s => {
       setAutoStartApp(s.autoStartApp)
-      setMinimizeToTray(s.minimizeToTray)
+      setCloseBehavior(s.closeBehavior)
       setSoundOn(s.soundEnabled)
       setAutoUpdate(s.autoUpdate)
       setAppVersion(s.version ?? '')
@@ -297,7 +297,7 @@ export function SettingsDialog({ onClose, onToast }: Props) {
               {section === 'general' ? (
                 <GeneralPanel
                   autoStartApp={autoStartApp} setAutoStartApp={setAutoStartApp}
-                  minimizeToTray={minimizeToTray} setMinimizeToTray={setMinimizeToTray}
+                  closeBehavior={closeBehavior} setCloseBehavior={setCloseBehavior}
                   soundOn={soundOn} setSoundOn={setSoundOn}
                   autoUpdate={autoUpdate} setAutoUpdate={setAutoUpdate}
                   appVersion={appVersion}
@@ -651,9 +651,9 @@ function SectionHeading({ title, description }: { title: string; description: st
   )
 }
 
-function GeneralPanel({ autoStartApp, setAutoStartApp, minimizeToTray, setMinimizeToTray, soundOn, setSoundOn, autoUpdate, setAutoUpdate, appVersion, updateStatus, checkingUpdate, onCheckUpdate, lang, setLang, onToast }: {
+function GeneralPanel({ autoStartApp, setAutoStartApp, closeBehavior, setCloseBehavior, soundOn, setSoundOn, autoUpdate, setAutoUpdate, appVersion, updateStatus, checkingUpdate, onCheckUpdate, lang, setLang, onToast }: {
   autoStartApp: boolean; setAutoStartApp: (v: boolean) => void
-  minimizeToTray: boolean; setMinimizeToTray: (v: boolean) => void
+  closeBehavior: CloseBehavior; setCloseBehavior: (v: CloseBehavior) => void
   soundOn: boolean; setSoundOn: (v: boolean) => void
   autoUpdate: boolean; setAutoUpdate: (v: boolean) => void
   appVersion: string
@@ -676,11 +676,22 @@ function GeneralPanel({ autoStartApp, setAutoStartApp, minimizeToTray, setMinimi
             onToast(value ? t('settings.autoStartOn') : t('settings.autoStartOff'))
           }} />
         </SettingRow>
-        <SettingRow label={t('settings.minimizeToTray')} description={t('settings.minimizeToTrayDesc')}>
-          <Toggle checked={minimizeToTray} onChange={async value => {
-            setMinimizeToTray(value)
-            await shelf.setAppSettings({ minimizeToTray: value })
-          }} />
+        <SettingRow label={t('settings.closeBehavior')} description={t('settings.closeBehaviorDesc')}>
+          <div className="flex shrink-0 gap-1 rounded-full bg-cream p-1">
+            {(['ask', 'tray', 'quit'] as const).map(value => (
+              <button
+                key={value}
+                onClick={() => {
+                  sfx.tick()
+                  setCloseBehavior(value)
+                  void shelf.setAppSettings({ closeBehavior: value })
+                }}
+                className={`rounded-full px-3 py-1.5 text-[10px] font-extrabold transition-colors ${closeBehavior === value ? 'bg-text text-white' : 'text-muted hover:text-text'}`}
+              >
+                {value === 'ask' ? t('settings.closeBehaviorAsk') : value === 'tray' ? t('settings.closeBehaviorTray') : t('settings.closeBehaviorQuit')}
+              </button>
+            ))}
+          </div>
         </SettingRow>
         <SettingRow label={t('settings.sound')} description={t('settings.soundDesc')} last>
           <Toggle checked={soundOn} onChange={async value => {

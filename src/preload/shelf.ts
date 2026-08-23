@@ -34,7 +34,7 @@ contextBridge.exposeInMainWorld('shelf', {
   wishChat: (messages: { role: string; content: string }[], context?: { upgradeEggId?: string }) => invoke('shelf:wishChat', messages, context),
   wishSuggest: (lang: string) => invoke('shelf:wishSuggest', lang),
   getAppSettings: () => invoke('shelf:getAppSettings'),
-  setAppSettings: (s: { autoStartApp?: boolean; minimizeToTray?: boolean; soundEnabled?: boolean; autoUpdate?: boolean }) => invoke('shelf:setAppSettings', s),
+  setAppSettings: (s: { autoStartApp?: boolean; closeBehavior?: 'ask' | 'tray' | 'quit'; soundEnabled?: boolean; autoUpdate?: boolean }) => invoke('shelf:setAppSettings', s),
   setLang: (lang: 'en' | 'zh') => invoke('shelf:setLang', lang),
   getEggAutoStart: (eggId: string) => invoke('shelf:getEggAutoStart', eggId),
   setEggAutoStart: (eggId: string, enabled: boolean) => invoke('shelf:setEggAutoStart', eggId, enabled),

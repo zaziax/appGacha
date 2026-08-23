@@ -1,5 +1,5 @@
 import { net } from 'electron'
-import { getAiSettings, getAiSettingsMasked, setAiSettings, hasProviderKey, getProviderKey, clearProviderKey, getAppSettings, setAppSettings, setLang, getEggAutoStart, setEggAutoStart, getCategories, saveCategory, deleteCategory, getEggCategoryMap, setEggCategory, setSyncDisabledForEgg, isSyncDisabledForEgg } from '../settings'
+import { getAiSettings, getAiSettingsMasked, setAiSettings, hasProviderKey, getProviderKey, clearProviderKey, getAppSettings, setAppSettings, setLang, getEggAutoStart, setEggAutoStart, getCategories, saveCategory, deleteCategory, getEggCategoryMap, setEggCategory, setSyncDisabledForEgg, isSyncDisabledForEgg, type CloseBehavior } from '../settings'
 import { executeCloseAction } from '../shelfWindow'
 import { getEgg } from '../eggs'
 import { apiFetchRaw } from '../api'
@@ -86,12 +86,8 @@ export function registerSettingsChannels(): void {
   })
 
   handle('shelf:setAppSettings', (s) => {
-    const patch = s as { autoStartApp?: boolean; minimizeToTray?: boolean; soundEnabled?: boolean; autoUpdate?: boolean }
-    // 设置面板手动改动关闭行为 = 用户已明确选择，关闭时不再询问
-    setAppSettings({
-      ...patch,
-      ...(patch.minimizeToTray !== undefined ? { closeActionKnown: true } : {})
-    })
+    const patch = s as { autoStartApp?: boolean; closeBehavior?: CloseBehavior; soundEnabled?: boolean; autoUpdate?: boolean }
+    setAppSettings(patch)
   })
 
   // 收藏柜 UI 关闭询问弹窗的回传：tray=最小化到托盘 / quit=直接退出

@@ -28,25 +28,37 @@ function buildQuitMenu(): Electron.Menu {
   ])
 }
 
-export function initTray(): void {
-  if (tray) return
-
-  const icon = nativeImage.createFromPath(trayIconPath())
-  const sized = icon.resize({ width: 16, height: 16 })
-  if (process.platform === 'darwin') {
-    // mac 菜单栏模板图：忽略颜色、按 alpha 轮廓着色，自动适配深浅色模式
-    sized.setTemplateImage(true)
-  }
-  tray = new Tray(sized)
-  tray.setToolTip(t('trayTooltip'))
-  if (process.platform === 'darwin') {
-    // macOS：不设常驻菜单 → 单击直接显示收藏柜；右键弹「退出」菜单
-    tray.on('click', () => showShelfWindow())
-    tray.on('right-click', () => tray?.popUpContextMenu(buildQuitMenu()))
-  } else {
-    // Windows/Linux：左键单击显示收藏柜，右键自动弹出「退出」菜单
-    tray.setContextMenu(buildQuitMenu())
-    tray.on('click', () => showShelfWindow())
+/** 创建托盘。返回是否成功（已存在视为成功）。失败时调用方应改为退出，避免「藏窗口 + 无托盘」把用户困死。 */
+export function initTray(): boolean {
+  if (tray) return true
+  try {
+    const iconPath = trayIconPath()
+    const icon = nativeImage.createFromPath(iconPath)
+    if (icon.isEmpty()) {
+      console.error('[tray] 图标加载为空，路径:', iconPath)
+      return false
+    }
+    const sized = icon.resize({ width: 16, height: 16 })
+    if (process.platform === 'darwin') {
+      // mac 菜单栏模板图：忽略颜色、按 alpha 轮廓着色，自动适配深浅色模式
+      sized.setTemplateImage(true)
+    }
+    tray = new Tray(sized)
+    tray.setToolTip(t('trayTooltip'))
+    if (process.platform === 'darwin') {
+      // macOS：不设常驻菜单 → 单击直接显示收藏柜；右键弹「退出」菜单
+      tray.on('click', () => showShelfWindow())
+      tray.on('right-click', () => tray?.popUpContextMenu(buildQuitMenu()))
+    } else {
+      // Windows/Linux：左键单击显示收藏柜，右键自动弹出「退出」菜单
+      tray.setContextMenu(buildQuitMenu())
+      tray.on('click', () => showShelfWindow())
+    }
+    return true
+  } catch (e) {
+    console.error('[tray] 创建托盘失败:', (e as Error).message)
+    if (tray) { tray.destroy(); tray = null }
+    return false
   }
 }
 

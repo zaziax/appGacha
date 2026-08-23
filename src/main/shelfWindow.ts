@@ -10,6 +10,12 @@ let shelfWindow: BrowserWindow | null = null
 let quitting = false
 export function markQuitting(): void { quitting = true }
 
+// 关闭询问兜底：渲染进程无响应（白屏/崩溃）时，超时自动退出，避免窗口永远关不掉
+let closePromptTimer: ReturnType<typeof setTimeout> | null = null
+function clearClosePromptTimer(): void {
+  if (closePromptTimer) { clearTimeout(closePromptTimer); closePromptTimer = null }
+}
+
 // 收藏柜 UI 加载：Vite dev server（热更新）> 构建产物（React）
 function loadShelfUi(win: BrowserWindow): void {
   const devUrl = process.env.APPGACHA_UI_DEV_URL
@@ -38,7 +44,7 @@ export function createShelfWindow(opts?: { show?: boolean }): BrowserWindow {
       titleBarStyle: 'hidden' as const,
       trafficLightPosition: { x: 14, y: 16 },   // 46px 标题栏垂直居中
     } : {}),
-    show: opts?.show ?? true,
+    show: false,   // 首次绘制就绪后再显示，杜绝冷启动「先白屏、后加载」（见下方 ready-to-show）
     title: t('windowTitle'),
     autoHideMenuBar: true,
     backgroundColor: '#f6f5f2',
@@ -55,25 +61,52 @@ export function createShelfWindow(opts?: { show?: boolean }): BrowserWindow {
     return { action: 'deny' }
   })
 
+  // 首次绘制就绪后再显示；加超时兜底，防止 ready-to-show 因 GPU 异常永不触发、窗口凭空消失
+  const shouldShow = opts?.show ?? true
+  const showFallback = setTimeout(() => {
+    if (shouldShow && shelfWindow && !shelfWindow.isDestroyed() && !shelfWindow.isVisible()) {
+      shelfWindow.show()
+    }
+  }, 3000)
+  shelfWindow.once('ready-to-show', () => {
+    clearTimeout(showFallback)
+    if (shouldShow) shelfWindow?.show()
+  })
+
   // 关闭拦截：未明确过关闭行为时先询问「最小化到托盘 / 直接退出」（Windows 惯例）
   // macOS 上不拦截——用户期望窗口关闭后应用留在 Dock，Cmd+Q 退出
   shelfWindow.on('close', (e) => {
     if (quitting) return
     if (process.platform === 'darwin') return   // macOS 走标准 Dock 行为
-    const s = getAppSettings()
-    if (s.closeActionKnown) {
-      // 已记住选择：常驻则隐藏窗口（保留状态），否则正常关闭走 window-all-closed 退出
-      if (s.minimizeToTray) {
-        e.preventDefault()
-        initTray()   // 保底：托盘必须存在，否则用户找不回窗口
-        shelfWindow?.hide()
-      }
+    const behavior = getAppSettings().closeBehavior
+    if (behavior === 'ask') {
+      // 未明确过关闭行为：询问「缩到托盘 / 直接退出」
+      e.preventDefault()   // 必须同步拦截，询问交给收藏柜 UI 的项目风格弹窗
+      // 兜底：10 秒内没收到用户选择（渲染进程白屏/崩溃、无监听），直接退出，别让窗口卡死
+      clearClosePromptTimer()
+      closePromptTimer = setTimeout(() => {
+        closePromptTimer = null
+        console.warn('[shelf] close prompt unanswered — falling back to quit')
+        markQuitting()
+        app.quit()
+      }, 10_000)
+      shelfWindow?.webContents.send('shelf:closePrompt')
       return
     }
-    e.preventDefault()   // 必须同步拦截，询问交给收藏柜 UI 的项目风格弹窗
-    shelfWindow?.webContents.send('shelf:closePrompt')
+    if (behavior === 'tray') {
+      // 常驻：隐藏窗口（保留状态）。不能依赖 window-all-closed——联机模块的隐藏
+      // WebRTC 宿主窗一直存在，会让「所有窗口已关闭」永不触发，导致直接关闭后进程仍赖在后台。
+      e.preventDefault()
+      // 保底：托盘创建失败就退出，绝不「藏窗口 + 无托盘」把用户困死
+      if (!initTray()) { markQuitting(); app.quit(); return }
+      shelfWindow?.hide()
+      return
+    }
+    // quit：显式退出（同上，不能依赖 window-all-closed）
+    markQuitting()
+    app.quit()
   })
-  shelfWindow.on('closed', () => { shelfWindow = null })
+  shelfWindow.on('closed', () => { shelfWindow = null; clearClosePromptTimer() })
   // 扭蛋空间：登记宿主窗口，蛋视图叠加在本窗口 contentView 上
   attachSpaceHost(shelfWindow)
   loadShelfUi(shelfWindow)
@@ -86,9 +119,11 @@ export function createShelfWindow(opts?: { show?: boolean }): BrowserWindow {
 
 /** 收藏柜 UI 的关闭询问弹窗回传：执行用户选择（remember=true 时写回设置，以后不再询问） */
 export function executeCloseAction(action: 'tray' | 'quit', remember: boolean): void {
-  if (remember) setAppSettings({ minimizeToTray: action === 'tray', closeActionKnown: true })
+  clearClosePromptTimer()
+  if (remember) setAppSettings({ closeBehavior: action === 'tray' ? 'tray' : 'quit' })
   if (action === 'tray') {
-    initTray()   // 保底：托盘必须存在，否则用户找不回窗口
+    // 保底：托盘创建失败就退出，绝不「藏窗口 + 无托盘」把用户困死
+    if (!initTray()) { markQuitting(); app.quit(); return }
     shelfWindow?.hide()
   } else {
     markQuitting()

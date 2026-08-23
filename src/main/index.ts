@@ -27,6 +27,10 @@ import { initAutoUpdater, stopAutoUpdater } from './updater'
 // ── 禁止 Chromium 窗口遮挡检测：失焦/被覆盖时不停合成器，避免 WebGL canvas 白屏 ──
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,IntensiveWakeUpThrottling')
 app.commandLine.appendSwitch('disable-background-timer-throttling')
+// GPU 磁盘缓存落盘失败（Win10 部分机器报「拒绝访问 0x5 / Gpu Cache Creation failed」）：
+// 关掉着色器/程序缓存落盘，WebGL 仍走 GPU，只消除报错与冷启动缓存锁死
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache')
+app.commandLine.appendSwitch('disable-gpu-program-cache')
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'egg', privileges: { standard: true, secure: true, supportFetchAPI: true } }
@@ -55,7 +59,11 @@ if (!isHeadless) {
   if (!app.requestSingleInstanceLock()) {
     app.quit()
   } else {
-    app.on('second-instance', (_e, argv) => { void routeLaunchArgs(argv) })
+    app.on('second-instance', (_e, argv) => {
+      // 已在运行：先唤出收藏柜窗口（关到托盘后双击图标/快捷方式必须能找回来），再路由文件/协议参数
+      showShelfWindow()
+      void routeLaunchArgs(argv)
+    })
     // macOS：双击 .gacha 文件触发 open-file（可能先于 ready，排队等就绪后处理）
     app.on('open-file', (e, filePath) => {
       e.preventDefault()
@@ -214,7 +222,7 @@ app.whenReady().then(async () => {
 
   // P3 生命周期：托盘常驻 + 蛋自启动
   const appSettings = getAppSettings()
-  if (appSettings.minimizeToTray) initTray()
+  if (appSettings.closeBehavior === 'tray') initTray()
 
   // 蛋自启动：扫描所有蛋，用户覆盖 > manifest 出厂默认
   for (const egg of eggs) {
@@ -252,9 +260,8 @@ app.on('render-process-gone', (_event, webContents, details) => {
 app.on('window-all-closed', () => {
   if (isSmoke) return
   if (process.platform === 'darwin') return   // macOS 惯例：关窗后应用驻留 Dock，Cmd+Q 才退出
-  const { minimizeToTray } = getAppSettings()
-  if (!minimizeToTray) app.quit()
-  // minimizeToTray=true 时不做任何事，应用继续在托盘运行
+  if (getAppSettings().closeBehavior !== 'tray') app.quit()
+  // tray 时不做任何事，应用继续在托盘运行
 })
 
 // macOS：点击 Dock 图标恢复收藏柜窗口（应用可能已无窗口）

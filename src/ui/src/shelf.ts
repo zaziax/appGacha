@@ -90,9 +90,12 @@ export interface WindowState { maximized: boolean }
 export interface WishQuestion { text: string; options: string[] }
 export interface WishChatResult { done: boolean; questions: WishQuestion[]; styleNote?: string }
 
+export type CloseBehavior = 'ask' | 'tray' | 'quit'
+
 export interface AppSettings {
   autoStartApp: boolean
-  minimizeToTray: boolean
+  /** 关闭主窗口时的行为：ask=每次询问 / tray=缩到托盘 / quit=直接退出 */
+  closeBehavior: CloseBehavior
   /** 界面音效（默认开） */
   soundEnabled: boolean
   /** 自动检查更新（默认开） */
@@ -191,7 +194,7 @@ export interface ShelfBridge {
   hasProviderKey(providerId: string): Promise<{ hasKey: boolean }>
   clearProviderKey(providerId: string): Promise<{ ok: boolean }>
   getAppSettings(): Promise<AppSettings>
-  setAppSettings(s: { autoStartApp?: boolean; minimizeToTray?: boolean; soundEnabled?: boolean; autoUpdate?: boolean }): Promise<void>
+  setAppSettings(s: { autoStartApp?: boolean; closeBehavior?: CloseBehavior; soundEnabled?: boolean; autoUpdate?: boolean }): Promise<void>
   setLang(lang: 'en' | 'zh'): Promise<void>
   getEggAutoStart(eggId: string): Promise<boolean>
   setEggAutoStart(eggId: string, enabled: boolean): Promise<void>
