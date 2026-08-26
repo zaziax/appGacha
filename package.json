@@ -31,6 +31,7 @@
     "test:all": "npm run test && npm run test:db",
     "pack": "npm run build && node -e \"try{require('fs').rmSync('release',{recursive:true,force:true})}catch(e){}\" && cross-env ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --dir",
     "dist": "npm run build && node -e \"try{require('fs').rmSync('release',{recursive:true,force:true})}catch(e){}\" && cross-env ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder",
+    "dist:mac": "bash scripts/dist-mac.sh",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "electron-rebuild -w better-sqlite3"
   },
@@ -118,6 +119,10 @@
       "icon": "build/icon.icns",
       "category": "public.app-category.utilities",
       "bundleVersion": "0.1.0",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true,
       "protocols": [
         {
           "name": "AppGacha",
