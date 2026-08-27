@@ -7,10 +7,9 @@ on:
 
 jobs:
   build:
-    strategy:
-      matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+    # 仅 Windows：macOS 在另一台 mac 设备上用 scripts/dist-mac.sh 手动签名+公证+发布；
+    # Linux 无发布计划。
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -34,9 +33,6 @@ jobs:
         with:
           files: |
             release/*.exe
-            release/*.dmg
-            release/*.AppImage
-            release/*.deb
             release/*.yml
             release/*.blockmap
         env:
