@@ -42,15 +42,15 @@ AppGacha 完全离线运行。生成、运行、分享扭蛋不需要账号，�
 
 **1 · 许愿** — 一句话说出你想要的。
 
-<video src="https://appgacha.com/step/step1_cn.webm" muted autoplay loop playsinline width="100%"></video>
+![许愿](assets/demo/step1_cn.gif)
 
 **2 · 确认细节** — AI 追问需求、挑风格。
 
-<video src="https://appgacha.com/step/step2_cn.webm" muted autoplay loop playsinline width="100%"></video>
+![确认细节](assets/demo/step2_cn.gif)
 
 **3 · 构建扭蛋** — 机芯生成 + 自动验收。
 
-<video src="https://appgacha.com/step/step3_cn.webm" muted autoplay loop playsinline width="100%"></video>
+![构建扭蛋](assets/demo/step3_cn.gif)
 
 ## 功能特性
 

@@ -42,15 +42,15 @@ From wish to egg, in three steps:
 
 **1 · Wish** — Say what you want in one line.
 
-<video src="https://appgacha.com/step/step1_en.webm" muted autoplay loop playsinline width="100%"></video>
+![Wish](assets/demo/step1_en.gif)
 
 **2 · Confirm** — AI nails down the details.
 
-<video src="https://appgacha.com/step/step2_en.webm" muted autoplay loop playsinline width="100%"></video>
+![Confirm](assets/demo/step2_en.gif)
 
 **3 · Crank** — Built & verified automatically.
 
-<video src="https://appgacha.com/step/step3_en.webm" muted autoplay loop playsinline width="100%"></video>
+![Crank](assets/demo/step3_en.gif)
 
 ## Features
 
