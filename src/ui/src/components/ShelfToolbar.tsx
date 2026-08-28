@@ -26,6 +26,10 @@ interface Props {
   onSort: (s: SortMode) => void
   resultCount: number
   totalCount: number
+  /** 分享码导入（常驻入口） */
+  shareCode: string
+  onShareCodeChange: (code: string) => void
+  onShareImport: () => void
 }
 
 const PERM_META: Record<string, { icon: typeof Sparkles }> = {
@@ -141,6 +145,24 @@ export function ShelfToolbar(p: Props) {
         )}
 
         <div className="flex-1" />
+
+        {/* 分享码导入：常驻入口，收藏柜非空时也能凭码领取 */}
+        <div className="flex items-center gap-1.5">
+          <input
+            value={p.shareCode}
+            onChange={e => p.onShareCodeChange(e.target.value.toUpperCase())}
+            onKeyDown={e => { if (e.key === 'Enter') p.onShareImport() }}
+            placeholder={t('share.inputPh')}
+            className="w-32 px-3 py-1.5 rounded-full bg-[#efe9dc] text-xs text-[#5c4033] placeholder-[#b3a794] outline-none focus:ring-2 ring-[#d8cdb8] transition-shadow font-bold tracking-[0.06em]"
+          />
+          <button
+            onClick={p.onShareImport}
+            className="px-3 py-1.5 rounded-full bg-[#5c4033] text-[#fdfbf7] text-xs font-bold hover:bg-[#4a342a] active:translate-y-0.5 transition-all"
+            title={t('share.import')}
+          >
+            {t('share.import')}
+          </button>
+        </div>
 
         <button
           onClick={() => p.onSort(p.sort === 'newest' ? 'name' : 'newest')}

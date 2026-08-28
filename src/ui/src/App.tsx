@@ -36,6 +36,7 @@ export default function App() {
   const [selectedEgg, setSelectedEgg] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<{ id: string; name: string } | null>(null)
   const [importConflict, setImportConflict] = useState<{ file: string; eggId: string; name: string } | null>(null)
+  const [shareCode, setShareCode] = useState('')
   const { toast, showToast } = useToast()
   const [syncStatuses, setSyncStatuses] = useState<Record<string, SyncStatus>>({})
   const [cloudOnlyEggs, setCloudOnlyEggs] = useState<CloudEggInfo[]>([])
@@ -205,6 +206,23 @@ export default function App() {
       const res = await shelf.import()
       if (res.imported) { showToast(t('app.imported', { name: res.name })); refresh() }
     } catch (err) { showToast((err as Error).message) }
+  }
+
+  // ─── 分享码导入（登录即可） ───
+  const handleShareImport = async () => {
+    const code = shareCode.trim().toUpperCase()
+    if (!code) return
+    try {
+      const res = await shelf.shareImport(code)
+      showToast(t('share.imported', { name: res.name }))
+      setShareCode('')
+      refresh()
+    } catch (err) {
+      const msg = (err as Error).message
+      if (msg === 'SHARE_LOGIN_REQUIRED') { showToast(t('share.needLoginClaim')); shelf.authLogin().catch(() => {}) }
+      else if (msg === 'SHARE_NOT_FOUND') showToast(t('share.notFound'))
+      else showToast(msg)
+    }
   }
 
   // ─── 单蛋云同步 ───
@@ -380,6 +398,9 @@ export default function App() {
                 onSort={setSort}
                 resultCount={filteredEggs.length}
                 totalCount={eggs.length}
+                shareCode={shareCode}
+                onShareCodeChange={setShareCode}
+                onShareImport={handleShareImport}
               />
               <div
                 className="flex-1 overflow-auto shelf-scroll p-6"

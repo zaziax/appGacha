@@ -44,6 +44,13 @@ export interface SyncEggResult {
   error?: string
 }
 
+/** 分享码创建结果 */
+export interface ShareResult {
+  code: string
+  expiresAt: string
+  name: string
+}
+
 export type SyncStatus = 'local' | 'synced' | 'syncing' | 'error'
 
 /**
@@ -173,6 +180,10 @@ export interface ShelfBridge {
   open(eggId: string): Promise<void>
   import(): Promise<{ imported: boolean; name?: string }>
   export(eggId: string, includeData: boolean): Promise<{ exported: boolean; dest?: string }>
+  shareCreate(eggId: string): Promise<ShareResult>
+  shareImport(code: string): Promise<{ name: string; eggId: string }>
+  copyText(text: string): Promise<{ ok: boolean }>
+  saveShareImage(pngDataUrl: string, name: string): Promise<{ saved: boolean; dest?: string }>
   shortcut(eggId: string, iconPngs?: Record<number, string>): Promise<{ created: boolean; path?: string }>
   trash(eggId: string): Promise<void>
   rollback(eggId: string): Promise<{ name: string }>
