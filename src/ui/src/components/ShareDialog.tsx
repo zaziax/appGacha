@@ -12,36 +12,36 @@ interface Props {
   onClose: () => void
 }
 
-/** 分享码弹窗：创建分享码 → 生成宣传截图 → 保存截图 / 复制分享码 */
+/** 分享码弹窗：点击「生成分享码」创建 → 生成宣传截图 → 保存截图 / 复制分享码 */
 export function ShareDialog({ egg, cupColor, contentColor, onToast, onClose }: Props) {
   const { t } = useTranslation()
   const [result, setResult] = useState<ShareResult | null>(null)
   const [image, setImage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [creating, setCreating] = useState(true)
+  const [generating, setGenerating] = useState(false)
 
-  useEffect(() => {
-    let alive = true
-    ;(async () => {
+  // 显式按钮触发，而非打开即自动创建（避免每次打开都新建一个分享码）
+  const handleGenerate = async () => {
+    setGenerating(true)
+    setError(null)
+    setResult(null)
+    setImage(null)
+    try {
+      const r = await shelf.shareCreate(egg.eggId)
+      setResult(r)
       try {
-        const r = await shelf.shareCreate(egg.eggId)
-        if (!alive) return
-        setResult(r)
-        try {
-          const img = await renderShareImage({
-            name: r.name, iconSvg: egg.icon, code: r.code, cupColor, contentColor,
-            codeLabel: t('share.imageCodeLabel'), hint: t('share.imageHint'),
-          })
-          if (alive) setImage(img)
-        } catch { /* 图片合成失败则只显示分享码 */ }
-      } catch (e) {
-        if (alive) setError((e as Error).message)
-      } finally {
-        if (alive) setCreating(false)
-      }
-    })()
-    return () => { alive = false }
-  }, [egg.eggId, egg.icon, cupColor, contentColor])
+        const img = await renderShareImage({
+          name: r.name, iconSvg: egg.icon, code: r.code, cupColor, contentColor,
+          codeLabel: t('share.imageCodeLabel'), hint: t('share.imageHint'),
+        })
+        setImage(img)
+      } catch { /* 图片合成失败则只显示分享码 */ }
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setGenerating(false)
+    }
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -50,7 +50,8 @@ export function ShareDialog({ egg, cupColor, contentColor, onToast, onClose }: P
   }, [onClose])
 
   const errorText = error === 'SHARE_LOGIN_REQUIRED' ? t('share.needLogin')
-    : error === 'SHARE_QUOTA_EXCEEDED' ? t('share.quotaExceeded')
+    : error === 'SHARE_QUOTA_FREE' ? t('share.quotaExceeded')
+    : error === 'SHARE_QUOTA_PRO' ? t('share.quotaExceededPro')
     : (error ?? '')
 
   const copyCode = async () => {
@@ -83,36 +84,7 @@ export function ShareDialog({ egg, cupColor, contentColor, onToast, onClose }: P
           </div>
         </div>
 
-        {creating ? (
-          <div className="flex items-center justify-center gap-2 py-10 text-muted text-[13px] font-semibold">
-            <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.5} />{t('share.creating')}
-          </div>
-        ) : error ? (
-          <div className="mt-5">
-            <p className="text-[13px] font-semibold text-muted leading-relaxed">{errorText}</p>
-            <div className="flex justify-end gap-2 mt-5">
-              {error === 'SHARE_LOGIN_REQUIRED' && (
-                <button onClick={() => { shelf.authLogin().catch(() => {}) }}
-                  className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border-[3px] border-text bg-brand text-white text-[13px] font-extrabold hover:bg-brand-hover active:translate-y-0.5 transition-all"
-                  style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.2)' }}>
-                  <LogIn className="w-4 h-4" strokeWidth={2.5} />{t('share.goLogin')}
-                </button>
-              )}
-              {error === 'SHARE_QUOTA_EXCEEDED' && (
-                <button onClick={() => { shelf.openPricing().catch(() => {}) }}
-                  className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border-[3px] border-text bg-brand text-white text-[13px] font-extrabold hover:bg-brand-hover active:translate-y-0.5 transition-all"
-                  style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.2)' }}>
-                  <Sparkles className="w-4 h-4" strokeWidth={2.5} />{t('share.upgrade')}
-                </button>
-              )}
-              <button onClick={onClose}
-                className="px-3.5 py-2.5 rounded-xl border-[3px] border-text bg-white text-text text-[13px] font-extrabold hover:bg-cream active:translate-y-0.5 transition-all"
-                style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.15)' }}>
-                {t('exportDialog.cancel')}
-              </button>
-            </div>
-          </div>
-        ) : (
+        {result ? (
           <div className="mt-5">
             {image && (
               <img src={image} alt=""
@@ -143,6 +115,48 @@ export function ShareDialog({ egg, cupColor, contentColor, onToast, onClose }: P
                 <Copy className="w-4 h-4" strokeWidth={2.5} />{t('share.copyCode')}
               </button>
             </div>
+          </div>
+        ) : generating ? (
+          <div className="flex items-center justify-center gap-2 py-10 text-muted text-[13px] font-semibold">
+            <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.5} />{t('share.creating')}
+          </div>
+        ) : error ? (
+          <div className="mt-5">
+            <p className="text-[13px] font-semibold text-muted leading-relaxed">{errorText}</p>
+            <div className="flex justify-end gap-2 mt-5">
+              {error === 'SHARE_LOGIN_REQUIRED' && (
+                <button onClick={() => { shelf.authLogin().catch(() => {}) }}
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border-[3px] border-text bg-brand text-white text-[13px] font-extrabold hover:bg-brand-hover active:translate-y-0.5 transition-all"
+                  style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.2)' }}>
+                  <LogIn className="w-4 h-4" strokeWidth={2.5} />{t('share.goLogin')}
+                </button>
+              )}
+              {error === 'SHARE_QUOTA_FREE' && (
+                <button onClick={() => { shelf.openPricing().catch(() => {}) }}
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border-[3px] border-text bg-brand text-white text-[13px] font-extrabold hover:bg-brand-hover active:translate-y-0.5 transition-all"
+                  style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.2)' }}>
+                  <Sparkles className="w-4 h-4" strokeWidth={2.5} />{t('share.upgrade')}
+                </button>
+              )}
+              <button onClick={handleGenerate}
+                className="px-3.5 py-2.5 rounded-xl border-[3px] border-text bg-white text-text text-[13px] font-extrabold hover:bg-cream active:translate-y-0.5 transition-all"
+                style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.15)' }}>
+                {t('share.retry')}
+              </button>
+              <button onClick={onClose}
+                className="px-3.5 py-2.5 rounded-xl border-[3px] border-text bg-white text-text text-[13px] font-extrabold hover:bg-cream active:translate-y-0.5 transition-all"
+                style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.15)' }}>
+                {t('exportDialog.cancel')}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-5">
+            <button onClick={handleGenerate}
+              className="w-full flex items-center justify-center gap-2 px-3 py-3.5 rounded-xl border-[3px] border-text bg-brand hover:bg-brand-hover text-white text-[14px] font-extrabold active:translate-y-0.5 transition-all"
+              style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.2)' }}>
+              <Sparkles className="w-4 h-4" strokeWidth={2.5} />{t('share.generate')}
+            </button>
           </div>
         )}
       </div>

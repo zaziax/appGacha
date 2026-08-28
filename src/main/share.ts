@@ -60,9 +60,13 @@ export async function createShareCode(eggId: string): Promise<ShareResult> {
     })
 
     if (!res.ok) {
-      if (res.status === 403) throw new Error('SHARE_QUOTA_EXCEEDED')
       let detail = ''
       try { const j = await res.json() as { detail?: string }; detail = j?.detail || '' } catch { /* 非 JSON */ }
+      if (res.status === 403) {
+        // 稳定错误码区分免费(引导升级) / Pro(等待过期) 两种上限
+        if (detail === 'SHARE_QUOTA_PRO') throw new Error('SHARE_QUOTA_PRO')
+        throw new Error('SHARE_QUOTA_FREE')
+      }
       throw new Error(detail || `HTTP ${res.status}`)
     }
 
