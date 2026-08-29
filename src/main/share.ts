@@ -45,6 +45,8 @@ export async function createShareCode(eggId: string): Promise<ShareResult> {
       Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: application/octet-stream\r\n\r\n`, 'utf-8'),
       fileBuffer,
       Buffer.from(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="egg_name"\r\n\r\n${egg.manifest.name}`, 'utf-8'),
+      // egg_id 供后端同蛋复用旧码（刷新内容 + 延长有效期），不再重复造码
+      Buffer.from(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="egg_id"\r\n\r\n${egg.eggId}`, 'utf-8'),
     ]
     if (icon) {
       parts.push(Buffer.from(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="icon"\r\n\r\n${icon}`, 'utf-8'))
