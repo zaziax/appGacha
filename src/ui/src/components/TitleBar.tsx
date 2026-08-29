@@ -4,7 +4,6 @@ import { Egg, Sparkles, Minus, Square, X, Copy, LayoutGrid, Settings, User, Pane
 import { useTranslation } from 'react-i18next'
 import { shelf, AuthStatus } from '../shelf'
 import { UserPanel } from './UserPanel'
-import { LoginDialog } from './LoginDialog'
 
 interface Props {
   view: 'machine' | 'shelf' | 'space'
@@ -13,22 +12,20 @@ interface Props {
   gachaStage: string | null
   onImport: () => void
   onSettings: () => void
-  /** 登录弹窗开关变化上报（App 统一处理空间蛋视图避让） */
-  onLoginOpenChange?: (open: boolean) => void
+  /** 请求打开登录弹窗（App 统一持有登录弹窗状态） */
+  onRequestLogin: () => void
   /** 用户面板开关变化上报（App 统一处理空间蛋视图避让） */
   onUserPanelOpenChange?: (open: boolean) => void
 }
 
 const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || '')
 
-export function TitleBar({ view, onViewChange, gachaRunning, gachaStage, onImport, onSettings, onLoginOpenChange, onUserPanelOpenChange }: Props) {
+export function TitleBar({ view, onViewChange, gachaRunning, gachaStage, onImport, onSettings, onRequestLogin, onUserPanelOpenChange }: Props) {
   const { t } = useTranslation()
   const [maximized, setMaximized] = useState(false)
   const [auth, setAuth] = useState<AuthStatus>({ loggedIn: false })
   const [userPanelOpen, setUserPanelOpen] = useState(false)
-  const [loginOpen, setLoginOpen] = useState(false)
 
-  useEffect(() => { onLoginOpenChange?.(loginOpen) }, [loginOpen, onLoginOpenChange])
   useEffect(() => { onUserPanelOpenChange?.(userPanelOpen) }, [userPanelOpen, onUserPanelOpenChange])
 
   useEffect(() => { shelf.isMaximized().then(setMaximized); shelf.onWindowState(s => setMaximized(s.maximized)) }, [])
@@ -38,8 +35,6 @@ export function TitleBar({ view, onViewChange, gachaRunning, gachaStage, onImpor
     shelf.authStatus().then(setAuth).catch(() => {})
     shelf.onAuthChanged((s) => {
       shelf.authStatus().then(setAuth).catch(() => {})
-      // 外部登录完成（Google OAuth deep link 回来）→ 自动关闭登录弹窗
-      if (s.loggedIn) setLoginOpen(false)
     })
   }, [])
 
@@ -47,13 +42,8 @@ export function TitleBar({ view, onViewChange, gachaRunning, gachaStage, onImpor
     if (auth.loggedIn) {
       setUserPanelOpen(v => !v)
     } else {
-      setLoginOpen(true)
+      onRequestLogin()
     }
-  }
-
-  const handleLoginSuccess = () => {
-    setLoginOpen(false)
-    shelf.authStatus().then(setAuth).catch(() => {})
   }
 
   const handleLogout = async () => {
@@ -152,8 +142,6 @@ export function TitleBar({ view, onViewChange, gachaRunning, gachaStage, onImpor
         )}
       </div>
 
-      {/* 登录对话框 */}
-      <LoginDialog open={loginOpen} onClose={() => setLoginOpen(false)} onSuccess={handleLoginSuccess} />
     </div>
   )
 }

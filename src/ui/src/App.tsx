@@ -15,6 +15,7 @@ import { SettingsDialog } from './components/SettingsDialog'
 import { ClosePromptDialog } from './components/ClosePromptDialog'
 import { UpdateDialog } from './components/UpdateDialog'
 import { ConfirmDialog } from './components/ConfirmDialog'
+import { LoginDialog } from './components/LoginDialog'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ShelfToolbar, SortMode } from './components/ShelfToolbar'
 import { Toast, useToast } from './components/Toast'
@@ -70,6 +71,7 @@ export default function App() {
         setAuth(s)
         // 登录后拉取套餐信息，判断是否有云同步权限
         if (s.loggedIn) {
+          setLoginOpen(false)
           shelf.billingSummary().then(b => {
             const enabled = (b.plan?.storage_quota_bytes ?? 0) > 0
             setHasSyncAccess(enabled)
@@ -347,7 +349,7 @@ export default function App() {
         gachaStage={gacha.running ? t('app.gachaRunning') : null}
         onImport={handleImport}
         onSettings={() => setSettingsOpen(true)}
-        onLoginOpenChange={setLoginOpen}
+        onRequestLogin={() => setLoginOpen(true)}
         onUserPanelOpenChange={setUserPanelOpen}
       />
 
@@ -448,6 +450,7 @@ export default function App() {
                           onToast={showToast}
                           onChanged={refresh}
                           onUpgrade={() => handleUpgrade(egg.eggId, egg.name)}
+                          onRequestLogin={() => setLoginOpen(true)}
                           categories={catData.categories}
                           categoryId={catData.assignments[egg.eggId] ?? null}
                           onSetCategory={setEggCategory}
@@ -502,6 +505,7 @@ export default function App() {
       </Canvas>
 
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} onToast={showToast} />}
+      <LoginDialog open={loginOpen} onClose={() => setLoginOpen(false)} onSuccess={() => setLoginOpen(false)} />
       {confirm && (
         <ConfirmDialog
           title={t('app.deleteCategoryTitle', { name: confirm.name })}
@@ -532,7 +536,7 @@ export default function App() {
           title={t('share.needLoginClaimTitle')}
           message={t('share.needLoginClaim')}
           confirmText={t('share.goLogin')}
-          onConfirm={() => { setShareLoginPrompt(false); shelf.authLogin().catch(() => {}) }}
+          onConfirm={() => { setShareLoginPrompt(false); setLoginOpen(true) }}
           onCancel={() => setShareLoginPrompt(false)}
         />
       )}

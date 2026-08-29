@@ -50,6 +50,8 @@ interface Props {
   onToast: (msg: string) => void
   onChanged: () => void
   onUpgrade: () => void
+  /** 请求打开应用内登录框（不跳浏览器） */
+  onRequestLogin: () => void
   /** 全部分类 + 本蛋归属 + 设置回调 */
   categories: EggCategory[]
   categoryId: string | null
@@ -66,7 +68,7 @@ const BTN = 40             // 菜单按钮直径
 /** 弹簧过冲曲线 —— 任天堂味 */
 const springPop = { type: 'spring' as const, stiffness: 380, damping: 18, mass: 0.7 }
 
-export function EggCard({ egg, selected, dimmed, onSelect, onToast, onChanged, onUpgrade, categories, categoryId, onSetCategory, syncStatus, onSyncEgg }: Props) {
+export function EggCard({ egg, selected, dimmed, onSelect, onToast, onChanged, onUpgrade, onRequestLogin, categories, categoryId, onSetCategory, syncStatus, onSyncEgg }: Props) {
   const { t } = useTranslation()
   const [detailOpen, setDetailOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
@@ -461,6 +463,7 @@ export function EggCard({ egg, selected, dimmed, onSelect, onToast, onChanged, o
           contentColor={cc}
           onToast={onToast}
           onClose={() => setShareOpen(false)}
+          onRequestLogin={onRequestLogin}
         />
       )}
     </>

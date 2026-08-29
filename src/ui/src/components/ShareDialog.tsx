@@ -10,10 +10,12 @@ interface Props {
   contentColor: string
   onToast: (msg: string) => void
   onClose: () => void
+  /** 请求打开应用内登录框（不跳浏览器） */
+  onRequestLogin: () => void
 }
 
 /** 分享码弹窗：打开即生成分享码 → 生成宣传截图 → 保存截图 / 复制分享码 */
-export function ShareDialog({ egg, cupColor, contentColor, onToast, onClose }: Props) {
+export function ShareDialog({ egg, cupColor, contentColor, onToast, onClose, onRequestLogin }: Props) {
   const { t } = useTranslation()
   const [result, setResult] = useState<ShareResult | null>(null)
   const [image, setImage] = useState<string | null>(null)
@@ -130,7 +132,7 @@ export function ShareDialog({ egg, cupColor, contentColor, onToast, onClose }: P
             <p className="text-[13px] font-semibold text-muted leading-relaxed">{errorText}</p>
             <div className="flex justify-end gap-2 mt-5">
               {error === 'SHARE_LOGIN_REQUIRED' && (
-                <button onClick={() => { shelf.authLogin().catch(() => {}) }}
+                <button onClick={onRequestLogin}
                   className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border-[3px] border-text bg-brand text-white text-[13px] font-extrabold hover:bg-brand-hover active:translate-y-0.5 transition-all"
                   style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.2)' }}>
                   <LogIn className="w-4 h-4" strokeWidth={2.5} />{t('share.goLogin')}
