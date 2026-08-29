@@ -9,6 +9,7 @@
  */
 
 import { net } from 'electron'
+import { randomUUID } from 'node:crypto'
 import { getAiSettings } from './settings'
 import { getAccessToken } from './auth'
 import { apiFetchRaw } from './api'
@@ -98,7 +99,8 @@ export async function chatCompletionFetch(
   return apiFetchRaw('/proxy/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: opts.modelOverride || endpoint.defaultModel, ...body }),
+    // apiFetchRaw 在 401 refresh 后会复用同一 body；稳定 request_id 让服务端预占保持幂等。
+    body: JSON.stringify({ model: opts.modelOverride || endpoint.defaultModel, ...body, request_id: randomUUID() }),
     ...(opts.signal ? { signal: opts.signal } : {}),
     timeout: opts.timeout ?? 60_000
   })
