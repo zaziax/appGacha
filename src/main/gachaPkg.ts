@@ -58,6 +58,8 @@ function addDir(zipfile: yazl.ZipFile, baseDir: string, rel: string, includeData
       if (!includeData && rel === '' && entry.name === 'data') continue
       addDir(zipfile, baseDir, entryRel, includeData)
     } else if (entry.isFile()) {
+      // 跳过 SQLite 瞬态文件（-shm/-wal），与 copyDir 保持一致：运行时被锁、且无迁移价值
+      if (entry.name.endsWith('-shm') || entry.name.endsWith('-wal')) continue
       zipfile.addFile(path.join(abs, entry.name), entryRel)
     }
   }

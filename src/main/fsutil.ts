@@ -11,6 +11,11 @@ export function copyDir(src: string, dest: string, filter?: (srcPath: string) =>
     const to = path.join(dest, entry.name)
     if (filter && !filter(from)) continue
     if (entry.isDirectory()) copyDir(from, to, filter)
-    else if (entry.isFile()) fs.copyFileSync(from, to)
+    else if (entry.isFile()) {
+      // SQLite WAL 瞬态文件不随蛋目录复制：-shm 是共享内存映射（零数据、重开即重建），
+      // -wal 是预写日志（运行时被连接持有，Windows 下复制会触发文件锁 → UNKNOWN 错误）。
+      if (entry.name.endsWith('-shm') || entry.name.endsWith('-wal')) continue
+      fs.copyFileSync(from, to)
+    }
   }
 }

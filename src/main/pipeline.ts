@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { getEgg, loadManifest, registerEgg } from './eggs'
-import { closeEggWindow } from './eggWindow'
+import { closeEggWindow, closeEggWindowAndWait } from './eggWindow'
 import { getAiSettings } from './settings'
 import { appRoot, dataRoot } from './paths'
 import { copyDir } from './fsutil'
@@ -256,12 +256,14 @@ export async function resumeGacha(
       // 升级续建：迁移试跑 + 换装（与 runUpgrade 相同的后处理）
       const egg = getEgg(cp.realEggId!)
       if (egg) {
+        // 升级续建同样：先关蛋窗口再拷 data，避免 -shm/-wal 文件锁
+        await closeEggWindowAndWait(cp.realEggId!)
         const dataDir = path.join(egg.dir, 'data')
         if (fs.existsSync(dataDir)) {
           onProgress({ stage: 'clack', detail: { key: 'pipe.migrate' } })
           copyDir(dataDir, path.join(stagingDir, 'data'))
           const t = await testEgg(stagingDir)
-          fs.rmSync(path.join(stagingDir, 'data'), { recursive: true, force: true })
+          await safeRm(path.join(stagingDir, 'data'))
           if (!t.ok) {
             const error: IpcText = { key: 'err.migrateFailed', params: { detail:
               (t.error ?? [t.crashed ? '渲染进程崩溃' : '', t.blank ? '页面空白' : '', ...t.consoleErrors].filter(Boolean).join('；')) } }
@@ -347,6 +349,9 @@ export async function runUpgrade(
   logLine('[pipeline] runUpgrade start:', { realEggId: eggId, eggName: egg.manifest.name, tempId, wish: upgradeWish.slice(0, 60), lang })
 
   try {
+    // 升级前先关蛋窗口并等它真正关闭：渲染进程退出 → SQLite 释放 -shm/-wal 句柄，
+    // 否则下面整蛋备份 / data 复制会撞 Windows 文件锁（UNKNOWN: unknown error）。
+    await closeEggWindowAndWait(eggId)
     // ① 投币：整蛋备份（含数据），然后代码入舱（data/ 不进舱，不给智能体碰真实数据）
     onProgress({ stage: 'coin', detail: { key: 'pipe.backup', params: { name: egg.manifest.name } } })
     backupEgg(eggId, egg.dir)
@@ -436,7 +441,7 @@ export async function runUpgrade(
       onProgress({ stage: 'clack', detail: { key: 'pipe.migrate' } })
       copyDir(dataDir, path.join(stagingDir, 'data'))
       const t = await testEgg(stagingDir)
-      fs.rmSync(path.join(stagingDir, 'data'), { recursive: true, force: true })
+      await safeRm(path.join(stagingDir, 'data'))
       if (!t.ok) {
         const error: IpcText = { key: 'err.migrateFailed', params: { detail:
           (t.error ?? [t.crashed ? '渲染进程崩溃' : '', t.blank ? '页面空白' : '', ...t.consoleErrors, ...t.widgetIssues].filter(Boolean).join('；')) } }
@@ -657,6 +662,21 @@ async function safeRename(from: string, to: string): Promise<void> {
         return
       }
       await new Promise(r => setTimeout(r, 800))
+    }
+  }
+}
+
+/** Windows 文件句柄释放有延迟，删除加重试：testEgg 试跑后立即删 data 会撞 EBUSY（unlink egg.db） */
+async function safeRm(target: string): Promise<void> {
+  const TRANSIENT = new Set(['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES'])
+  for (let i = 0; i < 5; i++) {
+    try {
+      fs.rmSync(target, { recursive: true, force: true })
+      return
+    } catch (e) {
+      const code = (e as { code?: string }).code ?? ''
+      if (!TRANSIENT.has(code) || i === 4) throw e
+      await new Promise(r => setTimeout(r, 500 * (i + 1)))
     }
   }
 }

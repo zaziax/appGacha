@@ -50,6 +50,25 @@ export function closeEggWindow(eggId: string): void {
   if (win && !win.isDestroyed()) win.close()
 }
 
+/**
+ * 关闭蛋窗口并等待其真正关闭（渲染进程退出、SQLite 释放 -shm/-wal 句柄）。
+ * 升级前必须先关再拷数据：蛋窗口开着时 better-sqlite3 一直持有 -shm 内存映射，
+ * 复制 data/ 会撞 Windows 文件锁（UNKNOWN: unknown error）。
+ */
+export async function closeEggWindowAndWait(eggId: string): Promise<void> {
+  const win = openWindows.get(eggId)
+  if (!win || win.isDestroyed()) return
+  await new Promise<void>((resolve) => {
+    let settled = false
+    const done = () => { if (!settled) { settled = true; resolve() } }
+    win.once('closed', done)
+    setTimeout(done, 2000) // 兜底：极端情况下 closed 不触发也不永久卡住
+    win.close()
+  })
+  // Windows 句柄释放有延迟：closed 之后再给一点时间，让渲染进程彻底退出、-shm/-wal 句柄释放
+  await new Promise(r => setTimeout(r, 400))
+}
+
 /** 获取当前打开的独立蛋窗口 ID 列表 */
 export function getOpenWindowEggIds(): string[] {
   return [...openWindows.keys()].filter(id => {
