@@ -150,6 +150,8 @@ export function registerEggChannels(): void {
   })
 
   handle('shelf:shareImport', async (code) => {
+    // 未登录先短路（后端 HTTPBearer 无 Authorization 头时返回 403「Not authenticated」，非 401）
+    if (!getAccessToken()) throw new Error('SHARE_LOGIN_REQUIRED')
     return importShareCode(code as string)
   })
 
