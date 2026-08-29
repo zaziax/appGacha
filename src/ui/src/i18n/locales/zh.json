@@ -256,6 +256,7 @@
     "upgrade": "升级",
     "export": "导出",
     "share": "分享",
+    "exportShare": "分享 / 导出",
     "shortcut": "桌面快捷方式",
     "autoStart": "自启动",
     "details": "详情",
@@ -341,19 +342,20 @@
     "tray": "最小化到托盘"
   },
   "exportDialog": {
-    "title": "导出「{{name}}」",
-    "body": "选择要导出的内容",
+    "title": "分享与导出「{{name}}」",
+    "body": "选择导出文件，或生成分享码",
     "withData": "包含数据",
     "withDataHint": "备份完整状态，含蛋内个人数据",
     "appOnly": "仅应用",
     "appOnlyHint": "只导出应用本体，不含个人数据",
+    "shareCode": "生成分享码",
+    "shareCodeHint": "让别人凭码在 AppGacha 领取（仅应用，不带数据）",
     "cancel": "取消"
   },
   "share": {
     "title": "分享「{{name}}」",
     "body": "生成分享码，让别人凭码领走这颗蛋（仅应用，不带数据）",
     "creating": "正在生成分享码…",
-    "generate": "生成分享码",
     "retry": "重试",
     "needLogin": "请先登录后再创建分享",
     "goLogin": "去登录",

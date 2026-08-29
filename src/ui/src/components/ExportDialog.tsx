@@ -1,16 +1,18 @@
 import { useEffect, useRef } from 'react'
-import { Share2, Database, AppWindow } from 'lucide-react'
+import { Share2, Database, AppWindow, Ticket } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 interface Props {
   name: string
   /** 用户选定导出方式：true=包含数据 / false=仅应用 */
   onChoose: (includeData: boolean) => void
+  /** 用户选择生成分享码 */
+  onShare: () => void
   onCancel: () => void
 }
 
-/** 导出询问弹窗（GACHAGO 风格）：选择是否连同蛋内数据一起导出 */
-export function ExportDialog({ name, onChoose, onCancel }: Props) {
+/** 分享与导出询问弹窗（GACHAGO 风格）：导出文件，或生成分享码 */
+export function ExportDialog({ name, onChoose, onShare, onCancel }: Props) {
   const { t } = useTranslation()
   const primaryRef = useRef<HTMLButtonElement>(null)
 
@@ -55,6 +57,15 @@ export function ExportDialog({ name, onChoose, onCancel }: Props) {
             <span className="min-w-0">
               <span className="block text-[13px] font-extrabold">{t('exportDialog.appOnly')}</span>
               <span className="block text-[11px] font-semibold text-muted mt-0.5">{t('exportDialog.appOnlyHint')}</span>
+            </span>
+          </button>
+          <button onClick={onShare}
+            className="flex items-center gap-3 px-4 py-3 rounded-xl border-[3px] border-text bg-white hover:bg-cream text-text text-left active:translate-y-0.5 transition-all"
+            style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.15)' }}>
+            <Ticket className="w-5 h-5 shrink-0 text-brand" strokeWidth={2.5} />
+            <span className="min-w-0">
+              <span className="block text-[13px] font-extrabold">{t('exportDialog.shareCode')}</span>
+              <span className="block text-[11px] font-semibold text-muted mt-0.5">{t('exportDialog.shareCodeHint')}</span>
             </span>
           </button>
         </div>

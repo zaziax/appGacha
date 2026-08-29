@@ -12,15 +12,15 @@ interface Props {
   onClose: () => void
 }
 
-/** 分享码弹窗：点击「生成分享码」创建 → 生成宣传截图 → 保存截图 / 复制分享码 */
+/** 分享码弹窗：打开即生成分享码 → 生成宣传截图 → 保存截图 / 复制分享码 */
 export function ShareDialog({ egg, cupColor, contentColor, onToast, onClose }: Props) {
   const { t } = useTranslation()
   const [result, setResult] = useState<ShareResult | null>(null)
   const [image, setImage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [generating, setGenerating] = useState(false)
+  const [generating, setGenerating] = useState(true)
 
-  // 显式按钮触发，而非打开即自动创建（避免每次打开都新建一个分享码）
+  // 打开即生成：入口「生成分享码」已是显式意图，无需再点一次
   const handleGenerate = async () => {
     setGenerating(true)
     setError(null)
@@ -42,6 +42,11 @@ export function ShareDialog({ egg, cupColor, contentColor, onToast, onClose }: P
       setGenerating(false)
     }
   }
+
+  // 打开即生成（入口「生成分享码」已是显式意图）
+  useEffect(() => {
+    handleGenerate()
+  }, [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -120,7 +125,7 @@ export function ShareDialog({ egg, cupColor, contentColor, onToast, onClose }: P
           <div className="flex items-center justify-center gap-2 py-10 text-muted text-[13px] font-semibold">
             <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.5} />{t('share.creating')}
           </div>
-        ) : error ? (
+        ) : (
           <div className="mt-5">
             <p className="text-[13px] font-semibold text-muted leading-relaxed">{errorText}</p>
             <div className="flex justify-end gap-2 mt-5">
@@ -149,14 +154,6 @@ export function ShareDialog({ egg, cupColor, contentColor, onToast, onClose }: P
                 {t('exportDialog.cancel')}
               </button>
             </div>
-          </div>
-        ) : (
-          <div className="mt-5">
-            <button onClick={handleGenerate}
-              className="w-full flex items-center justify-center gap-2 px-3 py-3.5 rounded-xl border-[3px] border-text bg-brand hover:bg-brand-hover text-white text-[14px] font-extrabold active:translate-y-0.5 transition-all"
-              style={{ boxShadow: '2px 2px 0 rgba(92,64,51,0.2)' }}>
-              <Sparkles className="w-4 h-4" strokeWidth={2.5} />{t('share.generate')}
-            </button>
           </div>
         )}
       </div>

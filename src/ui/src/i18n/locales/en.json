@@ -256,6 +256,7 @@
     "upgrade": "Upgrade",
     "export": "Export",
     "share": "Share",
+    "exportShare": "Share / Export",
     "shortcut": "Desktop shortcut",
     "autoStart": "Auto-launch",
     "details": "Details",
@@ -341,19 +342,20 @@
     "tray": "Minimize to tray"
   },
   "exportDialog": {
-    "title": "Export \"{{name}}\"",
-    "body": "Choose what to include",
+    "title": "Share & Export \"{{name}}\"",
+    "body": "Export a file or generate a share code",
     "withData": "Include data",
     "withDataHint": "Full backup, including the egg's personal data",
     "appOnly": "App only",
     "appOnlyHint": "Just the app itself, no personal data",
+    "shareCode": "Generate share code",
+    "shareCodeHint": "Others claim it in AppGacha by code (app only, no data)",
     "cancel": "Cancel"
   },
   "share": {
     "title": "Share \"{{name}}\"",
     "body": "Generate a share code so others can claim this egg (app only, no data)",
     "creating": "Generating share code…",
-    "generate": "Generate share code",
     "retry": "Retry",
     "needLogin": "Please sign in to create a share",
     "goLogin": "Sign in",

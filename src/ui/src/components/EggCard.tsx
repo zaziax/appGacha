@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { View } from '@react-three/drei'
 import { Canvas } from '@react-three/fiber'
-import { X, Play, ArrowUpCircle, Share2, Power, Info, Trash2, Monitor, PanelLeft, Cloud, CloudCheck, CloudAlert, Loader2, Ticket } from 'lucide-react'
+import { X, Play, ArrowUpCircle, Share2, Power, Info, Trash2, Monitor, PanelLeft, Cloud, CloudCheck, CloudAlert, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { EggInfo, shelf, type EggCategory, type SyncStatus } from '../shelf'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -128,12 +128,8 @@ export function EggCard({ egg, selected, dimmed, onSelect, onToast, onChanged, o
     { icon: <Play className="w-[16px] h-[16px]" strokeWidth={2.8} />, label: t('eggCard.open'), onClick: () => { onSelect(null); openEgg() } },
     { icon: <ArrowUpCircle className="w-[16px] h-[16px]" strokeWidth={2.8} />, label: t('eggCard.upgrade'), onClick: () => { onSelect(null); onUpgrade() } },
     {
-      icon: <Share2 className="w-[16px] h-[16px]" strokeWidth={2.8} />, label: t('eggCard.export'),
+      icon: <Share2 className="w-[16px] h-[16px]" strokeWidth={2.8} />, label: t('eggCard.exportShare'),
       onClick: () => { onSelect(null); setExportOpen(true) }
-    },
-    {
-      icon: <Ticket className="w-[16px] h-[16px]" strokeWidth={2.8} />, label: t('eggCard.share'),
-      onClick: () => { onSelect(null); setShareOpen(true) }
     },
     // 桌面快捷方式仅 Windows 支持（.lnk + .ico），macOS 隐藏入口
     ...(isMac ? [] : [{
@@ -454,6 +450,7 @@ export function EggCard({ egg, selected, dimmed, onSelect, onToast, onChanged, o
             try { const res = await shelf.export(egg.eggId, includeData); if (res.exported) onToast(t('eggCard.exported', { name: egg.name })) }
             catch (err) { onToast((err as Error).message) }
           }}
+          onShare={() => { setExportOpen(false); setShareOpen(true) }}
         />
       )}
 
