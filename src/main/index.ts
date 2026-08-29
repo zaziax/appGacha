@@ -14,8 +14,8 @@ import { runGolden, GOLDEN_CORE, GOLDEN_FULL, goldenFakeDriver } from './golden'
 import { sweepStaging } from './pipeline'
 import * as net from './net/coordinator'
 import { initTray, destroyTray } from './tray'
-import { openEgg, getOpenWindowEggIds } from './eggWindow'
-import { openEggSmart, getSpaceEggIds } from './space'
+import { openEgg, getOpenWindowEggIds, closeEggWindowAndWait } from './eggWindow'
+import { openEggSmart, getSpaceEggIds, closeAllSpaceViews } from './space'
 import { getAppSettings, getAiSettings, getEggAutoStart, isSyncDisabledForEgg } from './settings'
 import { syncEgg } from './sync'
 import { peekGachaManifest } from './gachaPkg'
@@ -296,7 +296,11 @@ body{display:flex;align-items:center;justify-content:center;height:100vh;font-fa
 .text{font-size:13px;color:#5c4033;font-weight:600}
 </style></head><body><div class="card"><div class="spinner"></div><div class="text">正在同步 ${toSync.length} 个扭蛋…</div></div></body></html>`)}`)
 
-    // 最多等 8 秒
+    // 先关闭蛋窗口/空间视图，释放 SQLite/WAL 句柄；随后同步的是一致的落盘快照。
+    await Promise.allSettled(windowIds.map(id => closeEggWindowAndWait(id)))
+    await closeAllSpaceViews()
+
+    // 最多等 8 秒；syncEgg 内部按 eggId 去重，窗口 closed 触发的同步不会重复上传。
     await Promise.race([
       Promise.allSettled(toSync.map(id => syncEgg(id).catch(() => {}))),
       new Promise(r => setTimeout(r, 8_000)),

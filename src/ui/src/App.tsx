@@ -233,14 +233,17 @@ export default function App() {
     setSyncStatuses(prev => ({ ...prev, [eggId]: 'syncing' }))
     try {
       const result = await shelf.syncEgg(eggId)
-      if (result.action === 'downloaded') refresh()
+      if (result.action === 'downloaded' || result.action === 'conflict-copy') refresh()
       const actionText = result.action === 'uploaded' ? t('shelf.syncUploaded')
         : result.action === 'downloaded' ? t('shelf.syncDownloaded')
+        : result.action === 'conflict-copy' ? t('shelf.syncConflictCopy')
         : result.action === 'skipped' ? t('shelf.syncSkipped')
         : result.error ?? result.action
       showToast(t('shelf.syncEggDone', { name: eggs.find(e => e.eggId === eggId)?.name ?? eggId, action: actionText }))
       // 更新云状态：直接切换到终态，refreshSyncStatuses 的 syncing 保护会阻止它覆盖
-      if (result.action !== 'error') {
+      if (result.action === 'conflict-copy') {
+        setSyncStatuses(prev => ({ ...prev, [eggId]: 'local' }))
+      } else if (result.action !== 'error') {
         setSyncStatuses(prev => ({ ...prev, [eggId]: 'synced' }))
       } else {
         setSyncStatuses(prev => ({ ...prev, [eggId]: 'error' }))

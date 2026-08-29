@@ -52,6 +52,8 @@ interface SettingsFile {
   eggAutoStart?: Record<string, boolean>
   /** 逐蛋云同步禁用（eggId → bool）。true = 不同步此蛋 */
   syncDisabled?: Record<string, boolean>
+  /** 逐蛋云同步三方比较基线。只记录宿主状态，不打进蛋内容。 */
+  syncState?: Record<string, EggSyncState>
   /** 用户自定义分类 */
   categories?: { id: string; name: string }[]
   /** 蛋的分类归属（eggId → categoryId），未列出 = 未分类 */
@@ -74,6 +76,12 @@ export interface WidgetPlacement {
   workArea: { x: number; y: number; width: number; height: number }
   scaleFactor: number
   updatedAt: number
+}
+
+export interface EggSyncState {
+  lastSyncedHash: string
+  cloudVersion: number
+  lastSyncedAt: number
 }
 
 function settingsPath(): string {
@@ -261,6 +269,29 @@ export function setSyncDisabledForEgg(eggId: string, disabled: boolean): void {
 /** 查询某蛋是否禁用了云同步 */
 export function isSyncDisabledForEgg(eggId: string): boolean {
   return readFile().syncDisabled?.[eggId] === true
+}
+
+/** 读取某蛋最近一次已确认的本地/云端共同基线。 */
+export function getEggSyncState(eggId: string): EggSyncState | null {
+  const state = readFile().syncState?.[eggId]
+  if (!state || !state.lastSyncedHash || !Number.isInteger(state.cloudVersion) || state.cloudVersion < 1) return null
+  return state
+}
+
+/** 仅在上传、下载或哈希一致确认成功后推进同步基线。 */
+export function setEggSyncState(eggId: string, state: EggSyncState): void {
+  const f = readFile()
+  if (!f.syncState) f.syncState = {}
+  f.syncState[eggId] = state
+  writeFile(f)
+}
+
+/** 云端删除后清理旧基线，下一次同步按新上传处理。 */
+export function clearEggSyncState(eggId: string): void {
+  const f = readFile()
+  if (!f.syncState?.[eggId]) return
+  delete f.syncState[eggId]
+  writeFile(f)
 }
 
 // ─── 用户自定义分类 ───

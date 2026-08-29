@@ -35,12 +35,13 @@ export interface CloudEggInfo {
   icon?: string | null  // SVG 原文（蛋的应用图标）
   version: number
   size_bytes: number | null
+  content_hash?: string | null
   updated_at: string | null
 }
 
 export interface SyncEggResult {
   eggId: string
-  action: 'uploaded' | 'downloaded' | 'skipped' | 'error'
+  action: 'uploaded' | 'downloaded' | 'conflict-copy' | 'skipped' | 'error'
   error?: string
 }
 

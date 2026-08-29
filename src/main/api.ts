@@ -37,6 +37,11 @@ export interface DownloadStreamProgress {
   percent: number
 }
 
+export interface DownloadStreamResult {
+  buffer: Buffer
+  headers: Headers
+}
+
 interface ApiResult<T = unknown> {
   ok: boolean
   status: number
@@ -181,7 +186,7 @@ export async function apiDownloadStream(
   path: string,
   onProgress?: (p: DownloadStreamProgress) => void,
   opts: ApiOptions = {}
-): Promise<Buffer> {
+): Promise<DownloadStreamResult> {
   const res = await apiFetchRaw(path, { ...opts, logoutOnAuthFail: true, timeout: opts.timeout ?? 300_000 })
   if (!res.ok) {
     const text = (await res.text().catch(() => '')).slice(0, 300)
@@ -196,7 +201,7 @@ export async function apiDownloadStream(
     const arrayBuf = await res.arrayBuffer()
     const buf = Buffer.from(arrayBuf)
     onProgress?.({ bytesReceived: buf.length, totalBytes: buf.length, percent: 100 })
-    return buf
+    return { buffer: buf, headers: res.headers }
   }
 
   const reader = body.getReader()
@@ -217,7 +222,7 @@ export async function apiDownloadStream(
     }
   }
 
-  return Buffer.concat(chunks)
+  return { buffer: Buffer.concat(chunks), headers: res.headers }
 }
 
 /**

@@ -11,6 +11,11 @@ export function get(webContentsId: number): EggContext | undefined {
   return byWebContents.get(webContentsId)
 }
 
+/** 同一蛋仍有窗口或空间视图存活时，不允许云端包替换其文件。 */
+export function isEggActive(eggId: string): boolean {
+  return [...byWebContents.values()].some(ctx => ctx.eggId === eggId)
+}
+
 export function unregister(webContentsId: number): void {
   const ctx = byWebContents.get(webContentsId)
   byWebContents.delete(webContentsId)

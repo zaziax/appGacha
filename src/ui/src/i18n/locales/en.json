@@ -303,6 +303,7 @@
     "syncEggDone": "{{name}} — {{action}}",
     "syncUploaded": "uploaded",
     "syncDownloaded": "downloaded",
+    "syncConflictCopy": "both copies changed; the cloud version was preserved as a copy",
     "syncSkipped": "already up to date",
     "syncError": "sync failed",
     "cloudOnly": "In cloud — not downloaded",

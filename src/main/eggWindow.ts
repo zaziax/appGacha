@@ -33,9 +33,6 @@ const clampSize = (v: number | undefined, fallback: number, min: number): number
 
 // 收藏柜点击入口：已开的蛋聚焦，未开的创建
 export function openEgg(egg: EggContext): BrowserWindow {
-  // 后台拉取最新版本（不阻塞窗口打开）
-  syncEgg(egg.eggId).catch(e => console.error('[eggWindow] sync on open failed:', (e as Error).message))
-
   const existing = openWindows.get(egg.eggId)
   if (existing && !existing.isDestroyed()) {
     if (existing.isMinimized()) existing.restore()

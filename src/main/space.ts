@@ -2,7 +2,6 @@ import { BrowserWindow, WebContentsView } from 'electron'
 import path from 'node:path'
 import { EggContext, getEgg } from './eggs'
 import { prepareEggSession, openEgg } from './eggWindow'
-import { syncEgg } from './sync'
 import * as registry from './registry'
 import { getSpaceConfig, setSpaceConfig, SpaceConfig } from './settings'
 import { onEggClosed } from './net/coordinator'
@@ -104,8 +103,6 @@ function createView(egg: EggContext): WebContentsView {
   })
   // R4: 蛋不能创建窗口
   wc.setWindowOpenHandler(() => ({ action: 'deny' }))
-  // 后台同步：拉取最新 + 补推上次未完成的推送
-  syncEgg(egg.eggId).catch(() => {})
   wc.loadURL(`egg://${egg.eggId}/index.html`)
   return view
 }
@@ -186,6 +183,12 @@ export function spaceRemove(eggId: string): SpaceConfig {
   save(cfg)
   applyActive()
   return cfg
+}
+
+/** 退出前销毁全部空间视图，释放 SQLite/WAL 文件句柄后再进行云同步。 */
+export async function closeAllSpaceViews(): Promise<void> {
+  for (const eggId of [...views.keys()]) destroyView(eggId)
+  await new Promise(resolve => setTimeout(resolve, 400))
 }
 
 /**

@@ -303,6 +303,7 @@
     "syncEggDone": "{{name}} — {{action}}",
     "syncUploaded": "已上传",
     "syncDownloaded": "已下载",
+    "syncConflictCopy": "检测到双端修改，云端版本已作为副本保留",
     "syncSkipped": "已是最新",
     "syncError": "同步失败",
     "cloudOnly": "云端未下载",
