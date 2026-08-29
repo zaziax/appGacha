@@ -37,6 +37,7 @@ export default function App() {
   const [confirm, setConfirm] = useState<{ id: string; name: string } | null>(null)
   const [importConflict, setImportConflict] = useState<{ file: string; eggId: string; name: string } | null>(null)
   const [shareCode, setShareCode] = useState('')
+  const [shareLoginPrompt, setShareLoginPrompt] = useState(false)
   const { toast, showToast } = useToast()
   const [syncStatuses, setSyncStatuses] = useState<Record<string, SyncStatus>>({})
   const [cloudOnlyEggs, setCloudOnlyEggs] = useState<CloudEggInfo[]>([])
@@ -219,7 +220,7 @@ export default function App() {
       refresh()
     } catch (err) {
       const msg = (err as Error).message
-      if (msg === 'SHARE_LOGIN_REQUIRED') { showToast(t('share.needLoginClaim')); shelf.authLogin().catch(() => {}) }
+      if (msg === 'SHARE_LOGIN_REQUIRED') setShareLoginPrompt(true)
       else if (msg === 'SHARE_NOT_FOUND') showToast(t('share.notFound'))
       else showToast(msg)
     }
@@ -524,6 +525,15 @@ export default function App() {
             shelf.resolveImportConflict(importConflict.file, importConflict.eggId, 'open')
             setImportConflict(null)
           }}
+        />
+      )}
+      {shareLoginPrompt && (
+        <ConfirmDialog
+          title={t('share.needLoginClaimTitle')}
+          message={t('share.needLoginClaim')}
+          confirmText={t('share.goLogin')}
+          onConfirm={() => { setShareLoginPrompt(false); shelf.authLogin().catch(() => {}) }}
+          onCancel={() => setShareLoginPrompt(false)}
         />
       )}
       {showUpdateDialog && updateStatus.stage === 'downloaded' && (

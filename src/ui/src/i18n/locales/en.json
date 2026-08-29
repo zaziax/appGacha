@@ -372,7 +372,8 @@
     "import": "Claim",
     "imported": "\"{{name}}\" added to shelf!",
     "notFound": "Share code invalid or expired",
-    "needLoginClaim": "Please sign in to claim a share",
+    "needLoginClaim": "Sign in to claim this egg",
+    "needLoginClaimTitle": "Sign in to use the share code",
     "imageCodeLabel": "Share Code",
     "imageHint": "Enter the share code in AppGacha to claim"
   },

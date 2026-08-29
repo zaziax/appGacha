@@ -372,7 +372,8 @@
     "import": "领取",
     "imported": "「{{name}}」已入柜！",
     "notFound": "分享码无效或已过期",
-    "needLoginClaim": "请先登录后再领取分享",
+    "needLoginClaim": "登录后即可领取这颗扭蛋",
+    "needLoginClaimTitle": "登录后即可使用分享码",
     "imageCodeLabel": "分享码",
     "imageHint": "在 AppGacha 输入分享码即可领取"
   },
