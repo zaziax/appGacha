@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Mail, ArrowLeft, Loader2, Lock } from 'lucide-react'
+import { Mail, ArrowLeft, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { shelf } from '../shelf'
 
@@ -171,6 +171,13 @@ export function LoginDialog({ open, onClose, onSuccess }: Props) {
     }
   }
 
+  const dialogTitle = step === 'choose' ? t('login.title')
+    : step === 'email' ? t('login.emailTitle')
+    : step === 'code' ? t('login.codeTitle')
+    : step === 'password' ? t('login.passwordMethod')
+    : step === 'resetPwd' ? t('login.forgotPwd')
+    : t('login.setPwd')
+
   return (
     <AnimatePresence>
       {open && (
@@ -198,7 +205,7 @@ export function LoginDialog({ open, onClose, onSuccess }: Props) {
                 </button>
               )}
               <h2 className="text-[15px] font-extrabold text-[#3d2c1e]">
-                {step === 'choose' ? t('login.title') : step === 'email' ? t('login.emailTitle') : t('login.codeTitle')}
+                {dialogTitle}
               </h2>
             </div>
 
@@ -209,37 +216,28 @@ export function LoginDialog({ open, onClose, onSuccess }: Props) {
 
             {/* Step: Choose */}
             {step === 'choose' && (
-              <div className="space-y-3">
-                <button
-                  onClick={() => setStep('email')}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-[#e8dfd4] hover:border-[#d4c4a8] hover:bg-[#faf6ef] transition-colors text-left"
-                >
-                  <Mail className="w-5 h-5 text-[#8c7b6a]" />
-                  <div>
-                    <p className="text-[13px] font-bold text-[#3d2c1e]">{t('login.emailMethod')}</p>
-                    <p className="text-[11px] text-[#a89c8c]">{t('login.emailDesc')}</p>
-                  </div>
-                </button>
-                <button
-                  onClick={() => setStep('password')}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-[#e8dfd4] hover:border-[#d4c4a8] hover:bg-[#faf6ef] transition-colors text-left"
-                >
-                  <Lock className="w-5 h-5 text-[#8c7b6a]" />
-                  <div>
-                    <p className="text-[13px] font-bold text-[#3d2c1e]">{t('login.passwordMethod')}</p>
-                    <p className="text-[11px] text-[#a89c8c]">{t('login.passwordDesc')}</p>
-                  </div>
-                </button>
+              <div>
                 <button
                   onClick={handleGoogle}
                   disabled={loading}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-[#e8dfd4] hover:border-[#d4c4a8] hover:bg-[#faf6ef] transition-colors text-left disabled:opacity-50"
+                  className="w-full flex items-center justify-center gap-3 px-4 py-3.5 rounded-xl border-2 border-[#d7c9b9] bg-white hover:border-[#bda98f] hover:bg-[#fffaf3] transition-all text-center disabled:opacity-50 shadow-[0_3px_0_rgba(92,64,51,0.12)] active:translate-y-0.5 active:shadow-none"
                 >
-                  <GoogleIcon />
-                  <div>
-                    <p className="text-[13px] font-bold text-[#3d2c1e]">Google</p>
-                    <p className="text-[11px] text-[#a89c8c]">{t('login.googleDesc')}</p>
-                  </div>
+                  {loading ? <Loader2 className="w-5 h-5 animate-spin text-[#8c7b6a]" /> : <GoogleIcon />}
+                  <span className="text-[13px] font-extrabold text-[#3d2c1e]">{t('login.googleMethod')}</span>
+                </button>
+
+                <div className="my-4 flex items-center gap-3" aria-hidden="true">
+                  <span className="h-px flex-1 bg-[#e8dfd4]" />
+                  <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#a89c8c]">{t('login.or')}</span>
+                  <span className="h-px flex-1 bg-[#e8dfd4]" />
+                </div>
+
+                <button
+                  onClick={() => setStep('email')}
+                  className="w-full flex items-center justify-center gap-2.5 px-4 py-3 rounded-xl bg-[#f3ece3] hover:bg-[#ece1d4] transition-colors text-center"
+                >
+                  <Mail className="w-4 h-4 text-[#8c7b6a]" />
+                  <span className="text-[12px] font-bold text-[#5a4636]">{t('login.continueEmail')}</span>
                 </button>
               </div>
             )}
@@ -263,6 +261,10 @@ export function LoginDialog({ open, onClose, onSuccess }: Props) {
                 >
                   {loading && <Loader2 className="w-4 h-4 animate-spin" />}
                   {t('login.sendCode')}
+                </button>
+                <button onClick={() => { setStep('password'); setError('') }}
+                  className="w-full text-center text-xs font-semibold text-[#8c7b6a] hover:text-[#3d2c1e] transition-colors">
+                  {t('login.usePassword')}
                 </button>
               </div>
             )}
@@ -331,6 +333,10 @@ export function LoginDialog({ open, onClose, onSuccess }: Props) {
                   className="w-full text-center text-xs text-[#a89c8c] hover:text-[#8c7b6a] transition-colors"
                 >
                   {t('login.forgotPwd')}
+                </button>
+                <button onClick={() => { setStep('email'); setError(''); setPassword('') }}
+                  className="w-full text-center text-xs font-semibold text-[#8c7b6a] hover:text-[#3d2c1e] transition-colors">
+                  {t('login.useCode')}
                 </button>
               </div>
             )}
