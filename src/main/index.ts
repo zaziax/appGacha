@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import { app, protocol, BrowserWindow, Menu } from 'electron'
 import fs from 'node:fs'
+import path from 'node:path'
 import { discoverEggs, getEgg } from './eggs'
 import { registerCapabilities } from './capabilities'
 import { createShelfWindow, sendToShelf, showShelfWindow, isShelfWindowReady } from './shelfWindow'
@@ -46,6 +47,10 @@ const goldenMode: 'core' | 'full' | 'fake' | null = goldenIdx >= 0
   ? (process.argv[goldenIdx + 1] === 'full' ? 'full' : process.argv[goldenIdx + 1] === 'fake' ? 'fake' : 'core')
   : null
 const isHeadless = isSmoke || !!probeDir || !!goldenMode
+// 发布 CI 的 golden/smoke 使用独立目录，既不读取开发机已有会话，也不与
+// 并行任务争用 Chromium partition/cache。正式运行未设置该变量时行为不变。
+const testUserDataDir = process.env.APPGACHA_TEST_USER_DATA
+if (isHeadless && testUserDataDir) app.setPath('userData', path.resolve(testUserDataDir))
 if (!isHeadless) initLogging()
 
 // ── 单实例：双击 .gacha / appgacha:// 协议唤起转发给首实例 ──

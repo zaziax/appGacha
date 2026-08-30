@@ -197,6 +197,7 @@ contextBridge.exposeInMainWorld('egg', {
   storage: {
     get: (key: string) => invoke('egg:storage:get', key),
     set: (key: string, value: unknown) => invoke('egg:storage:set', key, value),
+    setMany: (entries: Record<string, unknown>) => invoke('egg:storage:setMany', entries),
     delete: (key: string) => invoke('egg:storage:delete', key)
   },
   db: {

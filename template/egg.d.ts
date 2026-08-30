@@ -8,6 +8,8 @@ interface EggStorage {
   get(key: string): Promise<unknown>
   /** 写入键值（任意可 JSON 序列化的值）。权限域: storage */
   set(key: string, value: unknown): Promise<void>
+  /** 原子批量写入多个键；初始化多项数据时优先使用。权限域: storage */
+  setMany(entries: Record<string, unknown>): Promise<void>
   /** 删除键。权限域: storage */
   delete(key: string): Promise<void>
 }

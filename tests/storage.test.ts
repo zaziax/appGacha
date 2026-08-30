@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { set, get, del } from '../src/main/capabilities/storage'
+import { set, setMany, get, del } from '../src/main/capabilities/storage'
 import type { EggContext } from '../src/main/eggs'
 
 // storage 能力三道上限：单值 1MB、总量 10MB、键数 1000。纯 Node（fs+JSON），无需原生模块。
@@ -69,8 +69,24 @@ describe('set guards', () => {
   })
 
   it('rejects too many keys', () => {
-    for (let i = 0; i < 1000; i++) set(ctx, 'k' + i, 1)
+    mkdirSync(join(dir, 'data'), { recursive: true })
+    const existing = Object.fromEntries(Array.from({ length: 1000 }, (_, i) => ['k' + i, 1]))
+    writeFileSync(join(dir, 'data', 'storage.json'), JSON.stringify(existing, null, 2), 'utf-8')
     expect(() => set(ctx, 'k1000', 1)).toThrow(/too many keys/)
+  })
+
+  it('stores many keys atomically with one batch', () => {
+    setMany(ctx, { a: 1, b: { nested: true }, c: 'three' })
+    expect(get(ctx, 'a')).toBe(1)
+    expect(get(ctx, 'b')).toEqual({ nested: true })
+    expect(get(ctx, 'c')).toBe('three')
+  })
+
+  it('does not persist a partially invalid batch', () => {
+    set(ctx, 'existing', 'safe')
+    expect(() => setMany(ctx, { valid: 1, invalid: undefined })).toThrow(/undefined/)
+    expect(get(ctx, 'existing')).toBe('safe')
+    expect(get(ctx, 'valid')).toBeNull()
   })
 })
 

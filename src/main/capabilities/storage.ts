@@ -54,11 +54,24 @@ export function get(ctx: EggContext, key: string): unknown {
 
 export function set(ctx: EggContext, key: string, value: unknown): void {
   assertKey(key)
-  if (value === undefined) throw new Error('storage: value cannot be undefined')
-  const valueBytes = Buffer.byteLength(JSON.stringify(value))
-  if (valueBytes > MAX_VALUE_BYTES) throw new Error(`storage: value exceeds ${MAX_VALUE_BYTES} bytes`)
+  setMany(ctx, { [key]: value })
+}
+
+/** 一次读取、校验并原子写入多个键，避免初始化数据时反复重写完整 JSON。 */
+export function setMany(ctx: EggContext, entries: Record<string, unknown>): void {
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
+    throw new Error('storage: entries must be an object')
+  }
   const data = load(ctx)
-  data[key] = value
+  for (const [key, value] of Object.entries(entries)) {
+    assertKey(key)
+    if (value === undefined) throw new Error('storage: value cannot be undefined')
+    const serialized = JSON.stringify(value)
+    if (serialized === undefined) throw new Error('storage: value must be JSON serializable')
+    const valueBytes = Buffer.byteLength(serialized)
+    if (valueBytes > MAX_VALUE_BYTES) throw new Error(`storage: value exceeds ${MAX_VALUE_BYTES} bytes`)
+    data[key] = value
+  }
   if (Object.keys(data).length > MAX_KEYS) throw new Error(`storage: too many keys (max ${MAX_KEYS})`)
   save(ctx, data) // 总量校验在 save 内，用落盘同款序列化
 }

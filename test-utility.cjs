@@ -7,7 +7,14 @@ const path = require('node:path')
 const fs = require('node:fs')
 const os = require('node:os')
 
+// db.ts 在模块加载时读取超时配置，必须先设置再 require。
+process.env.APPGACHA_DB_TIMEOUT_MS = '1500'
 const db = require('./dist/main/capabilities/db.js') // { exec, query }
+
+// 集成测试不创建可视窗口，不需要 GPU。CI/受限 Windows 会话中 Chromium
+// 反复拉起 GPU 子进程可能直接终止主进程，导致测试结果被环境噪声吞掉。
+app.disableHardwareAcceleration()
+app.commandLine.appendSwitch('disable-gpu')
 
 let passed = 0, failed = 0
 const ok = (n) => { passed++; console.log('  PASS', n) }
@@ -46,7 +53,6 @@ app.whenReady().then(async () => {
   try { fs.rmSync(killDir, { recursive: true, force: true }) } catch {}
 
   // ---- Phase B：db.ts 端到端 ----
-  process.env.APPGACHA_DB_TIMEOUT_MS = '1500'
   const ctx = { dir: fs.mkdtempSync(path.join(os.tmpdir(), 'db-util-')) }
 
   try {

@@ -42,6 +42,7 @@ const MAX_DIALOG_BYTES = 10 * 1024 * 1024
 export function registerCapabilities(): void {
   handle('egg:storage:get', 'storage', (ctx, [key]) => storage.get(ctx, key as string))
   handle('egg:storage:set', 'storage', (ctx, [key, value]) => storage.set(ctx, key as string, value))
+  handle('egg:storage:setMany', 'storage', (ctx, [entries]) => storage.setMany(ctx, entries as Record<string, unknown>))
   handle('egg:storage:delete', 'storage', (ctx, [key]) => storage.del(ctx, key as string))
 
   handle('egg:db:exec', 'db', (ctx, [sql, params]) => db.exec(ctx, sql as string, params as unknown[]))

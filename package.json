@@ -109,16 +109,16 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "shortcutName": "AppGacha",
-      "artifactName": "AppGacha-Setup.exe"
+      "artifactName": "AppGacha-${version}-windows-${arch}-setup.${ext}"
     },
     "mac": {
       "target": [
         "dmg",
         "zip"
       ],
+      "artifactName": "AppGacha-${version}-macos-${arch}.${ext}",
       "icon": "build/icon.icns",
       "category": "public.app-category.utilities",
-      "bundleVersion": "0.1.0",
       "hardenedRuntime": true,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",

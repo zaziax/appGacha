@@ -5,10 +5,16 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  build:
-    # 仅 Windows：macOS 在另一台 mac 设备上用 scripts/dist-mac.sh 手动签名+公证+发布；
-    # Linux 无发布计划。
+  windows:
+    name: Windows / test, sign and install
     runs-on: windows-latest
 
     steps:
@@ -17,23 +23,215 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build & Package
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run dist
+      - name: Build
+        run: npm run build
 
-      # electron-builder 的 GitHub publisher 已自动上传 latest.yml + 安装包到 Release。
-      # 这里再补传一份 artifacts 作为冗余备份。
-      - name: Upload Release Artifacts
-        uses: softprops/action-gh-release@v2
+      - name: Unit tests
+        run: npm test
+
+      - name: Database integration tests
+        run: npm run test:db
+
+      - name: Golden framework test
+        shell: pwsh
+        env:
+          APPGACHA_TEST_USER_DATA: ${{ runner.temp }}/appgacha-golden
+        run: npx electron --disable-gpu --in-process-gpu . --golden fake
+
+      - name: Desktop smoke test
+        shell: pwsh
+        env:
+          APPGACHA_TEST_USER_DATA: ${{ runner.temp }}/appgacha-smoke
+        run: npx electron --disable-gpu --in-process-gpu . --smoke
+
+      - name: Require Windows signing credentials
+        shell: pwsh
+        env:
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          if (-not $env:CSC_LINK) { throw 'WIN_CSC_LINK is required for a release' }
+          if (-not $env:CSC_KEY_PASSWORD) { throw 'WIN_CSC_KEY_PASSWORD is required for a release' }
+
+      - name: Package and sign Windows installer
+        shell: pwsh
+        env:
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: npx electron-builder --win --x64 --publish never
+
+      - name: Verify Authenticode signature
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -LiteralPath release -Filter '*-setup.exe' -File)
+          if ($installers.Count -eq 0) { throw 'No Windows installer was produced' }
+          foreach ($installer in $installers) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
+            if ($signature.Status -ne 'Valid') {
+              throw "Invalid signature on $($installer.Name): $($signature.Status) $($signature.StatusMessage)"
+            }
+          }
+
+      - name: Install and smoke-test packaged app
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -LiteralPath release -Filter '*-setup.exe' -File | Select-Object -First 1
+          $install = Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Installer exited with $($install.ExitCode)" }
+
+          $programs = Join-Path $env:LOCALAPPDATA 'Programs'
+          $app = Get-ChildItem -LiteralPath $programs -Filter 'AppGacha.exe' -File -Recurse |
+            Select-Object -First 1
+          if (-not $app) { throw "Installed AppGacha.exe was not found under $programs" }
+
+          $env:APPGACHA_TEST_USER_DATA = Join-Path $env:RUNNER_TEMP 'appgacha-installed-smoke'
+          $smoke = Start-Process -FilePath $app.FullName -ArgumentList '--disable-gpu', '--in-process-gpu', '--smoke' -Wait -PassThru
+          if ($smoke.ExitCode -ne 0) { throw "Installed app smoke test exited with $($smoke.ExitCode)" }
+
+      - name: Generate Windows checksums
+        shell: pwsh
+        run: |
+          $artifacts = Get-ChildItem -LiteralPath release -File |
+            Where-Object { $_.Extension -in '.exe', '.yml', '.blockmap' } |
+            Sort-Object Name
+          if ($artifacts.Count -eq 0) { throw 'No Windows release artifacts found' }
+          $lines = foreach ($artifact in $artifacts) {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $artifact.FullName).Hash.ToLowerInvariant()
+            "$hash  $($artifact.Name)"
+          }
+          Set-Content -LiteralPath 'release/SHA256SUMS-windows.txt' -Value $lines -Encoding ascii
+
+      - name: Stage Windows artifacts
+        uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: release-windows
+          if-no-files-found: error
+          path: |
             release/*.exe
             release/*.yml
             release/*.blockmap
+            release/SHA256SUMS-windows.txt
+
+  macos:
+    name: macOS / test, sign and notarize
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Database integration tests
+        run: npm run test:db
+
+      - name: Golden framework test
+        env:
+          APPGACHA_TEST_USER_DATA: ${{ runner.temp }}/appgacha-golden
+        run: npx electron --disable-gpu --in-process-gpu . --golden fake
+
+      - name: Desktop smoke test
+        env:
+          APPGACHA_TEST_USER_DATA: ${{ runner.temp }}/appgacha-smoke
+        run: npx electron --disable-gpu --in-process-gpu . --smoke
+
+      - name: Require macOS signing and notarization credentials
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          test -n "$CSC_LINK" || { echo 'MAC_CSC_LINK is required for a release'; exit 1; }
+          test -n "$CSC_KEY_PASSWORD" || { echo 'MAC_CSC_KEY_PASSWORD is required for a release'; exit 1; }
+          test -n "$APPLE_ID" || { echo 'APPLE_ID is required for notarization'; exit 1; }
+          test -n "$APPLE_APP_SPECIFIC_PASSWORD" || { echo 'APPLE_APP_SPECIFIC_PASSWORD is required for notarization'; exit 1; }
+          test -n "$APPLE_TEAM_ID" || { echo 'APPLE_TEAM_ID is required for notarization'; exit 1; }
+
+      - name: Package, sign and notarize macOS apps
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx electron-builder --mac --x64 --arm64 --publish never
+
+      - name: Verify macOS signatures and notarization
+        run: |
+          found=0
+          while IFS= read -r -d '' app_path; do
+            found=1
+            codesign --verify --deep --strict --verbose=2 "$app_path"
+            spctl --assess --type execute --verbose=4 "$app_path"
+          done < <(find release -type d -name 'AppGacha.app' -print0)
+          test "$found" -eq 1 || { echo 'No packaged AppGacha.app was produced'; exit 1; }
+
+          for dmg in release/*.dmg; do
+            xcrun stapler validate "$dmg"
+          done
+
+      - name: Smoke-test packaged macOS app
+        env:
+          APPGACHA_TEST_USER_DATA: ${{ runner.temp }}/appgacha-packaged-smoke
+        run: |
+          app_path=$(find release/mac -type d -name 'AppGacha.app' -print -quit)
+          test -n "$app_path" || { echo 'Native-architecture packaged app was not found'; exit 1; }
+          "$app_path/Contents/MacOS/AppGacha" --disable-gpu --in-process-gpu --smoke
+
+      - name: Generate macOS checksums
+        run: |
+          find release -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.yml' -o -name '*.blockmap' \) \
+            -exec shasum -a 256 {} \; | sed 's#  release/#  #' | sort > release/SHA256SUMS-macos.txt
+          test -s release/SHA256SUMS-macos.txt || { echo 'No macOS release artifacts found'; exit 1; }
+
+      - name: Stage macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          if-no-files-found: error
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.yml
+            release/*.blockmap
+            release/SHA256SUMS-macos.txt
+
+  publish:
+    name: Publish GitHub Release
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download verified artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Publish release only after all gates pass
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
