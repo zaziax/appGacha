@@ -17,7 +17,14 @@
   <img src="https://img.shields.io/badge/TypeScript-5.5-blue?logo=typescript" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Tailwind_CSS-4.3-blue?logo=tailwindcss" alt="Tailwind CSS" />
   <img src="https://img.shields.io/badge/Three.js-0.185-blue?logo=three.js" alt="Three.js" />
+  <a href="https://github.com/zaziax/appGacha/releases/latest"><img src="https://img.shields.io/github/v/release/zaziax/appGacha?label=release" alt="最新版本" /></a>
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
+</p>
+
+<p align="center">
+  <a href="https://appgacha.com/#download"><strong>下载 AppGacha</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/zaziax/appGacha/releases">GitHub Releases</a>
 </p>
 
 ---
@@ -32,9 +39,20 @@ AppGacha（应用扭蛋机）是一款 Electron 桌面应用。你用自然语�
 
 扭蛋隐喻天然设定了"结果有随机性、不满意可以再抽"的心理预期——这是产品决策，承认 AI 生成不完美，但用工程手段不断提高出蛋率。
 
+## 下载
+
+从 [appgacha.com](https://appgacha.com/#download) 或 [GitHub Releases](https://github.com/zaziax/appGacha/releases) 下载最新公开版本。
+
+| 平台 | 支持范围 | 发布方式 |
+|---|---|---|
+| **Windows** | Windows 10/11，x64 | 安装包未签名，Windows SmartScreen 可能显示警告 |
+| **macOS** | Apple 芯片（M1 或更新机型） | Developer ID 签名并通过 Apple 公证 |
+
+不支持 Intel Mac，也暂无 Linux 支持计划。
+
 ## 本地优先
 
-AppGacha 完全离线运行。生成、运行、分享扭蛋不需要账号，也不需要服务器。唯一的网络调用是你自己配置的 AI 模型（自带 OpenAI 兼容 API Key）。登录是可选的——账户后端不属于本开源仓库。
+扭蛋及其数据默认保存在本地。已有扭蛋无需 AppGacha 账户即可在本机运行；主动使用 AI、云服务或局域网联机的能力仍需要对应连接。你既可以自带 OpenAI 兼容接口，也可以按需使用托管 AI、云同步和分享码等账户服务；`.gacha` 文件导入导出始终保留，不被云端锁定。
 
 ## 演示
 
@@ -62,7 +80,9 @@ AppGacha 完全离线运行。生成、运行、分享扭蛋不需要账号，�
 - **Widget 形态** — 透明无边框、桌面置顶悬浮窗。番茄钟、便签、倒计时——真正的桌面存在感
 - **局域网联机** — 蛋与蛋在同一局域网内自动发现，P2P 实时对战/协作/数据共享，无需服务器
 - **系统托盘 + 定时通知** — 蛋可以注册 cron 定时提醒，关闭后依然触发。点击通知直接打开蛋
-- **导入/导出** — `.gacha` 文件（ZIP 格式），双击安装。可导出含数据或不含数据的版本
+- **AI 自由选择** — 使用 AppGacha 托管 AI，或连接自己的 OpenAI 兼容模型服务与 API Key
+- **可选云同步** — 需要跨设备便利时，可以选择将指定扭蛋同步到云端
+- **分享码与可迁移文件** — 通过短期分享码让其他用户领取应用，也可以导出含数据或不含数据的 `.gacha` 文件；文件导入导出无需账户
 
 ### 对开发者
 
@@ -101,7 +121,7 @@ AppGacha 完全离线运行。生成、运行、分享扭蛋不需要账号，�
 
 - **Node.js** ≥ 20
 - **npm** ≥ 10
-- **Windows 10+** 或 **macOS**
+- **Windows 10/11 x64** 或 **Apple 芯片 macOS**
 
 ### 安装运行
 
@@ -133,9 +153,11 @@ npm run golden         # 金标愿望回归（真 AI）
 
 ```powershell
 npm run pack           # 未打包目录构建（Windows）
-npm run dist           # NSIS 安装程序（Windows）
-npm run dist:mac       # DMG + ZIP（macOS）
+npm run dist           # 未签名 NSIS 安装程序（Windows x64）
+npm run dist:mac       # 本地签名 + 公证的 DMG/ZIP（Apple 芯片 macOS）
 ```
+
+`dist:mac` 需要 macOS 钥匙串中已有 Developer ID Application 证书，并在 `.env` 中配置 Apple 公证 API 凭据。命令只在 `release/` 生成本地产物，不会自动上传 GitHub。
 
 ### 国内网络镜像
 
@@ -211,7 +233,7 @@ npm run dist:mac       # DMG + ZIP（macOS）
 
 ### AI 模型通道
 
-生成和蛋内 AI 调用使用用户自配的 OpenAI 兼容接口 API Key（DeepSeek、Kimi、Qwen 等），key 经 Windows DPAPI 加密存储，只留在本机。
+AppGacha 提供两条 AI 通道：通过可选账户服务使用托管 AI，或者自带 API Key 连接 DeepSeek、OpenAI、Kimi、Qwen 等 OpenAI 兼容服务。BYOK 凭据通过 Electron `safeStorage` 在设备上加密（Windows DPAPI / macOS Keychain），不会上传到 AppGacha。
 
 ## 项目结构
 
@@ -224,7 +246,7 @@ appGacha/
 │   │   ├── fcDriver.ts          #   自研 function calling 循环（6 工具 + SSE + 上下文压缩）
 │   │   ├── validate.ts          #   静态验收（schema、禁用 API、emoji、外部 URL、CSP、JS 语法）
 │   │   ├── test.ts              #   运行时测试（离屏 + 截图 + console 收集）
-│   │   ├── aiChannel.ts         #   AI 通道（用户自配 key，DPAPI 加密）
+│   │   ├── aiChannel.ts         #   托管 AI + BYOK 通道（safeStorage 加密凭据）
 │   │   ├── auth.ts              #   Google OAuth + 邮箱验证码 + 密码登录，JWT 管理
 │   │   ├── api.ts               #   统一 HTTP 客户端，自动 token 刷新
 │   │   ├── eggs.ts              #   蛋注册表（发现、注册、移除、加载 manifest）
@@ -389,7 +411,7 @@ appGacha/
 | **M3.5** 许愿升级 | ✅ 完成 | 整蛋备份、增量进化、数据迁移、原子换装、回滚 |
 | **M4** 收藏柜化妆 | ✅ 完成 | 3D 扭蛋机（第四代）、弹簧动画、HSL 色相环、拖拽排序、音效系统、i18n（zh/en，各 344 key） |
 | **M5** 金标愿望集 | ✅ 完成 | 金标愿望回归基准——按应用形态 × 能力域 × 难度三轴抽样的代表性愿望，每条带探针达标线 |
-| **M6** 跨平台 | ✅ 完成 | macOS 支持（无 Linux 计划） |
+| **M6** 跨平台 | ✅ 完成 | Windows x64 + Apple 芯片 macOS（无 Intel Mac 或 Linux 计划） |
 
 ## 文档
 

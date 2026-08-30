@@ -17,7 +17,14 @@
   <img src="https://img.shields.io/badge/TypeScript-5.5-blue?logo=typescript" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Tailwind_CSS-4.3-blue?logo=tailwindcss" alt="Tailwind CSS" />
   <img src="https://img.shields.io/badge/Three.js-0.185-blue?logo=three.js" alt="Three.js" />
+  <a href="https://github.com/zaziax/appGacha/releases/latest"><img src="https://img.shields.io/github/v/release/zaziax/appGacha?label=release" alt="Latest release" /></a>
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
+</p>
+
+<p align="center">
+  <a href="https://appgacha.com/#download"><strong>Download AppGacha</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/zaziax/appGacha/releases">GitHub Releases</a>
 </p>
 
 ---
@@ -32,9 +39,20 @@ AppGacha is a desktop app that turns natural language wishes into real, runnable
 
 The gacha metaphor sets the right expectation: results have an element of randomness, and if you're not happy with what you get, you can always spin again. It's a product decision that acknowledges AI generation isn't perfect — and that's okay.
 
+## Download
+
+Download the latest public build from [appgacha.com](https://appgacha.com/#download) or [GitHub Releases](https://github.com/zaziax/appGacha/releases).
+
+| Platform | Support | Distribution |
+|---|---|---|
+| **Windows** | Windows 10/11, x64 | Unsigned installer; Windows SmartScreen may show a warning |
+| **macOS** | Apple silicon (M1 or newer) | Developer ID signed and Apple-notarized |
+
+Intel Macs and Linux are not supported.
+
 ## Local-first
 
-AppGacha runs entirely offline. Generating, running, and sharing eggs needs no account and no server. The only network call is to the AI model you configure (your own OpenAI-compatible API key). Login is optional — the account backend is not part of this open-source repo.
+Eggs and their data are stored locally by default. Existing eggs run locally without an AppGacha account; capabilities that intentionally use AI, cloud services, or LAN peers still need the corresponding connection. You can connect your own OpenAI-compatible API provider, while managed AI, cloud sync, and share codes are optional account-backed services. Portable `.gacha` file import and export remain available without cloud lock-in.
 
 ## Demo
 
@@ -62,7 +80,9 @@ From wish to egg, in three steps:
 - **Widget Mode** — Transparent, frameless, always-on-top desktop widgets. Pomodoro timers, sticky notes, countdowns — real desktop presence.
 - **LAN Multiplayer** — Eggs auto-discover each other on the local network. Real-time P2P battles, collaboration, data sharing — no server needed.
 - **System Tray & Notifications** — Eggs can schedule reminders via cron. Notifications survive app restart. Click a notification to open the egg.
-- **Import / Export** — `.gacha` files (ZIP) for sharing. Double-click to install. Export with or without data.
+- **AI Choice** — Use AppGacha managed AI or connect your own OpenAI-compatible provider and API key.
+- **Optional Cloud Sync** — Keep selected eggs available across devices when cloud convenience is useful.
+- **Share Codes & Portable Export** — Share an app through a short-lived claim code, or export a `.gacha` file with or without its data. File import/export requires no account.
 
 ### For Developers
 
@@ -101,7 +121,7 @@ From wish to egg, in three steps:
 
 - **Node.js** ≥ 20
 - **npm** ≥ 10
-- **Windows 10+** or **macOS**
+- **Windows 10/11 x64** or **macOS on Apple silicon**
 
 ### Install & Run
 
@@ -133,9 +153,11 @@ npm run golden         # Golden wish regression (real AI)
 
 ```powershell
 npm run pack           # Unpacked build (Windows)
-npm run dist           # NSIS installer (Windows)
-npm run dist:mac       # DMG + ZIP (macOS)
+npm run dist           # Unsigned NSIS installer (Windows x64)
+npm run dist:mac       # Local signed + notarized DMG/ZIP (macOS Apple silicon)
 ```
+
+`dist:mac` requires a Developer ID Application certificate in the macOS Keychain and the Apple notarization API credentials configured in `.env`. It creates local artifacts in `release/` and does not upload them to GitHub automatically.
 
 ### China Mirror Setup
 
@@ -213,7 +235,7 @@ Wish (natural language)
 
 ### AI Model Path
 
-Egg generation and egg AI calls use the user's own OpenAI-compatible API key (DeepSeek, Kimi, Qwen, etc.). The key is encrypted via Windows DPAPI (`safeStorage`) and stays on the device.
+AppGacha offers two AI paths: managed AI through the optional account service, or bring-your-own-key access to OpenAI-compatible providers such as DeepSeek, OpenAI, Kimi, and Qwen. BYOK credentials are encrypted on-device with Electron `safeStorage` (Windows DPAPI / macOS Keychain) and are not uploaded to AppGacha.
 
 ## Project Structure
 
@@ -226,7 +248,7 @@ appGacha/
 │   │   ├── fcDriver.ts          #   Custom function-calling loop (6 tools, SSE, context compaction)
 │   │   ├── validate.ts          #   Static egg validation (schema, forbidden APIs, emoji, CSP)
 │   │   ├── test.ts              #   Runtime egg testing (headless + screenshot + console)
-│   │   ├── aiChannel.ts         #   AI channel: user's own API key (encrypted via DPAPI)
+│   │   ├── aiChannel.ts         #   Managed AI + BYOK channel (safeStorage-encrypted credentials)
 │   │   ├── auth.ts              #   Google OAuth + email code + password login, JWT mgmt
 │   │   ├── api.ts               #   Unified HTTP client with auto token refresh
 │   │   ├── eggs.ts              #   Egg registry (discover, register, remove, loadManifest)
@@ -391,7 +413,7 @@ Additionally, eggs pinned to the **GachaSpace** are rendered as embedded `WebCon
 | **M3.5** Wish Upgrade | ✅ Done | Full backup, incremental evolution, data migration, atomic swap, rollback |
 | **M4** Shelf Polish | ✅ Done | 3D gacha machine (4th-gen), spring animations, HSL color picker, drag-drop space, sound effects, i18n (zh/en, 344 keys each) |
 | **M5** Golden Wishes | ✅ Done | Golden wish regression benchmark — representative wishes across app shape × capability domain × difficulty, with per-wish probes |
-| **M6** Cross-platform | ✅ Done | macOS support (no Linux planned) |
+| **M6** Cross-platform | ✅ Done | Windows x64 + macOS Apple silicon (no Intel Mac or Linux plan) |
 
 ## Documentation
 
