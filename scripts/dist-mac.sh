@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# macOS 打包 + 签名 + 公证 + 发布到 GitHub Release。用法：npm run dist:mac
-# 凭证从 .env 读（APPLE_API_KEY / APPLE_API_ISSUER / APPLE_API_KEY_ID 用于公证；GH_TOKEN 用于发布），.env 已被 gitignore
+# macOS 本地打包 + 签名 + 公证。用法：npm run dist:mac
+# 公证凭证从 .env 读（APPLE_API_KEY / APPLE_API_ISSUER / APPLE_API_KEY_ID），.env 已被 gitignore
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -18,7 +18,6 @@ export ELECTRON_BUILDER_BINARIES_MIRROR="${ELECTRON_BUILDER_BINARIES_MIRROR:-htt
 : "${APPLE_API_KEY:?请在 .env 配置 APPLE_API_KEY=.p8 文件路径}"
 : "${APPLE_API_ISSUER:?请在 .env 配置 APPLE_API_ISSUER=Issuer ID}"
 : "${APPLE_API_KEY_ID:?请在 .env 配置 APPLE_API_KEY_ID=Key ID}"
-: "${GH_TOKEN:?请在 .env 配置 GH_TOKEN=GitHub PAT（需要 repo 权限，用于发布到 Release）}"
 
 echo "==> 清理 release/"
 rm -rf release
@@ -26,9 +25,9 @@ rm -rf release
 echo "==> 构建（tsc + vite）"
 npm run build
 
-echo "==> 打包 + 签名 + 公证 + 发布（mac）"
-npx electron-builder --mac --publish always
+echo "==> 打包 + 签名 + 公证（mac，仅生成本地产物）"
+npx electron-builder --mac --publish never
 
-echo "==> 完成，dmg/zip/latest-mac.yml 已发布到 GitHub Release，产物备份在 release/"
+echo "==> 完成，dmg/zip/latest-mac.yml 位于 release/，未自动上传 GitHub Release"
 echo "    验证签名: codesign --verify --deep --strict --verbose=2 release/mac-arm64/AppGacha.app"
 echo "    验证公证: spctl --assess --type execute --verbose=4 release/mac-arm64/AppGacha.app"
