@@ -27,6 +27,10 @@
   <a href="https://github.com/zaziax/appGacha/releases">GitHub Releases</a>
 </p>
 
+<p align="center">
+  <img src="assets/readme/01-wish-for-an-app.png" alt="说出需要，使用 AppGacha 获得属于自己的桌面应用" width="100%" />
+</p>
+
 ---
 
 ## 这是什么？
@@ -53,6 +57,23 @@ AppGacha（应用扭蛋机）是一款 Electron 桌面应用。你用自然语�
 ## 本地优先
 
 扭蛋及其数据默认保存在本地。已有扭蛋无需 AppGacha 账户即可在本机运行；主动使用 AI、云服务或局域网联机的能力仍需要对应连接。你既可以自带 OpenAI 兼容接口，也可以按需使用托管 AI、云同步和分享码等账户服务；`.gacha` 文件导入导出始终保留，不被云端锁定。
+
+## 产品概览
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/readme/02-one-sentence-to-app.png" alt="从一句话到可以运行的桌面应用" /></td>
+    <td width="50%"><img src="assets/readme/03-desktop-widgets.png" alt="无边框、可置顶并记忆位置的桌面悬浮组件" /></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/readme/04-your-gacha-space.png" alt="把个人应用编排成自己的扭蛋空间工作台" /></td>
+    <td width="50%"><img src="assets/readme/05-any-kind-of-app.png" alt="生成的应用具备本地数据、通知、AI、文件与定时能力" /></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="assets/readme/06-your-apps-stay-yours.png" alt="本地优先、可迁移、代码可查看并支持自带 AI Key" width="100%" />
+</p>
 
 ## 演示
 

@@ -27,6 +27,10 @@
   <a href="https://github.com/zaziax/appGacha/releases">GitHub Releases</a>
 </p>
 
+<p align="center">
+  <img src="assets/readme/01-wish-for-an-app.png" alt="Say what you need and get your own desktop app with AppGacha" width="100%" />
+</p>
+
 ---
 
 ## What is this?
@@ -53,6 +57,23 @@ Intel Macs and Linux are not supported.
 ## Local-first
 
 Eggs and their data are stored locally by default. Existing eggs run locally without an AppGacha account; capabilities that intentionally use AI, cloud services, or LAN peers still need the corresponding connection. You can connect your own OpenAI-compatible API provider, while managed AI, cloud sync, and share codes are optional account-backed services. Portable `.gacha` file import and export remain available without cloud lock-in.
+
+## Product tour
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/readme/02-one-sentence-to-app.png" alt="From one sentence to a working desktop app" /></td>
+    <td width="50%"><img src="assets/readme/03-desktop-widgets.png" alt="Frameless, always-on-top desktop widgets with position memory" /></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/readme/04-your-gacha-space.png" alt="Arrange personal apps into a custom Gacha Space workspace" /></td>
+    <td width="50%"><img src="assets/readme/05-any-kind-of-app.png" alt="Generated apps include local data, notifications, AI, files and schedules" /></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="assets/readme/06-your-apps-stay-yours.png" alt="Local-first apps with portable files, inspectable code and bring-your-own-key AI" width="100%" />
+</p>
 
 ## Demo
 
