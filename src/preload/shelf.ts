@@ -125,10 +125,22 @@ contextBridge.exposeInMainWorld('shelf', {
     ipcRenderer.on('win:stateChanged', (_e, s) => cb(s))
   },
   // ─── 自动更新 ───
+  productInfo: () => invoke('shelf:productInfo'),
+  acknowledgeVersion: () => invoke('shelf:acknowledgeVersion'),
+  setTelemetryEnabled: (enabled: boolean) => invoke('shelf:setTelemetryEnabled', enabled),
+  acknowledgeTelemetryNotice: () => invoke('shelf:acknowledgeTelemetryNotice'),
+  openPrivacy: () => invoke('shelf:openPrivacy'),
+  onShelfShown: (cb: () => void) => {
+    const listener = () => cb()
+    ipcRenderer.on('shelf:shown', listener)
+    return () => { ipcRenderer.removeListener('shelf:shown', listener) }
+  },
   checkUpdate: () => invoke('shelf:checkUpdate'),
   getUpdateStatus: () => invoke('shelf:getUpdateStatus'),
   installUpdate: () => invoke('shelf:installUpdate'),
   onUpdateStateChanged: (cb: (s: unknown) => void) => {
-    ipcRenderer.on('update:stateChanged', (_e, s) => cb(s))
+    const listener = (_e: Electron.IpcRendererEvent, s: unknown) => cb(s)
+    ipcRenderer.on('update:stateChanged', listener)
+    return () => { ipcRenderer.removeListener('update:stateChanged', listener) }
   }
 })

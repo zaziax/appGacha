@@ -8,6 +8,8 @@ import { attachControls } from './widgetControls'
 import { onEggClosed } from './net/coordinator'
 import { syncEgg } from './sync'
 import { bindWidgetPlacement, resolveWidgetPosition } from './widgetPlacement'
+import { loadEggWindowIcon } from './eggIcon'
+import { trackEggOpen } from './telemetry'
 
 const preparedPartitions = new Set<string>()
 const openWindows = new Map<string, BrowserWindow>()
@@ -37,6 +39,7 @@ export function openEgg(egg: EggContext): BrowserWindow {
   if (existing && !existing.isDestroyed()) {
     if (existing.isMinimized()) existing.restore()
     existing.focus()
+    trackEggOpen(egg.eggId)
     return existing
   }
   return createEggWindow(egg)
@@ -121,6 +124,12 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
     }
   })
 
+  if (process.platform !== 'darwin') {
+    void loadEggWindowIcon(egg.dir).then(icon => {
+      if (icon && !icon.isEmpty() && !win.isDestroyed()) win.setIcon(icon)
+    })
+  }
+
   // R2: 窗口创建时登记 webContents → 蛋，权限检查只认这张表
   const wcId = win.webContents.id
   registry.register(wcId, egg)
@@ -147,6 +156,7 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
   bindWindowStateEvents(win.webContents.id)
 
   win.loadURL(`egg://${egg.eggId}/index.html`)
+  if (opts?.show !== false) win.webContents.once('did-finish-load', () => trackEggOpen(egg.eggId))
 
   // Windows 已知 bug（electron#47440）：frame:false 透明窗失焦时 DWM 会补画矩形”幽灵标题栏”（显示窗口名）。
   // 多层加固：① 标题置空（无内容可显示）② backgroundColor 初始化显式透明

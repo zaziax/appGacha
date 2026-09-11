@@ -124,6 +124,9 @@ export interface UpdateStatus {
   version?: string
   percent?: number
   error?: string
+  checked?: boolean
+  releaseNotes?: string
+  releaseDate?: string
 }
 
 export interface AuthStatus {
@@ -276,7 +279,13 @@ export interface ShelfBridge {
   checkUpdate(): Promise<void>
   getUpdateStatus(): Promise<UpdateStatus>
   installUpdate(): Promise<void>
-  onUpdateStateChanged(cb: (s: UpdateStatus) => void): void
+  onUpdateStateChanged(cb: (s: UpdateStatus) => void): () => void
+  productInfo(): Promise<{ version: string; visible: boolean; seen: boolean; telemetryEnabled: boolean; metricsNoticeSeen: boolean; effective: string }>
+  acknowledgeVersion(): Promise<void>
+  setTelemetryEnabled(enabled: boolean): Promise<void>
+  acknowledgeTelemetryNotice(): Promise<void>
+  onShelfShown(cb: () => void): () => void
+  openPrivacy(): Promise<void>
 }
 
 declare global {

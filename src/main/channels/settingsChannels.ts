@@ -5,6 +5,7 @@ import { getEgg } from '../eggs'
 import { apiFetchRaw } from '../api'
 import { makeError, ErrorCode } from '../../shared/types'
 import { handle } from './ipc'
+import { track, aiMode } from '../telemetry'
 
 export function registerSettingsChannels(): void {
   handle('shelf:getAiSettings', () => getAiSettingsMasked())
@@ -15,6 +16,7 @@ export function registerSettingsChannels(): void {
     // AppGacha 平台通道：无需 baseURL/model/Key，选中即保存
     if (pid === 'appgacha') {
       setAiSettings({ baseURL: '', model: '', apiKey: '', providerId: 'appgacha' })
+      track('ai_configured', { mode: aiMode() }, true)
       return
     }
     if (!v?.baseURL?.trim() || !v?.model?.trim()) throw new Error('baseURL 和 model 不能为空')
@@ -23,6 +25,7 @@ export function registerSettingsChannels(): void {
     const apiKey = v.apiKey?.trim() || getProviderKey(pid) || (current?.providerId === pid ? current.apiKey : '') || ''
     if (!apiKey && !v.noKey) throw new Error('API Key 不能为空')
     setAiSettings({ baseURL: v.baseURL, model: v.model, apiKey, providerId: pid, contextTokens: v.contextTokens })
+    track('ai_configured', { mode: aiMode() }, true)
   })
 
   /** 验证 Key + 拉取平台真实模型列表（GET /models，免费无推理） */

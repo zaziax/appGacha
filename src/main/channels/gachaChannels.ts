@@ -8,6 +8,7 @@ import { runGacha, runUpgrade, resumeGacha, isGachaBusy, cancelGacha, listCheckp
 import { allEggs, getEgg } from '../eggs'
 import type { IpcText } from '../fcDriver'
 import { handle } from './ipc'
+import { track, trackBuildSuccess, aiMode, type MetricFields } from '../telemetry'
 
 interface WishQuestion { text: string; options: string[] }
 interface WishChatResult { done: boolean; questions: WishQuestion[]; styleNote?: string }
@@ -171,10 +172,13 @@ async function getCreditBalance(): Promise<number | null> {
 
 // 扭蛋/升级共用的收尾：done 事件带 upgraded 标记（系统通知由渲染端发，那边才知道 UI 语言）
 // 同时对比前后余额：走平台通道时构建完成后推 billing:settled，让渲染端提示“本次消耗”
-function launchGacha(run: Promise<{ ok: boolean; name?: string; error?: IpcText }>, upgraded: boolean): void {
+function launchGacha(run: Promise<{ ok: boolean; eggId?: string; name?: string; error?: IpcText }>, upgraded: boolean, operation: MetricFields['operation'] = upgraded ? 'upgrade' : 'create'): void {
+  const startedAt = Date.now()
+  const mode = aiMode()
+  track('build_started', { mode, operation })
   void (async () => {
     const before = await getCreditBalance()
-    let result: { ok: boolean; name?: string; error?: IpcText }
+    let result: { ok: boolean; eggId?: string; name?: string; error?: IpcText }
     try {
       result = await run
     } catch (e) {
@@ -183,6 +187,12 @@ function launchGacha(run: Promise<{ ok: boolean; name?: string; error?: IpcText 
       logLine('[gacha] unexpected error', result.error)
     }
     logLine('[gacha] done', result)
+    const elapsed = Date.now() - startedAt
+    const duration = elapsed < 60000 ? 'under_1m' : elapsed < 300000 ? '1_5m' : elapsed < 900000 ? '5_15m' : 'over_15m'
+    const key = typeof result.error === 'object' ? result.error?.key : ''
+    const error = key === 'err.cancelled' ? 'cancelled' : key === 'err.checkpointed' ? 'interrupted' : key === 'err.migrateFailed' ? 'migration' : 'other'
+    track(result.ok ? 'build_succeeded' : 'build_failed', { mode, operation, duration, ...(result.ok ? {} : { error }) })
+    if (result.ok) trackBuildSuccess(result.eggId)
     sendToShelf('gacha:done', { ...result, upgraded })
     // 构建成功且有扣费时通知渲染端（自带 Key 时余额不变，不会发）
     if (result.ok && before !== null) {
@@ -248,7 +258,7 @@ export function registerGachaChannels(): void {
     if (isGachaBusy()) throw new Error(makeError(ErrorCode.BUSY, '机芯正忙，请等上一颗蛋出来'))
     const cp = listCheckpoints().find(c => c.eggId === eggId)
     if (!cp) throw new Error('checkpoint not found')
-    launchGacha(resumeGacha(eggId as string, reportProgress), cp.realEggId ? true : false)
+    launchGacha(resumeGacha(eggId as string, reportProgress), cp.realEggId ? true : false, 'resume')
     return { started: true }
   })
 

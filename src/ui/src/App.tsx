@@ -14,6 +14,7 @@ import { CloudEggCard } from './components/CloudEggCard'
 import { SettingsDialog } from './components/SettingsDialog'
 import { ClosePromptDialog } from './components/ClosePromptDialog'
 import { UpdateDialog } from './components/UpdateDialog'
+import { UsageStatisticsNotice, WhatsNew } from './components/ProductInfo'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { LoginDialog } from './components/LoginDialog'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -190,7 +191,7 @@ export default function App() {
   // ─── 更新状态监听 ───
   useEffect(() => {
     shelf.getUpdateStatus().then(setUpdateStatus).catch((err) => { console.error('[App] getUpdateStatus failed:', (err as Error).message) })
-    shelf.onUpdateStateChanged(s => {
+    return shelf.onUpdateStateChanged(s => {
       setUpdateStatus(s as UpdateStatus)
       if ((s as UpdateStatus).stage === 'downloaded') setShowUpdateDialog(true)
     })
@@ -543,10 +544,14 @@ export default function App() {
           onCancel={() => setShareLoginPrompt(false)}
         />
       )}
+      <WhatsNew />
+      <UsageStatisticsNotice />
       {showUpdateDialog && updateStatus.stage === 'downloaded' && (
         <UpdateDialog
           version={updateStatus.version ?? ''}
-          onInstall={() => { shelf.installUpdate(); setShowUpdateDialog(false) }}
+          notes={updateStatus.releaseNotes}
+          busy={gacha.running}
+          onInstall={() => { void shelf.installUpdate().then(() => setShowUpdateDialog(false)).catch(error => showToast(String(error.message || error))) }}
           onDismiss={() => setShowUpdateDialog(false)}
         />
       )}

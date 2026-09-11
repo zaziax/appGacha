@@ -17,6 +17,7 @@ import { sfx, setSoundEnabled } from '../sound'
 import { getLangPref, setLangPref, type LangPref } from '../i18n'
 import { providerIcon } from '../config/providerIcons'
 import providersData from '../../../shared/ai-providers.json'
+import { ProductInfoPanel, ReleaseNotes } from './ProductInfo'
 
 interface ProviderModel { id: string; context: number }
 interface Provider {
@@ -98,7 +99,6 @@ export function SettingsDialog({ onClose, onToast }: Props) {
   useEffect(() => {
     shelf.getAiSettings().then(s => {
       if (!s) return
-      setSection('ai')
       if (s.providerId === managedProvider.id) {
         setMode('managed')
         return
@@ -127,9 +127,9 @@ export function SettingsDialog({ onClose, onToast }: Props) {
     }).catch(() => {})
     shelf.authStatus().then(s => setLoggedUser(s.loggedIn ? (s.user?.name || s.user?.email || '') : null)).catch(() => {})
     shelf.getUpdateStatus().then(setUpdateStatus).catch(() => {})
-    shelf.onUpdateStateChanged(s => {
+    return shelf.onUpdateStateChanged(s => {
       setUpdateStatus(s as UpdateStatus)
-      setCheckingUpdate(false)
+      setCheckingUpdate(s.stage === 'checking')
     })
   }, [])
 
@@ -295,6 +295,7 @@ export function SettingsDialog({ onClose, onToast }: Props) {
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="shelf-scroll flex-1 overflow-y-auto px-6 py-5">
               {section === 'general' ? (
+                <>
                 <GeneralPanel
                   autoStartApp={autoStartApp} setAutoStartApp={setAutoStartApp}
                   closeBehavior={closeBehavior} setCloseBehavior={setCloseBehavior}
@@ -303,10 +304,13 @@ export function SettingsDialog({ onClose, onToast }: Props) {
                   appVersion={appVersion}
                   updateStatus={updateStatus}
                   checkingUpdate={checkingUpdate}
-                  onCheckUpdate={() => { setCheckingUpdate(true); shelf.checkUpdate() }}
+                  onCheckUpdate={() => { setCheckingUpdate(true); void shelf.checkUpdate().catch(error => onToast(String(error.message || error))).finally(() => setCheckingUpdate(false)) }}
                   lang={lang} setLang={setLang}
                   onToast={onToast}
                 />
+                {updateStatus.version && <div className="mt-4"><ReleaseNotes version={updateStatus.version} notes={updateStatus.releaseNotes} /></div>}
+                <ProductInfoPanel />
+                </>
               ) : (
                 <AiPanel
                   mode={mode}
@@ -763,7 +767,7 @@ function GeneralPanel({ autoStartApp, setAutoStartApp, closeBehavior, setCloseBe
           }`}>
             {updateStatus.stage === 'error' ? updateStatus.error
               : updateStatus.stage === 'available' ? t('settings.updateAvailable', { version: updateStatus.version ?? '' })
-                : updateStatus.stage === 'idle' ? t('settings.upToDate') : ''}
+                : updateStatus.stage === 'idle' && updateStatus.checked ? t('settings.upToDate') : ''}
           </span>
         </div>
       </div>

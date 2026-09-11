@@ -2,6 +2,7 @@ import { shell } from 'electron'
 import { openWebPage } from '../auth'
 import { apiFetch } from '../api'
 import { handle } from './ipc'
+import { track } from '../telemetry'
 
 export function registerBillingChannels(): void {
   handle('shelf:billingSummary', async () => {
@@ -19,6 +20,7 @@ export function registerBillingChannels(): void {
 
   /** 打开官网定价页（升级 Pro 引导） */
   handle('shelf:openPricing', async () => {
+    track('pricing_opened')
     const res = await apiFetch<{ link_code?: string }>('/auth/device-link', { method: 'POST' })
     const code = (res.ok && res.data?.link_code) ? res.data.link_code : ''
     await openWebPage(code ? `/pricing?link_code=${encodeURIComponent(code)}` : '/pricing')
@@ -42,6 +44,7 @@ export function registerBillingChannels(): void {
       body: JSON.stringify(body),
     })
     if (!res.ok || !res.data?.checkout_url) throw new Error(res.error || '创建支付会话失败')
+    track('checkout_started')
     await shell.openExternal(res.data.checkout_url)
     return { ok: true }
   })

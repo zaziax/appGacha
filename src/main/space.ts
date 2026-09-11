@@ -5,6 +5,7 @@ import { prepareEggSession, openEgg } from './eggWindow'
 import * as registry from './registry'
 import { getSpaceConfig, setSpaceConfig, SpaceConfig } from './settings'
 import { onEggClosed } from './net/coordinator'
+import { trackEggOpen } from './telemetry'
 
 // 不直接 import shelfWindow：避免 space ↔ shelfWindow 循环依赖。
 // openEggSmart / focusEggInSpace 只在 IPC/启动路由时（模块全部加载完毕后）被调，延迟 require 安全。
@@ -242,6 +243,7 @@ export function spaceActivate(eggId: string): void {
   cfg.active = eggId
   activeId = eggId
   save(cfg)
+  if (uiVisible && hostVisible) trackEggOpen(eggId)
   applyActive()
 }
 
@@ -256,6 +258,7 @@ export function spaceSetVisible(v: boolean): void {
   uiVisible = v === true
   // 切回空间 tab 时确保激活项与配置一致
   if (uiVisible && !activeId) activeId = getSpace().active
+  if (uiVisible && hostVisible && activeId) trackEggOpen(activeId)
   applyActive()
 }
 
@@ -266,6 +269,7 @@ export function focusEggInSpace(eggId: string): void {
   cfg.active = eggId
   activeId = eggId
   save(cfg)
+  if (hostVisible) trackEggOpen(eggId)
   applyActive()
   // UI 可能停在其它顶级 tab：推送事件让它切到空间视图
   focusListener?.(eggId)

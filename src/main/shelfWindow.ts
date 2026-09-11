@@ -29,8 +29,11 @@ function loadShelfUi(win: BrowserWindow): void {
 
 export function createShelfWindow(opts?: { show?: boolean }): BrowserWindow {
   if (shelfWindow && !shelfWindow.isDestroyed()) {
-    shelfWindow.show()
-    shelfWindow.focus()
+    if (opts?.show !== false) {
+      if (shelfWindow.isMinimized()) shelfWindow.restore()
+      shelfWindow.show()
+      shelfWindow.focus()
+    }
     return shelfWindow
   }
   const isMac = process.platform === 'darwin'
@@ -110,6 +113,7 @@ export function createShelfWindow(opts?: { show?: boolean }): BrowserWindow {
   // 扭蛋空间：登记宿主窗口，蛋视图叠加在本窗口 contentView 上
   attachSpaceHost(shelfWindow)
   loadShelfUi(shelfWindow)
+  shelfWindow.on('show', () => sendToShelf('shelf:shown', {}))
   // 开发期默认带上 DevTools，便于定位渲染层问题
   if (!app.isPackaged && (opts?.show ?? true)) {
     shelfWindow.webContents.openDevTools({ mode: 'detach' })
@@ -140,12 +144,19 @@ export function isShelfSender(webContentsId: number): boolean {
 }
 
 export function sendToShelf(channel: string, payload: unknown): void {
-  if (shelfWindow && !shelfWindow.isDestroyed()) shelfWindow.webContents.send(channel, payload)
+  const win = shelfWindow
+  if (!win || win.isDestroyed()) return
+  if (win.webContents.isLoadingMainFrame()) {
+    win.webContents.once('did-finish-load', () => {
+      if (!win.isDestroyed()) win.webContents.send(channel, payload)
+    })
+  } else win.webContents.send(channel, payload)
 }
 
 /** 托盘菜单/双击调用：显示收藏柜（已隐藏则恢复，已销毁则重建） */
 export function showShelfWindow(): void {
   if (shelfWindow && !shelfWindow.isDestroyed()) {
+    if (shelfWindow.isMinimized()) shelfWindow.restore()
     shelfWindow.show()
     shelfWindow.focus()
   } else {
@@ -156,4 +167,8 @@ export function showShelfWindow(): void {
 /** 收藏柜是否存活（未销毁） */
 export function isShelfAlive(): boolean {
   return !!shelfWindow && !shelfWindow.isDestroyed()
+}
+
+export function isShelfVisible(): boolean {
+  return !!shelfWindow && !shelfWindow.isDestroyed() && shelfWindow.isVisible() && !shelfWindow.isMinimized()
 }

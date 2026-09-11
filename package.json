@@ -1,6 +1,6 @@
 {
   "name": "appgacha",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "应用扭蛋机——许愿即得、可迁移的桌面小应用",
   "author": "AppGacha",
   "main": "dist/main/index.js",

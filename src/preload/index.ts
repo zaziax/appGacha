@@ -300,7 +300,8 @@ function injectTitleBar(): void {
       body.__egg-frameless { padding-top: 38px !important; }
     </style>
     <div class="tb-left">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style="stroke:var(--accent, #e8843c)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <img class="tb-egg-icon" width="18" height="18" alt="" style="object-fit:contain" />
+      <svg class="tb-icon-fallback" width="16" height="16" viewBox="0 0 24 24" fill="none" style="stroke:var(--accent, #e8843c);display:none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/>
         <path d="M8 12c0-2.5 1.5-4 4-4s4 1.5 4 4"/>
       </svg>
@@ -317,6 +318,13 @@ function injectTitleBar(): void {
   `
 
   document.body.prepend(bar)
+  const icon = bar.querySelector<HTMLImageElement>('.tb-egg-icon')!
+  icon.addEventListener('error', () => {
+    icon.style.display = 'none'
+    const fallback = bar.querySelector<SVGElement>('.tb-icon-fallback')
+    if (fallback) fallback.style.display = ''
+  }, { once: true })
+  icon.src = new URL('/icon.svg', window.location.href).href
   document.body.classList.add('__egg-frameless')
 
   // 按钮事件（macOS 用原生交通灯，不注入自定义按钮）

@@ -23,7 +23,9 @@ import { peekGachaManifest } from './gachaPkg'
 import { registerAssociations } from './assoc'
 import { setupMacMenu } from './menu'
 import { handleCallback } from './auth'
-import { initAutoUpdater, stopAutoUpdater } from './updater'
+import { continueUpdateInstallAfterCleanup, initAutoUpdater, stopAutoUpdater } from './updater'
+import { eggLaunchId } from './launchIntent'
+import { initTelemetry, stopTelemetry } from './telemetry'
 
 // ── 禁止 Chromium 窗口遮挡检测：失焦/被覆盖时不停合成器，避免 WebGL canvas 白屏 ──
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,IntensiveWakeUpThrottling')
@@ -58,6 +60,7 @@ if (!isHeadless) initLogging()
 let pendingFiles: string[] = []
 /** 冷启动时 open-url 投递的 appgacha:// 协议 URL（macOS 可能先于 ready 触发，排队等就绪后处理） */
 let pendingUrls: string[] = []
+let directEggLaunchHandled = false
 /** 冷启动时 .gacha 导入冲突排队：收藏柜窗口还没建，等建完再发 IPC */
 const pendingImportConflicts: Array<{ file: string; eggId: string; name: string }> = []
 if (!isHeadless) {
@@ -65,8 +68,8 @@ if (!isHeadless) {
     app.quit()
   } else {
     app.on('second-instance', (_e, argv) => {
-      // 已在运行：先唤出收藏柜窗口（关到托盘后双击图标/快捷方式必须能找回来），再路由文件/协议参数
-      showShelfWindow()
+      // A shortcut targets an egg; an ordinary application launch restores the shelf.
+      if (!eggLaunchId(argv)) showShelfWindow()
       void routeLaunchArgs(argv)
     })
     // macOS：双击 .gacha 文件触发 open-file（可能先于 ready，排队等就绪后处理）
@@ -98,11 +101,15 @@ async function routeLaunchArgs(argv: string[]): Promise<void> {
       }
       return
     }
-    const m = url.match(/^appgacha:\/\/egg\/([a-z0-9-]+)/i)
-    if (m) {
-      const egg = getEgg(m[1].toLowerCase())
-      // 蛋在扭蛋空间里 → 聚焦空间 tab；否则独立窗口
-      if (egg) openEggSmart(egg)
+    const id = eggLaunchId(argv)
+    if (id) {
+      const egg = getEgg(id)
+      // Desktop shortcuts always open an independent window, even for pinned eggs.
+      if (egg) {
+        directEggLaunchHandled = true
+        openEgg(egg)
+      }
+      else showShelfWindow()
     }
     return
   }
@@ -151,6 +158,7 @@ app.whenReady().then(async () => {
   const eggs = discoverEggs(dataRoot('eggs'))
   console.log(`[appgacha] loaded ${eggs.length} egg(s): ${eggs.map(e => e.manifest.name).join(', ') || '(none)'}`)
   if (!isHeadless) initSchedules(eggs)
+  if (!isHeadless) void initTelemetry()
 
   // 文件关联 + 协议注册 + 启动参数路由（双击 .gacha / appgacha:// 唤起）
   if (!isHeadless) {
@@ -214,7 +222,8 @@ app.whenReady().then(async () => {
     return
   }
 
-  const shelfWin = createShelfWindow()
+  const shortcutLaunch = directEggLaunchHandled
+  const shelfWin = createShelfWindow({ show: !shortcutLaunch })
 
   // 冷启动排队中的 .gacha 导入冲突：收藏柜窗口已就绪，发送 IPC 弹窗询问
   for (const c of pendingImportConflicts) {
@@ -227,10 +236,12 @@ app.whenReady().then(async () => {
 
   // P3 生命周期：托盘常驻 + 蛋自启动
   const appSettings = getAppSettings()
-  if (appSettings.closeBehavior === 'tray') initTray()
+  if (appSettings.closeBehavior === 'tray' || shortcutLaunch) {
+    if (!initTray() && shortcutLaunch) showShelfWindow()
+  }
 
   // 蛋自启动：扫描所有蛋，用户覆盖 > manifest 出厂默认
-  for (const egg of eggs) {
+  for (const egg of shortcutLaunch ? [] : eggs) {
     const manifestDefault = egg.manifest.window?.autoStart ?? false
     if (getEggAutoStart(egg.eggId, manifestDefault)) {
       openEgg(egg)
@@ -276,6 +287,7 @@ app.on('activate', () => {
 })
 
 app.on('before-quit', async (event) => {
+  stopTelemetry()
   const spaceIds = getSpaceEggIds()
   const windowIds = getOpenWindowEggIds()
   const allIds = [...new Set([...spaceIds, ...windowIds])]
@@ -312,7 +324,7 @@ body{display:flex;align-items:center;justify-content:center;height:100vh;font-fa
     ])
 
     if (!progress.isDestroyed()) progress.close()
-    app.exit()
+    if (!continueUpdateInstallAfterCleanup()) app.exit()
     return
   }
 
