@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import vm from 'node:vm'
 import { KNOWN_PERMISSIONS } from '../shared/types'
+import { analyzeProject, type ProjectAnalysis } from './projectIndex'
 
 export interface ValidationIssue {
   file: string
@@ -17,19 +17,19 @@ const FORBIDDEN_JS = [
   { re: /\blocalStorage\b/, msg: '禁止使用 localStorage（迁移会丢数据），用 egg.storage' }
 ]
 const EXTERNAL_URL = /https?:\/\//i
-// ESM 检测：含顶层 import/export 的文件不用 vm.Script 检查（vm.Script 不支持模块语法）
-const ESM_RE = /(?:^|\n)\s*(?:import\s[\s\S]*?from\s|import\s*\(|export\s+(?:default\s|const\s|function\s|class\s|\{))/
 // emoji 检测（覆盖常见 emoji Unicode 区段）
 const EMOJI_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{200D}\u{2B50}\u{2705}\u{274C}\u{2757}\u{2764}\u{2194}-\u{21AA}\u{231A}-\u{23F3}]/u
 
-export function validateEgg(dir: string): ValidationIssue[] {
-  const issues: ValidationIssue[] = []
+export function validateEgg(dir: string, project: ProjectAnalysis = analyzeProject(dir)): ValidationIssue[] {
+  const issues: ValidationIssue[] = [...project.issues]
+  const files = new Set(project.files)
   const add = (file: string, message: string) => issues.push({ file, message })
 
   // manifest
   let manifest: Record<string, unknown> | null = null
   let isWidget = false
   try {
+    if (!files.has('manifest.json')) throw new Error('manifest.json 缺失或不是安全项目文件')
     manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf-8'))
   } catch (e) {
     add('manifest.json', `无法解析: ${(e as Error).message}`)
@@ -84,22 +84,22 @@ export function validateEgg(dir: string): ValidationIssue[] {
     }
   }
 
-  if (!fs.existsSync(path.join(dir, 'index.html'))) add('index.html', '入口文件缺失')
+  if (!files.has('index.html')) add('index.html', '入口文件缺失')
 
   // widget 专项结构：必须使用形状无关的系统骨架，避免每颗蛋从零实现边界与换页。
   if (isWidget) {
     const indexPath = path.join(dir, 'index.html')
     let html = ''
-    try { html = fs.readFileSync(indexPath, 'utf-8') } catch { /* 入口缺失已在上方报告 */ }
+    try { if (files.has('index.html')) html = fs.readFileSync(indexPath, 'utf-8') } catch { /* 入口缺失已在上方报告 */ }
     const hasClassAndAttr = (className: string, attrName: string) => {
       const classFirst = new RegExp(`<[^>]*class=["'][^"']*\\b${className}\\b[^"']*["'][^>]*${attrName}(?:\\s|=|>)`, 'i')
       const attrFirst = new RegExp(`<[^>]*${attrName}(?:\\s|=|>)[^>]*class=["'][^"']*\\b${className}\\b[^"']*["']`, 'i')
       return classFirst.test(html) || attrFirst.test(html)
     }
-    if (!fs.existsSync(path.join(dir, 'widget.css')) || !/href=["'](?:\.\/)?widget\.css(?:[?#][^"']*)?["']/i.test(html)) {
+    if (!files.has('widget.css') || !/href=["'](?:\.\/)?widget\.css(?:[?#][^"']*)?["']/i.test(html)) {
       add('index.html', 'widget 必须引用受保护的 widget.css')
     }
-    if (!fs.existsSync(path.join(dir, 'widget.js')) || !/<script\b[^>]*\btype=["']module["'][^>]*\bsrc=["'](?:\.\/)?widget\.js(?:[?#][^"']*)?["']|<script\b[^>]*\bsrc=["'](?:\.\/)?widget\.js(?:[?#][^"']*)?["'][^>]*\btype=["']module["']/i.test(html)) {
+    if (!files.has('widget.js') || !/<script\b[^>]*\btype=["']module["'][^>]*\bsrc=["'](?:\.\/)?widget\.js(?:[?#][^"']*)?["']|<script\b[^>]*\bsrc=["'](?:\.\/)?widget\.js(?:[?#][^"']*)?["'][^>]*\btype=["']module["']/i.test(html)) {
       add('index.html', 'widget 必须引用受保护的 widget.js')
     }
     if (!/<body\b[^>]*class=["'][^"']*\bwidget-body\b[^"']*["']/i.test(html)) {
@@ -116,43 +116,33 @@ export function validateEgg(dir: string): ValidationIssue[] {
     }
   }
 
-  // 逐文件扫描（跳过 data/）
+  // Reuse the safe index: never follow symlinks or inspect data/checkpoints.
   let total = 0
-  const walk = (rel: string) => {
-    for (const entry of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
-      const relPath = rel ? `${rel}/${entry.name}` : entry.name
-      if (entry.isDirectory()) {
-        if (relPath === 'data' || relPath === 'vendor') continue  // vendor 是宿主资产，不扫描
-        walk(relPath)
-        continue
-      }
+  const scan = () => {
+    for (const relPath of project.files) {
+      if (relPath.startsWith('vendor/')) continue
       const abs = path.join(dir, relPath)
       const size = fs.statSync(abs).size
       total += size
       if (size > MAX_FILE_BYTES) add(relPath, `单文件超过 ${MAX_FILE_BYTES / 1024}KB`)
 
-      const ext = path.extname(entry.name).toLowerCase()
-      if (!['.js', '.html', '.css', '.json', '.md', '.svg', '.txt'].includes(ext)) continue
+      const ext = path.extname(relPath).toLowerCase()
+      if (!['.js', '.mjs', '.cjs', '.html', '.css', '.json', '.md', '.svg', '.txt'].includes(ext)) continue
       const content = fs.readFileSync(abs, 'utf-8')
 
-      if (['.js', '.html', '.css'].includes(ext) && EXTERNAL_URL.test(content)) {
+      // HTML/CSS resources are checked as references by analyzeProject. Scanning
+      // their entire text rejects valid SVG data URIs containing the XML namespace.
+      if (['.js', '.mjs', '.cjs'].includes(ext) && EXTERNAL_URL.test(content)) {
         add(relPath, '出现外部 http(s) 引用——蛋默认断网，外部资源会加载失败')
       }
       if (['.js', '.html', '.css'].includes(ext) && EMOJI_RE.test(content)) {
         add(relPath, '包含 emoji 字符——禁止使用 emoji，请用 icons.svg 图标代替')
       }
-      if (ext === '.js') {
+      if (['.js', '.mjs', '.cjs'].includes(ext)) {
         for (const rule of FORBIDDEN_JS) {
           if (rule.re.test(content)) add(relPath, rule.msg)
         }
-        // ESM 文件跳过 vm.Script（不支持 import/export 语法），由 testEgg 在 Chromium 中实际加载验证
-        if (!ESM_RE.test(content)) {
-          try {
-            new vm.Script(content, { filename: relPath })
-          } catch (e) {
-            add(relPath, `JS 语法错误: ${(e as Error).message}`)
-          }
-        }
+        // Syntax and actual module imports/exports are checked by analyzeProject using Acorn.
       }
       if (ext === '.html' && /<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?\S[\s\S]*?<\/script>/i.test(content)) {
         add(relPath, 'CSP 禁止内联 <script>，JS 必须放外部文件')
@@ -160,7 +150,7 @@ export function validateEgg(dir: string): ValidationIssue[] {
     }
   }
   try {
-    walk('')
+    scan()
   } catch (e) {
     add('.', `扫描失败: ${(e as Error).message}`)
   }

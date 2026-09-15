@@ -18,15 +18,28 @@ const openWindows = new Map<string, BrowserWindow>()
  * 准备蛋的隔离 session（partition + egg:// 协议 + 断网锁定），返回 partition 名。
  * 独立窗口（createEggWindow）与扭蛋空间视图（space.ts）共用。
  */
-export function prepareEggSession(egg: EggContext): string {
-  const partition = `persist:egg-${egg.eggId}`
+export function prepareEggSession(egg: EggContext, testMode = false): string {
+  const partition = testMode ? `test-egg-${egg.eggId}` : `persist:egg-${egg.eggId}`
   const ses = session.fromPartition(partition)
   if (!preparedPartitions.has(partition)) {
-    registerEggProtocol(ses)
+    registerEggProtocol(ses, testMode ? egg : undefined)
     lockdownSession(ses)
-    preparedPartitions.add(partition)
+    // Every verifier has a unique in-memory partition; do not retain its ID forever.
+    if (!testMode) preparedPartitions.add(partition)
   }
   return partition
+}
+
+/** Release only a verifier's private session after its window has been destroyed. */
+export async function disposeTestEggSession(egg: EggContext): Promise<void> {
+  if (!egg.testMode || !egg.ephemeral) throw new Error('Refusing to clear a non-test egg session')
+  const ses = session.fromPartition(`test-egg-${egg.eggId}`)
+  // Drops the protocol closure that references the isolated copy. Keep network and
+  // permission denial in place even though no generated renderer remains alive.
+  ses.protocol.unhandle('egg')
+  const cleanup = await Promise.allSettled([ses.closeAllConnections(), ses.clearCache(), ses.clearStorageData()])
+  const failed = cleanup.find(item => item.status === 'rejected')
+  if (failed?.status === 'rejected') throw failed.reason
 }
 
 /** standard 保留桌面应用下限；widget 只保留安全出口所需的技术下限。 */
@@ -77,8 +90,8 @@ export function getOpenWindowEggIds(): string[] {
   })
 }
 
-export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): BrowserWindow {
-  const partition = prepareEggSession(egg)
+export function createEggWindow(egg: EggContext, opts?: { show?: boolean; deferLoad?: boolean; testMode?: boolean }): BrowserWindow {
+  const partition = prepareEggSession(egg, opts?.testMode)
 
   // D11 窗口形态：manifest.window 声明 type/尺寸/置顶
   const spec = egg.manifest.window ?? {}
@@ -86,7 +99,7 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
   const isMac = process.platform === 'darwin'
   const width = clampSize(spec.width, isWidget ? 320 : 900, isWidget ? 96 : 240)
   const height = clampSize(spec.height, isWidget ? 320 : 640, isWidget ? 96 : 240)
-  const restoredPosition = isWidget ? resolveWidgetPosition(egg.eggId, width, height) : undefined
+  const restoredPosition = isWidget && !opts?.testMode ? resolveWidgetPosition(egg.eggId, width, height) : undefined
 
   const win = new BrowserWindow({
     width,
@@ -120,7 +133,8 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
       preload: path.join(__dirname, '../preload/index.js'),
       // 窗口类型传给 preload（process.argv）：widget 不注入标题栏、改注入 hover 浮钮
       additionalArguments: [`--egg-window-type=${isWidget ? 'widget' : 'standard'}`],
-      partition
+      partition,
+      ...(opts?.testMode ? { backgroundThrottling: false } : {})
     }
   })
 
@@ -133,14 +147,14 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
   // R2: 窗口创建时登记 webContents → 蛋，权限检查只认这张表
   const wcId = win.webContents.id
   registry.register(wcId, egg)
-  openWindows.set(egg.eggId, win)
+  if (!opts?.testMode) openWindows.set(egg.eggId, win)
   win.on('closed', () => {
     registry.unregister(wcId)
     if (openWindows.get(egg.eggId) === win) openWindows.delete(egg.eggId)
     // P2：蛋窗口关闭 → 清理其房间（host 解散 / joiner 离开）
     onEggClosed(egg.eggId)
     // 后台推送本地改动到云端
-    syncEgg(egg.eggId).catch(e => console.error('[eggWindow] sync on close failed:', (e as Error).message))
+    if (!opts?.testMode) syncEgg(egg.eggId).catch(e => console.error('[eggWindow] sync on close failed:', (e as Error).message))
   })
 
   // R4: 蛋不能创建窗口
@@ -150,12 +164,12 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
   // 拦截后原生标题保持构造时的空串，失焦幽灵栏无内容可画。standard 窗保留同步（任务栏显示蛋名是期望行为）。
   if (isWidget) {
     win.on('page-title-updated', (event) => { event.preventDefault() })
-    bindWidgetPlacement(win, egg.eggId)
+    if (!opts?.testMode) bindWidgetPlacement(win, egg.eggId)
   }
 
   bindWindowStateEvents(win.webContents.id)
 
-  win.loadURL(`egg://${egg.eggId}/index.html`)
+  if (!opts?.deferLoad) void win.loadURL(`egg://${egg.eggId}/index.html`)
   if (opts?.show !== false) win.webContents.once('did-finish-load', () => trackEggOpen(egg.eggId))
 
   // Windows 已知 bug（electron#47440）：frame:false 透明窗失焦时 DWM 会补画矩形”幽灵标题栏”（显示窗口名）。
@@ -171,7 +185,7 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean }): Bro
   }
 
   // D11 widget 安全出口：独立卫星控制窗（窗口外部，蛋代码不可触碰）
-  if (isWidget) attachControls(win)
+  if (isWidget && !opts?.testMode) attachControls(win)
 
   return win
 }

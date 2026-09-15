@@ -1,13 +1,14 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { analyzeProject, formatProjectIndex, type ProjectAnalysis } from './projectIndex'
 
 /**
  * 扫描蛋目录，生成一份 Markdown 格式的结构快照。
  * 供升级时 AI 快速理解蛋的结构，避免通读所有文件。
  */
-export function generateEggDoc(dir: string): string {
-  const manifest = readManifest(dir)
-  if (!manifest) return `# 蛋结构快照\n\n（无法读取 manifest.json）\n`
+export function generateEggDoc(dir: string, project: ProjectAnalysis = analyzeProject(dir)): string {
+  const manifest = project.files.includes('manifest.json') ? readManifest(dir) : null
+  if (!manifest) return `# 蛋结构快照\n\n（无法读取 manifest.json）\n\n${formatProjectIndex(project)}\n`
 
   const lines: string[] = []
 
@@ -31,10 +32,10 @@ export function generateEggDoc(dir: string): string {
   lines.push(`- **版本:** ${version}`)
   lines.push(`- **升级次数:** ${upgrades.length}`)
   lines.push('')
+  lines.push(formatProjectIndex(project), '')
 
   // ─── vendor ───
-  const vendorDir = path.join(dir, 'vendor')
-  const vendorFiles = fs.existsSync(vendorDir) ? fs.readdirSync(vendorDir).filter(f => !f.startsWith('.')) : []
+  const vendorFiles = project.files.filter(file => file.startsWith('vendor/')).map(file => file.slice('vendor/'.length))
   // 记录哪些 vendor 文件被 import 了
   const allImports = new Set<string>()
   if (vendorFiles.length > 0) {
@@ -47,7 +48,7 @@ export function generateEggDoc(dir: string): string {
 
   // ─── base.css 设计系统（提取可用组件 class，省去 AI 读 9KB 全文） ───
   const baseCssPath = path.join(dir, 'base.css')
-  if (fs.existsSync(baseCssPath)) {
+  if (project.files.includes('base.css')) {
     try {
       const baseContent = fs.readFileSync(baseCssPath, 'utf-8')
       const baseClasses = extractBaseClasses(baseContent)
@@ -60,7 +61,7 @@ export function generateEggDoc(dir: string): string {
   }
 
   // ─── 扫描代码文件 ───
-  const codeFiles = listCodeFiles(dir)
+  const codeFiles = project.files.filter(file => !file.startsWith('vendor/') && /\.(?:m?js|cjs|css|html)$/i.test(file))
   for (const rel of codeFiles) {
     const abs = path.join(dir, rel)
     let content: string
@@ -70,7 +71,7 @@ export function generateEggDoc(dir: string): string {
     const lineCount = content.split('\n').length
 
     const ext = path.extname(rel).toLowerCase()
-    if (ext === '.js') {
+    if (['.js', '.mjs', '.cjs'].includes(ext)) {
       const section = scanJs(rel, content, lineCount, sizeKB, allImports)
       if (section) lines.push(...section, '')
     } else if (ext === '.css') {
@@ -96,29 +97,6 @@ function readManifest(dir: string): Record<string, unknown> | null {
 
 function truncate(s: string, max: number): string {
   return s.length <= max ? s : s.slice(0, max) + '…'
-}
-
-/** 列出蛋目录下的所有代码文件（跳过 vendor/ data/ .json .svg .md .png 等辅助文件） */
-function listCodeFiles(dir: string): string[] {
-  const out: string[] = []
-  function walk(rel: string) {
-    const abs = path.join(dir, rel)
-    let entries: fs.Dirent[]
-    try { entries = fs.readdirSync(abs, { withFileTypes: true }) } catch { return }
-    for (const e of entries) {
-      if (e.name.startsWith('.')) continue
-      const r = rel ? `${rel}/${e.name}` : e.name
-      if (e.isDirectory()) {
-        if (r === 'vendor' || r === 'data' || r === 'backups') continue
-        walk(r)
-      } else {
-        const ext = path.extname(e.name).toLowerCase()
-        if (['.js', '.css', '.html'].includes(ext)) out.push(r)
-      }
-    }
-  }
-  walk('')
-  return out
 }
 
 // ─── JS 扫描 ───
@@ -163,8 +141,6 @@ function scanJs(
   for (const m of content.matchAll(/egg\.(\w+)\.(\w+)/g)) {
     eggApis.add(`${m[1]}.${m[2]}`)
   }
-
-  if (funcs.size === 0 && classes.size === 0 && vendorRefs.size === 0 && tables.length === 0) return null
 
   const sizeLabel = `${lineCount} 行`
   out.push(`## ${rel} (${sizeLabel})`)

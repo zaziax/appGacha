@@ -1,7 +1,7 @@
 import { Session } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { getEgg } from './eggs'
+import { getEgg, type EggContext } from './eggs'
 
 // R1: egg:// 只从蛋文件夹供文件，路径穿越在协议层掐死，响应头统一注入 CSP
 const CSP = [
@@ -34,10 +34,14 @@ const MIME: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8'
 }
 
-export function registerEggProtocol(ses: Session): void {
+export function registerEggProtocol(ses: Session, isolatedEgg?: EggContext): void {
   ses.protocol.handle('egg', async (request) => {
     const url = new URL(request.url)
-    const egg = getEgg(url.hostname)
+    // A test session preserves the original origin for absolute self-references,
+    // but can ONLY serve its private copy, never a real egg in the global registry.
+    const egg = isolatedEgg
+      ? (url.hostname === isolatedEgg.manifest.eggId ? isolatedEgg : undefined)
+      : getEgg(url.hostname)
     if (!egg) return new Response('egg not found', { status: 404 })
 
     const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '') || 'index.html'

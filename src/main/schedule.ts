@@ -38,6 +38,7 @@ function saveEntries(ctx: EggContext, entries: ScheduleEntry[]): void {
 }
 
 export function showNotification(eggId: string, title: string, body: string): void {
+  if (getEgg(eggId)?.testMode) return
   if (!Notification.isSupported()) return
   const n = new Notification({ title: title.slice(0, 80), body: body.slice(0, 300) })
   n.on('click', () => {
@@ -53,6 +54,7 @@ function nextDelay(cron: string): number {
 }
 
 function arm(ctx: EggContext, entry: ScheduleEntry): void {
+  if (ctx.testMode) return // Preserve validation/storage semantics, never arm a real timer.
   const key = `${ctx.eggId}/${entry.id}`
   clearTimeout(timers.get(key))
 

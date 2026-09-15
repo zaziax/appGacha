@@ -23,6 +23,12 @@ function handle(channel: string, permission: Permission | null, fn: Handler): vo
       if (permission && !ctx.manifest.permissions.includes(permission)) {
         throw new Error(`permission denied: "${permission}" not declared in manifest`)
       }
+      if (ctx.testMode) {
+        // Test code may exercise local data, but must never contact peers or open OS dialogs.
+        if (channel.startsWith('egg:net:')) throw new Error('Network room operations are unavailable during isolated runtime verification')
+        if (channel === 'egg:ui:pickFile' || channel === 'egg:ui:pickBinary') return { ok: true, value: null }
+        if (channel === 'egg:ui:saveFile' || channel === 'egg:ui:saveBinary') return { ok: true, value: { saved: false } }
+      }
       return { ok: true, value: await fn(ctx, args, event) }
     } catch (e) {
       return { ok: false, error: (e as Error).message }

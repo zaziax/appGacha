@@ -93,7 +93,7 @@ async function completions(body: Record<string, unknown>): Promise<string> {
 
 export async function chat(ctx: EggContext, messages: unknown, opts?: ChatOpts): Promise<string> {
   validateMessages(messages)
-  if (ctx.aiMock) return '（测试模式：这是一条模拟的 AI 回复）'
+  if (ctx.aiMock || ctx.testMode) return '（测试模式：这是一条模拟的 AI 回复）'
   checkRate(ctx.eggId)
   return completions({
     messages,
@@ -126,7 +126,7 @@ export async function extract(ctx: EggContext, text: unknown, schema: unknown): 
   if (typeof schema !== 'object' || schema === null) {
     throw new Error('AI_BAD_REQUEST: schema 必须是 JSON Schema 对象')
   }
-  if (ctx.aiMock) return mockFromSchema(schema as Record<string, unknown>)
+  if (ctx.aiMock || ctx.testMode) return mockFromSchema(schema as Record<string, unknown>)
   checkRate(ctx.eggId)
 
   const content = await completions({

@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { EggManifest, KNOWN_PERMISSIONS } from '../shared/types'
 
 export interface EggContext {
@@ -10,6 +11,8 @@ export interface EggContext {
   aiMock?: boolean
   /** 装配舱里的临时蛋，不在收藏柜陈列 */
   ephemeral?: boolean
+  /** Host-owned isolated validation context; never read from a capsule manifest. */
+  testMode?: boolean
 }
 
 const byEggId = new Map<string, EggContext>()
@@ -27,6 +30,15 @@ export function registerEgg(dir: string): EggContext {
   if (byEggId.has(manifest.eggId)) throw new Error(`egg "${manifest.eggId}" already registered`)
   const ctx: EggContext = { eggId: manifest.eggId, dir, manifest }
   byEggId.set(manifest.eggId, ctx)
+  return ctx
+}
+
+/** Registry identity is private; the manifest/origin stays unchanged inside the copy. */
+export function registerTestEgg(dir: string): EggContext {
+  const manifest = loadManifest(dir)
+  const eggId = `test-${randomUUID()}`
+  const ctx: EggContext = { eggId, dir, manifest, testMode: true, ephemeral: true, aiMock: true }
+  byEggId.set(eggId, ctx)
   return ctx
 }
 

@@ -77,6 +77,8 @@ export interface GachaProgress {
 
 export interface GachaResult {
   ok: boolean
+  verification?: { level: 'startup' | 'scenarios'; scenariosPassed: number }
+  pendingBuildId?: string
   eggId?: string
   name?: string
   error?: IpcText
@@ -140,7 +142,7 @@ export interface UserProfile {
   name: string
   avatar_url: string | null
   created_at: string | null
-  subscriptions: { plan: string; status: string; expires_at: string | null }[]
+  subscriptions: { plan: string; status: string; expires_at: string | null; past_due_since?: string | null }[]
 }
 
 /** 计费总览（后端 GET /billing/summary）：订阅 + 积分余额 + 套餐配额 + 云存储用量 */

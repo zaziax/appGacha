@@ -4,6 +4,8 @@ import { Sparkles, Egg, ArrowLeft, ArrowRight, Loader2, Wand2, Brain, Wrench, Pe
 import { useTranslation } from 'react-i18next'
 import { shelf, GachaProgress, GachaResult, GachaActivity, WishQuestion, PendingBuild } from '../shelf'
 import { getGachaState, subscribeGacha, beginGacha, clearGachaResult, dismissResult, setGachaUpgrade } from '../gachaStore'
+import { formatRequirementAnswers } from '../../../shared/buildRequirements'
+import { progressSilenceSeconds } from '../../../shared/buildProgress'
 import { AppAssemblyStage } from './AppAssemblyStage'
 import { sfx } from '../sound'
 import { tr } from '../i18n'
@@ -230,8 +232,8 @@ export function MachineView({ onToast, onEggCreated }: Props) {
   const buildFinalWish = (): string => {
     let wish = wishText.trim()
     if (qaHistory.length > 0) {
-      const details = qaHistory.map(qa => qa.answer).filter(a => a !== t('wish.decideAnswer')).join('；')
-      if (details) wish += `\n【需求细节】${details}`
+      const details = formatRequirementAnswers(qaHistory, t('wish.decideAnswer'), i18n.language.startsWith('zh') ? 'zh' : 'en')
+      if (details) wish += `\n【需求细节 / Requirement details】\n${details}`
     }
     if (!isUpgrade) {
       const styleParts: string[] = []
@@ -313,7 +315,18 @@ export function MachineView({ onToast, onEggCreated }: Props) {
             <ProgressPanel
               gacha={gacha} revealed={revealed} resultReady={resultReady}
               onOpen={() => { if (gacha.result?.eggId) shelf.open(gacha.result.eggId).catch(e => onToast(e.message)); clearGachaResult(); resetWizard(); onEggCreated() }}
-              onRetry={() => { dismissResult(); resetWizard() }}
+              onRetry={async () => {
+                const draftId = gacha.result?.pendingBuildId
+                if (!draftId) { dismissResult(); resetWizard(); return }
+                if (resuming) return
+                setResuming(true)
+                try {
+                  await shelf.resumeBuild(draftId)
+                  beginGacha(gacha.upgrade)
+                  setPendingBuild(null)
+                } catch (error) { onToast((error as Error).message) }
+                finally { setResuming(false) }
+              }}
               onClose={() => { clearGachaResult(); resetWizard(); onEggCreated() }}
             />
           </div>
@@ -1048,42 +1061,14 @@ function ShineSweep() {
   )
 }
 
-// ---- 丝滑打字机：把目标文本按恒定速率逐字揭示，与流响应到达节奏解耦 ----
-// 流是突发式的（token 成批到达），这里把完整内容缓冲下来，以固定速度吐字，保证平滑
-const CHARS_PER_SEC = 80
-function useTypewriter(target: string, active: boolean): string {
-  const [count, setCount] = useState(0)
-  const targetRef = useRef(target)
-  targetRef.current = target
-  const floatRef = useRef(0)
-
-  useEffect(() => {
-    if (!active) return
-    let raf = 0
-    let last = performance.now()
-    const tick = (now: number) => {
-      const dt = Math.min(now - last, 100) // 切后台/卡顿后不要大步跳
-      last = now
-      floatRef.current = Math.min(targetRef.current.length, floatRef.current + CHARS_PER_SEC * dt / 1000)
-      const next = Math.floor(floatRef.current)
-      setCount(prev => (prev === next ? prev : next))
-      raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [active])
-
-  if (!active) return target
-  return target.slice(0, count)
-}
-
-// ---- 思考行：进行中折叠为「思考中」状态，点击展开看实时详情 ----
+// ---- Process narration: latest entry opens automatically; older entries remain inspectable. ----
 const ThinkRow = forwardRef<HTMLDivElement, {
   text: GachaActivity['text']; active: boolean; expanded: boolean; onToggle: () => void
   t: (key: string, params?: Record<string, unknown>) => string
 }>(function ThinkRow({ text, active, expanded, onToggle, t }, ref) {
   const content = tr(t, text)
-  const revealed = useTypewriter(content, active)
+  // Show only text actually received. Never animate a backlog as if the model were still producing it.
+  const revealed = content
   const thinking = t('feed.thinking')
   // 展开后实时跟随：新内容落到尾部时滚入视野
   const tailRef = useRef<HTMLSpanElement>(null)
@@ -1180,6 +1165,7 @@ function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose 
 }) {
   const { t } = useTranslation()
   const [elapsed, setElapsed] = useState(0)
+  const [now, setNow] = useState(Date.now())
   // 已展开的思考条目（按稳定 key 记录，允许多条独立展开）
   const [expandedThinks, setExpandedThinks] = useState<Set<string>>(new Set())
   const toggleThink = (key: string) => setExpandedThinks(prev => {
@@ -1192,6 +1178,12 @@ function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose 
   const activeRef = useRef<HTMLDivElement>(null)
   const lastIdx = gacha.activities.length - 1
   const lastAct = gacha.activities[lastIdx]
+  const latestThinkIdx = gacha.activities.reduce((latest, activity, index) => activity.type === 'think' ? index : latest, -1)
+  const latestThink = gacha.activities[latestThinkIdx]
+  const latestThinkKey = latestThink ? latestThink.id ?? `${latestThink.type}-${latestThinkIdx}` : undefined
+  const silence = progressSilenceSeconds(now, gacha.lastUpdateAt, gacha.running)
+  useEffect(() => { setExpandedThinks(new Set()) }, [gacha.startedAt])
+  useEffect(() => { if (latestThinkKey && gacha.running) setExpandedThinks(new Set([latestThinkKey])) }, [latestThinkKey, gacha.running])
   const activeKey = gacha.activities.length ? (lastAct.id ?? `${lastAct.type}-${lastIdx}`) : null
   useEffect(() => {
     if (!activeKey || !gacha.running) return
@@ -1201,7 +1193,7 @@ function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose 
   // 耗时计时器：每秒刷新
   useEffect(() => {
     if (!gacha.running || !gacha.startedAt) { setElapsed(0); return }
-    const tick = () => setElapsed(Math.floor((Date.now() - gacha.startedAt) / 1000))
+    const tick = () => { setNow(Date.now()); setElapsed(Math.floor((Date.now() - gacha.startedAt) / 1000)) }
     tick()
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
@@ -1231,19 +1223,13 @@ function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose 
         )}
         <div className="min-w-0 flex-1">
           <p className="text-[15px] font-extrabold text-text leading-tight">
-            {gacha.running ? progressLabel(gacha.stage, t) : resultReady ? t('progress.done') : ''}
+            {gacha.running ? t(silence >= 20 ? 'live.waiting' : gacha.progressKey) : resultReady ? t('progress.done') : ''}
           </p>
-          {gacha.running && gacha.detail && (
-            <p className="text-[12px] font-bold text-muted truncate mt-0.5">{tr(t, gacha.detail)}</p>
+          {gacha.running && (
+            <p className="text-[12px] font-bold text-muted mt-1">{t('live.elapsed', { time: fmtElapsed(elapsed) })}</p>
           )}
-          {/* 进度量化：步骤 + 轮次 + 耗时 */}
-          {gacha.running && gacha.metrics && (
-            <p className="text-[11px] font-bold text-muted/60 mt-0.5">
-              {t('progress.step', { turn: gacha.metrics.turn, maxTurns: gacha.metrics.maxTurns })} · {t('progress.round', { round: gacha.metrics.round, maxRounds: gacha.metrics.maxRounds })} · {fmtElapsed(elapsed)}
-            </p>
-          )}
-          {gacha.running && !gacha.metrics && elapsed > 0 && (
-            <p className="text-[11px] font-bold text-muted/60 mt-0.5">{fmtElapsed(elapsed)}</p>
+          {gacha.running && silence >= 20 && (
+            <p className="text-[11px] text-muted mt-1">{t('live.quiet', { seconds: silence })}</p>
           )}
           {resultReady && (
             <p className="text-[12px] font-bold text-brand mt-0.5">{t('progress.reveal')}</p>
@@ -1281,7 +1267,9 @@ function ProgressPanel({ gacha, revealed, resultReady, onOpen, onRetry, onClose 
               }
               return (
                 <ActionRow key={key} ref={isActive ? activeRef : undefined}
-                  type={a.type} text={a.text} active={isActive} t={t} />
+                  type={a.type} text={a.type === 'write' && typeof a.text === 'object' && ['feed.write', 'feed.edit'].includes(a.text.key)
+                    ? { key: a.text.key === 'feed.edit' ? 'feed.editBrief' : 'feed.writeBrief', params: a.text.params }
+                    : a.text} active={isActive} t={t} />
               )
             })}
           </div>
@@ -1322,10 +1310,18 @@ function ResultCard({ result, onOpen, onRetry, onClose }: {
           {ok ? (result.upgraded ? t('result.okUpgradedHint') : t('result.okHint'))
               : `${tr(t, result.error)}${result.upgraded ? t('result.failUpgradedHint') : ''}`}
         </p>
+        {ok && result.verification && (
+          <p className="text-[12px] text-muted mt-2">
+            {result.verification.level === 'scenarios'
+              ? t('result.scenariosVerified', { count: result.verification.scenariosPassed })
+              : t('result.startupVerified')}
+          </p>
+        )}
+        {!ok && result.pendingBuildId && <p className="text-[12px] text-muted mt-2">{t('result.draftSaved')}</p>}
       </div>
       <div className="flex gap-2 px-5 py-3">
         {ok && result.eggId && <Btn primary onClick={onOpen}>{t('result.open')}</Btn>}
-        {!ok && <Btn primary onClick={onRetry}>{t('result.retry')}</Btn>}
+        {!ok && <Btn primary onClick={onRetry}>{t(result.pendingBuildId ? 'result.resumeDraft' : 'result.retry')}</Btn>}
         <Btn onClick={onClose}>{t('result.okBtn')}</Btn>
       </div>
     </div>

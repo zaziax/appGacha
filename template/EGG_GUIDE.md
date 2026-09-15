@@ -31,6 +31,15 @@ vendor/              ← 宿主预置的第三方 ESM 库（不要修改，按�
 - 模块一律 ES Module（`import` / `export`），禁止全局变量挂载式伪模块化
 - 简单应用（<500 行逻辑）鼓励单 app.js，复杂应用可拆 src/ 子模块
 
+文件工具的路径相对扭蛋根目录，JavaScript `import` 则相对当前 JS 文件，二者不要混淆：
+
+- 根 `app.js` 引用 `src/store.js`：`import … from './src/store.js'`。
+- `src/tasks.js` 引用同目录 `store.js`：`import … from './store.js'`。
+- `src/stats.js` 引用根目录的第三方库：`import … from '../vendor/chart.esm.js'`。
+- 下文 `./vendor/…` 示例均假设调用代码位于根 `app.js`。目录结构变化后，必须重新验证所有入口、导入和资源引用。
+
+目录与结构快照用于导航，不代替源码调查或运行验证。以实时文件索引为准；宿主文件可按需只读查阅，禁止修改。
+
 ## 应用图标（icon.svg）——必须创建
 
 每颗蛋必须附带一个 `icon.svg`，展示在收藏柜的扭蛋球体内，是用户区分不同应用的视觉标识。

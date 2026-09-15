@@ -3,239 +3,93 @@ import path from 'node:path'
 import { getAiSettings } from './settings'
 import { validateEgg } from './validate'
 import { testEgg } from './test'
-import { resolveAiEndpoint, chatCompletionFetch, type AiEndpoint } from './aiChannel'
+import { resolveAiEndpoint } from './aiChannel'
 import { logLine } from './log'
+import { analyzeProject, formatProjectIndex } from './projectIndex'
+import { WorkspaceTools, resolveWorkspacePath } from './fcWorkspaceTools'
+import { generationRules } from './generationRules'
+import { compactMessages, checkpointMessages } from './fcContext'
+import { streamCompletion, HttpError, CompletionStreamError, type StreamResult } from './fcStream'
+import { validateRuntimeScenarios, waitForRuntime, type RuntimeScenario } from './runtimeScenarios'
+import { closingGuidance, evidenceHash, scenarioEvidence, sourceLines, toolFailureCode, verificationIdentity } from './generationEvidence'
 
 export type ActivityType = 'think' | 'tool' | 'write' | 'check' | 'retry' | 'error'
-
-/**
- * 主进程→渲染进程的文案载体：
- * i18n 键 + 插值参数（翻译在渲染进程做，主进程不持有任何语言包）；
- * 或裸字符串（AI 原始输出、技术性错误诊断，前端原样展示）。
- */
 export type IpcText = { key: string; params?: Record<string, string | number> } | string
-
+export interface BuildVerification { level: 'startup' | 'scenarios'; scenariosPassed: number }
+export interface DriverCheckpointState {
+  messages: unknown[]; turns: number; rounds: number; totalTokens: number; scenarios?: RuntimeScenario[]
+  truncationRecoveries?: number
+  outputLimit?: number
+}
 export interface DriverJob {
   wish: string
   stagingDir: string
   templateDir: string
   maxRounds: number
-  /** 用户界面语言：生成物文案 + AI 实况解说的输出语言 */
   lang: 'zh' | 'en'
-  /** 升级模式：舱里是现有蛋的代码而非空白模板 */
   upgrade?: { baseWish: string }
-  /** 升级模式：蛋的结构快照（EGGDOC.md 内容），在 opening message 中展示给 AI */
+  /** Legacy snapshots are accepted; the driver always refreshes from the live workspace. */
   eggDoc?: string
-  /** 取消信号：管线触发取消时 abort，驱动循环检测到后立即退出 */
   signal?: AbortSignal
   onStage: (stage: string, detail?: IpcText) => void
-  /** 机芯实况：AI 思考、工具调用、文件写入、自检结果等。id 相同的条目原地替换（用于流式思考实时更新） */
   onActivity?: (type: ActivityType, text: IpcText, id?: string) => void
-  /** 进度量化：每轮循环开始时回调当前回合/轮次，供 UI 展示剩余时间感知 */
   onMetrics?: (m: { turn: number; maxTurns: number; round: number; maxRounds: number }) => void
-  /** 断点续建：管线提供此回调后，驱动在遇到可恢复错误（402/503/网络中断）时保存上下文 */
-  onCheckpoint?: (state: { messages: unknown[]; turns: number; rounds: number; totalTokens: number }) => void
-  /** 断点续建：从已有对话恢复，跳过模板初始化 */
-  resume?: {
-    messages: unknown[]
-    turns: number
-    rounds: number
-    totalTokens: number
-  }
+  onCheckpoint?: (state: DriverCheckpointState) => void
+  resume?: DriverCheckpointState
 }
-
 export interface DriverResult {
   ok: boolean
   rounds: number
   turns: number
   error?: IpcText
-  /** 断点已存：管线跳过 archiveFailure，保留 staging 目录待续建 */
   checkpointed?: boolean
+  verification?: BuildVerification
+  scenarios?: RuntimeScenario[]
 }
 
 const MAX_TURNS = 60
-const MAX_TOTAL_TOKENS = 300_000
+const MAX_TOTAL_TOKENS = 300_000 // Output-only soft guard; actual usage is tracked separately.
+const BUILD_OUTPUT_TOKENS = 16_384
+const MAX_BUILD_OUTPUT_TOKENS = 32_768
+const MAX_TRUNCATION_RECOVERIES = 3
 const OVERALL_TIMEOUT_MS = 15 * 60 * 1000
-const STALL_TIMEOUT_MS = 60_000        // 流式断流检测：60 秒收不到任何数据即判定中断
-const REQUEST_HARD_CAP_MS = 8 * 60_000 // 单次请求硬上限（防模型无限吐字）
-const MAX_RETRIES = 2
+const DEFAULT_CONTEXT_TOKENS = 256_000
+const CONTEXT_USAGE_RATIO = 0.8
 
-// ─── 上下文窗口管理 ───
-const DEFAULT_CONTEXT_TOKENS = 256_000 // ↑ 128K→256K，现代模型普遍支持 128K–1M 上下文
-const CONTEXT_USAGE_RATIO = 0.85       // ↑ 0.7→0.85，现代模型近满上下文处理能力大幅提升
-const KEEP_RECENT = 16                 // ↑ 12→16，保留更多最近消息
-const CRITICAL_TOOL_KEEP = 24_000      // 验收报告/指南：修 bug 的唯一依据，尽可能保留
-const NORMAL_TOOL_KEEP = 4_000         //  文件内容/读取结果：旧版本价值递减
-const STRUCTURAL_KEEP = 3_000          //  文件列表：旧快照只要骨架
-const OLD_ASSISTANT_KEEP = 400         //  旧思考：保留开头供上下文连贯
-
-/** 工具重要性分级：验收与指南是修 bug 的唯一依据，压缩时必须优先保护 */
-const CRITICAL_TOOLS = new Set(['check_egg', 'read_guide'])
-const PROTECTED_TEMPLATE_FILES = new Set(['base.css', 'icons.svg', 'widget.css', 'widget.js'])
-
-/**
- * 上下文压缩（v2——重要性分级）：
- *   保留：system(0) + 第一条 user(1) + 最近 KEEP_RECENT 条完整不动。
- *   中间区域：
- *     - check_egg / finish 失败反馈 / read_guide → 关键级（最多保留 CRITICAL_TOOL_KEEP）
- *     - list_files → 结构级（最多保留 STRUCTURAL_KEEP）
- *     - read_file / write_file → 普通级（最多保留 NORMAL_TOOL_KEEP）
- *     - assistant → 保留首 OLD_ASSISTANT_KEEP 字
- *
- *   额外：已被后续 write_file 覆盖的旧 read_file 结果只保留路径标记（1KB），
- *   避免智能体引用已过时的代码片段。
- */
-function compactMessages(messages: unknown[], charBudget: number, lang: 'zh' | 'en'): void {
-  const totalChars = messages.reduce((s: number, m) => s + JSON.stringify(m).length, 0)
-  if (totalChars <= charBudget) return
-
-  // 收集被写过的文件路径：旧 read_file 结果对它们已失效
-  const writtenPaths = new Set<string>()
-  for (let i = messages.length - 1; i >= 2; i--) {
-    const m = messages[i] as Record<string, unknown>
-    const toolName = m._tool as string | undefined
-    if (toolName === 'write_file' && typeof m.content === 'string') {
-      const match = m.content.match(/^已写入 (.+?)（/)
-      if (match) writtenPaths.add(match[1])
-    }
-  }
-
-  const compactEnd = messages.length - KEEP_RECENT
-  const marker = lang === 'zh'
-    ? { critical: (n: number) => `\n…[关键记录已压缩，原 ${n} 字]`, normal: (n: number) => `\n…[已压缩，原 ${n} 字]`, stale: (path: string, n: number) => `\n[此文件已被后续 write_file 覆盖，原内容 ${n} 字已丢弃]`, think: '…[思考已压缩]' }
-    : { critical: (n: number) => `\n…[critical record compressed, was ${n} chars]`, normal: (n: number) => `\n…[compressed, was ${n} chars]`, stale: (path: string, n: number) => `\n[this file was overwritten by a later write_file, ${n} chars discarded]`, think: '…[thinking compressed]' }
-
-  for (let i = 2; i < compactEnd; i++) {
-    const m = messages[i] as Record<string, unknown>
-
-    if (m.role === 'tool' && typeof m.content === 'string') {
-      const content = m.content as string
-      const toolName = m._tool as string | undefined
-
-      // 关键工具：验收报告、指南、finish 失败反馈
-      if (toolName && CRITICAL_TOOLS.has(toolName) || content.includes('请修复以上问题后再次 finish')) {
-        if (content.length > CRITICAL_TOOL_KEEP) {
-          m.content = content.slice(0, CRITICAL_TOOL_KEEP) + marker.critical(content.length)
-        }
-        continue
-      }
-
-      // 旧 read_file：文件已被后续写入覆盖 → 只保留路径标记
-      if (toolName === 'read_file') {
-        const readPath = m._path as string | undefined
-        if (readPath && writtenPaths.has(readPath) && content.length > 1000) {
-          m.content = marker.stale(readPath, content.length)
-          continue
-        }
-      }
-
-      // 结构级：list_files
-      if (toolName === 'list_files' && content.length > STRUCTURAL_KEEP) {
-        m.content = content.slice(0, STRUCTURAL_KEEP) + marker.normal(content.length)
-        continue
-      }
-
-      // 普通级：read_file / write_file 确认
-      if (content.length > NORMAL_TOOL_KEEP) {
-        m.content = content.slice(0, NORMAL_TOOL_KEEP) + marker.normal(content.length)
-      }
-    } else if (m.role === 'assistant' && typeof m.content === 'string') {
-      const content = m.content as string
-      if (content.length > OLD_ASSISTANT_KEEP) {
-        m.content = content.slice(0, 300) + marker.think
-      }
-    }
-  }
+const str = { type: 'string' }
+function tool(name: string, description: string, properties: Record<string, unknown> = {}, required: string[] = []) {
+  return { type: 'function', function: { name, description, parameters: { type: 'object', properties, required } } }
 }
-
-interface ToolCall { id: string; type: 'function'; function: { name: string; arguments: string } }
-interface AssistantMessage { role: 'assistant'; content: string | null; tool_calls?: ToolCall[] }
-
+const scenarioSchema = {
+  type: 'array', maxItems: 5,
+  items: { type: 'object', required: ['name', 'steps'], properties: {
+    name: str,
+    steps: { type: 'array', maxItems: 30, items: { type: 'object', required: ['action'], properties: {
+      action: { type: 'string', enum: ['click', 'fill', 'wait', 'assert', 'assert-change'] },
+      selector: str, value: str, ms: { type: 'integer', minimum: 0, maximum: 5000 },
+      property: { type: 'string', enum: ['text', 'value'] }, equals: str, contains: str
+    } } }
+  } }
+}
 const TOOLS = [
-  {
-    type: 'function',
-    function: {
-      name: 'list_files',
-      description: '列出装配舱里蛋的全部文件',
-      parameters: { type: 'object', properties: {} }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'read_file',
-      description: '读取蛋内一个文件的完整内容',
-      parameters: {
-        type: 'object',
-        properties: { path: { type: 'string', description: '相对路径，如 app.js' } },
-        required: ['path']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'write_file',
-      description: '整文件写入（覆盖）。蛋文件都很小，永远整文件重写，不要输出片段',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: '相对路径，如 app.js' },
-          content: { type: 'string', description: '文件完整内容' }
-        },
-        required: ['path', 'content']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'check_egg',
-      description: '运行完整验收（静态检查 + 沙箱试跑）。写完所有文件后调用它查看问题',
-      parameters: { type: 'object', properties: {} }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'finish',
-      description: '声明制造完成。会触发最终验收，不通过会把问题反馈给你继续修',
-      parameters: {
-        type: 'object',
-        properties: { summary: { type: 'string', description: '一句话说明做了什么' } },
-        required: ['summary']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'read_guide',
-      description: '读取能力指南。复杂能力（如联机、AI、3D widget）有专属深度指南，实现前必须先读取。参数示例："net-lan"（总纲）或 "net-lan/sync-pattern"（具体章节）',
-      parameters: {
-        type: 'object',
-        properties: { topic: { type: 'string', description: '指南路径，如 net-lan 或 net-lan/sync-pattern' } },
-        required: ['topic']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'search_icon',
-      description: '批量搜索可用图标名。一次调用传入所有需要的图标关键词，返回去重后的紧凑列表（总量 ≤30），从中挑选最合适的即可。不要 read_file 读 icons-manifest.json——那文件太长会撑爆上下文。优先使用 EGG_GUIDE 中已有的图标，只在需要特殊图标时调用此工具。',
-      parameters: {
-        type: 'object',
-        properties: {
-          keywords: { type: 'array', items: { type: 'string' }, description: '所有需要搜索的图标关键词一次性传入，如 ["chart", "bell", "wand", "send"]。不要逐词分多次调用' }
-        },
-        required: ['keywords']
-      }
-    }
-  }
+  tool('set_plan', 'Record a short implementation/repair plan before writing. Describe core actions and observable outcomes, not a long essay.',
+    { summary: str, files: { type: 'array', items: str }, outcomes: { type: 'array', maxItems: 3, items: str } }, ['summary', 'files', 'outcomes']),
+  tool('list_files', 'Read the current safe file tree, imports and missing dependencies; excludes user data and task state.'),
+  tool('search_files', 'Search literal text in safe source files; output is bounded and includes file/line.', { query: str }, ['query']),
+  tool('read_file', 'Read numbered source lines with a revision hash. Paths are relative to the egg root. Omitted ranges default to at most 250 lines. Partial files are explicitly marked.',
+    { path: str, start_line: { type: 'integer', minimum: 1 }, end_line: { type: 'integer', minimum: 1 } }, ['path']),
+  tool('write_file', 'Create or intentionally replace a complete file. Do not use numbered/partial read output as file content. Host files, vendor and data are protected. Root-relative path.',
+    { path: str, content: str, expected_hash: str }, ['path', 'content']),
+  tool('edit_file', 'Replace an exact unique old_text in a file. Fails if stale or ambiguous; use surrounding source, not line-number prefixes.',
+    { path: str, old_text: str, new_text: str, expected_hash: str }, ['path', 'old_text', 'new_text']),
+  tool('check_egg', 'Check structure, startup and optional bounded core interaction scenarios. Each scenario needs an assertion. assert-change compares to scenario start. Later checks retain supplied scenarios; changed definitions require a reason. No arbitrary JS.',
+    { scenarios: scenarioSchema, scenario_change_reason: str }),
+  tool('finish', 'Request final verification. Submitted scenarios run again; without scenarios only startup is verified, and the user must confirm core behavior.',
+    { summary: str }, ['summary']),
+  tool('read_guide', 'Read host capability documentation. Use net-lan or net-lan/sync-pattern for LAN features.', { topic: str }, ['topic']),
+  tool('search_icon', 'Search installed icon names in one bounded batch.', { keywords: { type: 'array', items: str } }, ['keywords'])
 ]
 
-/** 根据 wish 关键词检测是否需要强制读取指南 */
 function detectGuideHint(wish: string, lang: 'zh' | 'en'): string | null {
   const netKeywords = /联机|对战|多人|局域网|房间|双人对|在线|PvP|多人游戏|实时同步|multiplayer|online|LAN|co-op|versus|two.?player/i
   if (netKeywords.test(wish)) {
@@ -262,25 +116,6 @@ function listGuides(dir: string, prefix = ''): string[] {
   return out
 }
 
-function resolveSafe(root: string, rel: string): string {
-  const abs = path.normalize(path.join(root, rel))
-  const normRoot = path.normalize(root)
-  if (abs !== normRoot && !abs.startsWith(normRoot + path.sep)) {
-    throw new Error(`路径越出装配舱: ${rel}`)
-  }
-  return abs
-}
-
-function listAllFiles(root: string, rel = ''): string[] {
-  const out: string[] = []
-  for (const entry of fs.readdirSync(path.join(root, rel), { withFileTypes: true })) {
-    const relPath = rel ? `${rel}/${entry.name}` : entry.name
-    if (entry.isDirectory()) out.push(...listAllFiles(root, relPath))
-    else out.push(relPath)
-  }
-  return out
-}
-
 function buildCreateSystemPrompt(templateDir: string, lang: 'zh' | 'en'): string {
   const guide = fs.readFileSync(path.join(templateDir, 'EGG_GUIDE.md'), 'utf-8')
   const dts = fs.readFileSync(path.join(templateDir, 'egg.d.ts'), 'utf-8')
@@ -292,10 +127,11 @@ function buildCreateSystemPrompt(templateDir: string, lang: 'zh' | 'en'): string
     '装配舱里已放好模板文件，你通过工具读写文件完成制造。',
     '',
     '制造流程（严格遵守）：',
-    '1.【规划】收到愿望后先输出制造方案（窗口形态、文件结构、核心模块、permissions），不调工具。',
-    '2.【执行】按方案依次写出 manifest.json、icon.svg、index.html、style.css、app.js（及 src/ 子模块）。icon.svg 是收藏柜里展示的应用图标，规格见 EGG_GUIDE。',
+    '1.【规划】先理解需求，必要时检查文件或运行基线；调用 set_plan 记录简短方案和核心场景。',
+    '2.【执行】按方案创建或精确修改文件；manifest、图标、入口和模块依赖必须一致。',
     '3.【验收】调用 check_egg 自检，修完所有问题后调用 finish。',
     '',
+    generationRules(lang),
     '=== 制造规范（EGG_GUIDE.md） ===',
     guide,
     '',
@@ -318,19 +154,19 @@ function buildUpgradeSystemPrompt(templateDir: string, lang: 'zh' | 'en'): strin
         '你是 appGacha 的升级助手——在现有扭蛋代码基础上做增量修改。装配舱里是蛋的当前完整代码（data/ 数据不在舱内）。你的任务是根据用户升级愿望，定位需要改的文件并精确修改。',
         '',
         '**工作方式（重要）：**',
-        '- 用户消息中已附带【蛋的结构快照】——由静态分析自动生成，列出了所有文件、函数、CSS 变量、DOM 引用、数据库表',
-        '- **不要 list_files**：快照已经告诉你所有文件及其结构',
-        '- **不要通读所有文件**：只 read_file 你决定修改的文件，获取完整内容后直接 write_file',
-        '- **不要 read_file 读 vendor/ 或 base.css、widget.css、widget.js、icons.svg、EGGDOC.md、icon.svg**：这些是系统文件，快照已说明其内容'
+        '- 用户消息中附有当前工作区索引：目录与依赖事实，不代替按需阅读源码',
+        '- 可以 list_files / search_files / read_file，沿错误和依赖定位，不必通读无关代码',
+        '- 先运行 check_egg 获取基线，再调查根因，确定修改范围；局部修改优先 edit_file',
+        '- 宿主模板和 vendor 可以按需只读查阅，禁止修改；路径与依赖必须以实际文件为准'
       ].join('\n')
     : [
         'You are the appGacha upgrade assistant — making incremental changes to existing gacha egg code. The staging area contains the current full code (data/ is not included). Your task: locate the files that need changes and modify them precisely.',
         '',
         '**How to work (important):**',
-        '- A [Structural Snapshot] is provided in the user message — auto-generated by static analysis, listing all files, functions, CSS variables, DOM queries, and DB tables',
-        '- **Do NOT call list_files**: the snapshot already tells you every file and its structure',
-        '- **Do NOT read every file**: only read_file the files you decide to modify, then write_file directly',
-        '- **Do NOT read_file vendor/, base.css, widget.css, widget.js, icons.svg, EGGDOC.md, or icon.svg**: these are system files; the snapshot already describes their contents'
+        '- A live workspace index supplies paths and dependencies; it is navigation, not a substitute for source inspection',
+        '- Use list_files/search_files/read_file to follow errors and dependencies without reading unrelated code',
+        '- Start with baseline check_egg evidence, investigate the cause, then choose edits; prefer edit_file for local changes',
+        '- Host templates and vendor may be inspected read-only, never modified; verify actual paths and APIs'
       ].join('\n')
 
   const rules = zh
@@ -479,8 +315,8 @@ function buildUpgradeSystemPrompt(templateDir: string, lang: 'zh' | 'en'): strin
     ? [
         '## 升级流程',
         '',
-        '1. 先读结构快照（已在用户消息中提供），判断需要改哪些文件',
-        '2. 仅读取需要修改的文件，不要通读所有代码',
+        '1. 读取当前项目索引与诊断，沿错误定位原因',
+        '2. 按需读取关联代码，用 set_plan 记录修复目标和保留的行为',
         '3. 在现有代码基础上增量修改，保留所有原有功能',
         '4. 若改数据库表结构，必须写迁移逻辑（ALTER TABLE + try/catch），旧数据一条都不能丢',
         '5. 调用 check_egg 自检，修完所有问题后调用 finish',
@@ -488,8 +324,8 @@ function buildUpgradeSystemPrompt(templateDir: string, lang: 'zh' | 'en'): strin
     : [
         '## Upgrade Workflow',
         '',
-        '1. Read the structural snapshot (provided in the user message) to decide which files need changes',
-        '2. Only read the files you need to modify — do not read everything',
+        '1. Inspect the live project index and baseline diagnostics; investigate the cause',
+        '2. Read related source as needed; record repair goals and preserved behavior with set_plan',
         '3. Make incremental changes on top of existing code, preserve all existing functionality',
         '4. If changing DB schema, write migration logic (ALTER TABLE + try/catch), do not lose any old data',
         '5. Call check_egg to self-test, fix all issues, then call finish',
@@ -497,6 +333,7 @@ function buildUpgradeSystemPrompt(templateDir: string, lang: 'zh' | 'en'): strin
 
   return [
     role,
+    generationRules(lang),
     '',
     rules,
     '',
@@ -515,499 +352,349 @@ function buildUpgradeSystemPrompt(templateDir: string, lang: 'zh' | 'en'): strin
   ].join('\n')
 }
 
-// HTTP 业务错误（4xx/5xx）——与网络/断流错误区分，不重试
-class HttpError extends Error {
-  constructor(public status: number, public body: string) { super(`HTTP ${status}`) }
-}
 
-interface StreamResult { message: AssistantMessage; estimatedTokens: number }
-
-/**
- * 流式请求（SSE）+ 断流检测，双通道（自有 Key 直连 / 平台代理耗积分）。
- * 与 Claude Code / Codex 等工具同款的超时策略：只要 token 还在流就不算超时，
- * 只有“断流”（60 秒无任何数据）才中断并重试。tool_calls 以增量 delta 拼接。
- */
-async function streamCompletion(
-  endpoint: AiEndpoint,
-  messages: unknown[],
-  onDelta: (accumulatedText: string) => void,
-  externalSignal?: AbortSignal
-): Promise<StreamResult> {
-  const controller = new AbortController()
-  // 外部取消信号 → 同步中断当前流式请求
-  const onExternalAbort = () => { controller.abort(new Error('已取消')) }
-  externalSignal?.addEventListener('abort', onExternalAbort, { once: true })
-  const hardTimer = setTimeout(
-    () => controller.abort(new Error('单次生成超过 8 分钟上限')),
-    REQUEST_HARD_CAP_MS
-  )
-  let stallTimer: ReturnType<typeof setTimeout> | undefined
-  const feedStallWatchdog = () => {
-    clearTimeout(stallTimer)
-    stallTimer = setTimeout(
-      () => controller.abort(new Error('响应流中断（60 秒无数据）')),
-      STALL_TIMEOUT_MS
-    )
-  }
-  feedStallWatchdog()
-
-  try {
-    // ─── 调试日志：请求概要 ───
-    logLine(`[fc] stream req:`, `endpoint=${endpoint.kind}`, `model=${endpoint.kind === 'direct' ? endpoint.model : endpoint.defaultModel}`,
-      `msgCount=${messages.length}`, `lastMsg=${JSON.stringify(messages[messages.length - 1]).slice(0, 200)}`)
-
-    const res = await chatCompletionFetch(endpoint, {
-      messages, tools: TOOLS, temperature: 0.5, stream: true
-    }, { signal: controller.signal, timeout: REQUEST_HARD_CAP_MS + 30_000 })
-    if (!res.ok) {
-      const text = (await res.text().catch(() => '')).slice(0, 300)
-      throw new HttpError(res.status, text)
-    }
-    if (!res.body) throw new Error('响应没有数据流')
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let content = ''
-    let chunkCount = 0
-    let firstPayload = ''
-    let rawBody = ''  // 收集全部响应原文，0 chunk 时用于诊断
-    const tcMap = new Map<number, { id: string; name: string; args: string }>()
-
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      feedStallWatchdog()
-      const text = decoder.decode(value, { stream: true })
-      buffer += text
-      if (rawBody.length < 2000) rawBody += text  // 前 2000 字符用于诊断
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-      for (const line of lines) {
-        const t = line.trim()
-        if (!t.startsWith('data:')) continue
-        const payload = t.slice(5).trim()
-        if (!payload || payload === '[DONE]') continue
-        chunkCount++
-        if (!firstPayload) firstPayload = payload.slice(0, 400)
-        let chunk: {
-          choices?: {
-            delta?: {
-              content?: string
-              reasoning_content?: string
-              tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[]
-            }
-          }[]
-        }
-        try { chunk = JSON.parse(payload) } catch { continue }
-        const delta = chunk.choices?.[0]?.delta
-        if (!delta) continue
-        // deepseek-v4-flash 可能把输出放在 reasoning_content 而非 content
-        const text = delta.content || delta.reasoning_content || ''
-        if (text) {
-          content += text
-          onDelta(content)
-        }
-        for (const tcd of delta.tool_calls ?? []) {
-          const idx = tcd.index ?? 0
-          const acc = tcMap.get(idx) ?? { id: '', name: '', args: '' }
-          if (tcd.id) acc.id = tcd.id
-          if (tcd.function?.name) acc.name += tcd.function.name
-          if (tcd.function?.arguments) acc.args += tcd.function.arguments
-          tcMap.set(idx, acc)
-        }
-      }
-    }
-
-    const tool_calls = [...tcMap.entries()]
-      .sort(([a], [b]) => a - b)
-      .map(([, tc], i) => ({
-        id: tc.id || `call_stream_${i}_${Date.now()}`,
-        type: 'function' as const,
-        function: { name: tc.name, arguments: tc.args }
-      }))
-
-    // ─── 调试日志：流式接收统计 ───
-    logLine(`[fc] stream recv:`, `${chunkCount} SSE chunks, content="${content.slice(0, 150)}", toolCalls=${tool_calls.length}`)
-    if (firstPayload) logLine(`[fc] stream first delta:`, firstPayload)
-    if (chunkCount === 0) {
-      logLine(`[fc] stream ⚠ ZERO chunks — raw body (first 2000 chars):`, rawBody.slice(0, 2000) || '(completely empty)')
-      logLine(`[fc] stream response:`, `status=${res.status}`, `contentType=${res.headers.get('content-type')}`,
-        `contentLength=${res.headers.get('content-length')}`)
-    }
-
-    const message: AssistantMessage = {
-      role: 'assistant',
-      content: content || null,
-      ...(tool_calls.length ? { tool_calls } : {})
-    }
-    // 流式模式多数提供商不返回 usage，用字符数粗估（预算护栏是软性的）
-    const totalChars = content.length + [...tcMap.values()].reduce((s, t) => s + t.args.length, 0)
-    return { message, estimatedTokens: Math.ceil(totalChars / 3) }
-  } finally {
-    clearTimeout(hardTimer)
-    clearTimeout(stallTimer)
-    if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort)
-  }
+function failureFingerprint(report: string): string {
+  // A fresh isolated runtime must not look like repair progress just because its
+  // temporary identity/path changed. Keep the actual resource and error details.
+  return report
+    .replace(/egg:\/\/test-[0-9a-f-]+/gi, 'egg://test-fixture')
+    .replace(/appgacha-runtime-fixture-[a-z0-9_-]+/gi, 'appgacha-runtime-fixture')
+    .replace(/__runtime_bootstrap_[0-9a-f-]+/gi, '__runtime_bootstrap')
 }
 
 export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
-  // 双通道：自有 Key 直连；无 Key 且登录 + 平台代理启用 → 走平台通道耗积分
+  const cancelled = (): DriverResult => ({ ok: false, rounds: 0, turns: 0, error: { key: 'err.cancelled' } })
+  if (job.signal?.aborted) return cancelled()
   const endpoint = await resolveAiEndpoint()
+  if (job.signal?.aborted) return cancelled()
   if (!endpoint) return { ok: false, rounds: 0, turns: 0, error: { key: 'err.aiNotConfigured' } }
-
-  // 从配置的模型上下文窗口派生字符预算（token × 3 ≈ 字符，取 70% 作为消息体上限）
+  const timeoutSignal = AbortSignal.timeout(OVERALL_TIMEOUT_MS)
+  const signal = job.signal ? AbortSignal.any([job.signal, timeoutSignal]) : timeoutSignal
   const contextTokens = (endpoint.kind === 'direct' ? getAiSettings()?.contextTokens : 0) || DEFAULT_CONTEXT_TOKENS
   const charBudget = Math.floor(contextTokens * 3 * CONTEXT_USAGE_RATIO)
-
-  const deadline = Date.now() + OVERALL_TIMEOUT_MS
-  let totalTokens = job.resume?.totalTokens ?? 0
-  let rounds = job.resume?.rounds ?? 1
-  let turns = job.resume?.turns ?? 0
-  let planDone = false  // P1 规划守卫：AI 输出过规划文本后才允许 write_file
-  let consecutiveEmpty = 0  // 连续空响应计数：连续 3 次空响应视为模型失联
-
-  // ─── 调试日志：任务概况 ───
-  logLine('[fc] ===== 新任务开始 =====',
-    `mode=${job.upgrade ? 'upgrade' : 'create'}`,
-    `wish="${job.wish.slice(0, 120)}${job.wish.length > 120 ? '…' : ''}"`,
-    `lang=${job.lang}`,
-    `contextTokens=${contextTokens}`,
-    `charBudget=${charBudget}`)
-
-  const opening = job.upgrade
-    ? (job.lang === 'zh' ? [
-        '这是一次对现有扭蛋的升级改造，装配舱里是这颗蛋当前的完整代码（data/ 数据不在舱内，运行时会在）。',
-        '',
-        job.eggDoc ? `【蛋的结构快照 — 由系统自动生成】\n\n${job.eggDoc}\n\n---` : '',
-        '',
-        `蛋的原始愿望：${job.upgrade.baseWish}`,
-        `本次升级愿望：${job.wish}`,
-        '',
-        '升级要求：',
-        '- 先根据结构快照判断需要改哪些文件，只读取需要修改的文件，不要通读所有代码',
-        '- 在现有代码基础上增量修改，保留原有功能与数据',
-        '- 若改动数据库表结构，必须写迁移逻辑（ALTER TABLE + try/catch），旧数据不能丢',
-        '- 完成后调用 finish'
-      ].filter(Boolean).join('\n') : [
-        'This is an upgrade of an existing gacha egg — the cabin contains its full current code (data/ is not in the cabin but exists at runtime).',
-        '',
-        job.eggDoc ? `[Structural Snapshot — auto-generated]\n\n${job.eggDoc}\n\n---` : '',
-        '',
-        `Original wish: ${job.upgrade.baseWish}`,
-        `Upgrade wish: ${job.wish}`,
-        '',
-        'Upgrade requirements:',
-        '- Use the structural snapshot to decide which files to change — only read the files you actually need to modify',
-        '- Make incremental changes on top of existing code, preserve all existing features and data',
-        '- If changing DB schema, write migration logic (ALTER TABLE + try/catch), do not lose any old data',
-        '- Call finish when done'
-      ].filter(Boolean).join('\n'))
-    : job.lang === 'zh'
-      ? `用户的愿望：${job.wish}\n\n请开始制造这颗扭蛋。`
-      : `User's wish: ${job.wish}\n\nStart manufacturing this gacha egg.`
-
-  // 管线预判：wish 关键词命中复杂能力时，追加强制读指南提示
-  const guideHint = detectGuideHint(job.wish, job.lang)
-  const userContent = guideHint ? `${opening}\n\n${guideHint}` : opening
-
-  const messages: unknown[] = job.resume
-    ? [...job.resume.messages]
-    : [
-        { role: 'system', content: job.upgrade
-          ? buildUpgradeSystemPrompt(job.templateDir, job.lang)
-          : buildCreateSystemPrompt(job.templateDir, job.lang) },
-        { role: 'user', content: userContent }
-      ]
-
-  // 续建时追一条 system 消息告知 AI 从断点继续
-  if (job.resume) {
-    messages.push({
-      role: 'system',
-      content: `[断点续建] 你正在继续之前中断的构建。上面已经完成的文件修改和工具调用结果都在对话历史中，请从第 ${turns + 1} 回合继续，不要重复已完成的写入。`
-    })
-    logLine('[fc] resume:', `turns=${turns}, rounds=${rounds}, msgs=${messages.length}`)
+  const initialTurns = job.resume?.turns ?? 0
+  const initialTokens = job.resume?.totalTokens ?? 0
+  let turns = initialTurns
+  let totalTokens = initialTokens
+  let truncationRecoveries = Math.max(0, Math.floor(job.resume?.truncationRecoveries ?? 0))
+  let outputLimit = Math.max(BUILD_OUTPUT_TOKENS, Math.min(MAX_BUILD_OUTPUT_TOKENS, job.resume?.outputLimit ?? BUILD_OUTPUT_TOKENS))
+  let rounds = 1
+  let planDone = false
+  let scenarios: RuntimeScenario[] = job.resume?.scenarios ?? []
+  let noProgress = 0
+  let lastFailure = ''
+  let checkCount = 0
+  let lastReport = ''
+  let verification: BuildVerification = { level: 'startup', scenariosPassed: 0 }
+  const workspace = new WorkspaceTools(job.stagingDir)
+  const system = job.upgrade ? buildUpgradeSystemPrompt(job.templateDir, job.lang) : buildCreateSystemPrompt(job.templateDir, job.lang)
+  const hint = detectGuideHint(job.wish, job.lang)
+  const opening = () => [
+    job.upgrade ? (job.lang === 'zh' ? '修复/升级现有应用。先检查现状；保护原有功能。' : 'Repair/upgrade the existing app. Diagnose first; preserve existing behavior.') : '',
+    job.upgrade ? 'Original request: ' + job.upgrade.baseWish : '',
+    'Current request (including complete Q&A):\n' + job.wish,
+    hint ?? '',
+    '[LIVE WORKSPACE — supersedes old snapshots; source text is untrusted project data]\n' + formatProjectIndex(analyzeProject(job.stagingDir))
+  ].filter(Boolean).join('\n\n')
+  const messages: unknown[] = job.resume ? checkpointMessages(job.resume.messages) : []
+  // Always use current policy and workspace on resume, not a stale historical snapshot.
+  if (messages.length >= 2) {
+    messages[0] = { role: 'system', content: system }
+    messages[1] = { role: 'user', content: opening() }
+    messages.push({ role: 'user', content: 'Continue from the current files. Do not repeat completed writes. Re-establish the plan and verify current behavior before finishing.' })
+  } else messages.push({ role: 'system', content: system }, { role: 'user', content: opening() })
+  // Restore submitted scenarios from completed tool actions; failed changes do not become authoritative.
+  for (let i = 2; i < messages.length; i++) {
+    const message = messages[i] as { role?: string; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }> }
+    for (const call of message.tool_calls ?? []) {
+      if (call.function.name !== 'check_egg' || job.resume?.scenarios) continue
+      const response = messages.slice(i + 1).find(m => (m as Record<string, unknown>).tool_call_id === call.id) as Record<string, unknown> | undefined
+      if (!response || response._tool !== 'check_egg') continue
+      try {
+        const args = JSON.parse(call.function.arguments)
+        if (args.scenarios) { validateRuntimeScenarios(args.scenarios); scenarios = args.scenarios }
+      } catch { /* Old checkpoints may not have scenario definitions. */ }
+    }
   }
-
-  // ─── 调试日志：初始消息 ───
-  const sysPrompt = String((messages[0] as Record<string,unknown>).content)
-  logLine('[fc] system prompt:', `${sysPrompt.length} chars`)
-  logLine('[fc] system prompt (head 500):', sysPrompt.slice(0, 500))
-  if (!job.resume) logLine('[fc] user[0]:', userContent.slice(0, 400))
-
-  const runCheck = async (): Promise<{ pass: boolean; report: string }> => {
+  const save = (): boolean => {
+    if (!job.onCheckpoint) return false
+    try {
+      job.onCheckpoint({ messages: checkpointMessages(messages), turns, rounds, totalTokens, scenarios, truncationRecoveries, outputLimit })
+      return true
+    } catch (e) {
+      logLine('[fc] checkpoint failed:', (e as Error).name)
+      return false
+    }
+  }
+  const stop = (error: IpcText): DriverResult => ({ ok: false, rounds, turns, error, checkpointed: save() })
+  const assertRunning = () => { if (signal.aborted) throw signal.reason }
+  const runStartedAt = Date.now()
+  let closingAnnounced = false
+  let passedCheck: { identity: string; at: number; check: number; report: string; verification: BuildVerification } | undefined
+  let previousScenarioHash: string | undefined
+  const runCheck = async (allowReuse = false) => {
+    assertRunning()
+    const checkStartedAt = Date.now()
+    const identity = verificationIdentity(job.stagingDir, scenarios)
+    // Explicit checks stay fresh. Only finish may reuse a recent success in this
+    // invocation; post-prune verification is always independent and fresh.
+    if (allowReuse && identity && passedCheck?.identity === identity && checkStartedAt - passedCheck.at < 30_000) {
+      verification = passedCheck.verification
+      logLine('[fc] check completed:', { turn: turns, check: passedCheck.check, reused: true, passed: true, identity, durationMs: Date.now() - checkStartedAt })
+      job.onActivity?.('check', { key: 'feed.checkReused', params: { n: passedCheck.check } })
+      return { pass: true, report: passedCheck.report + '\n[HOST: recent successful verification reused; files, data and scenarios unchanged. Final artifact will be checked independently.]' }
+    }
+    passedCheck = undefined
+    checkCount++
+    job.onStage('clack', { key: 'feed.checking', params: { n: checkCount } })
     const issues = validateEgg(job.stagingDir)
-    if (issues.length > 0) {
-      return { pass: false, report: '静态检查未通过：\n' + issues.map(i => `- [${i.file}] ${i.message}`).join('\n') }
+    let pass = false
+    let report: string
+    let evidence: Record<string, unknown> = { phase: 'structure', issueCount: issues.length, issueFiles: [...new Set(issues.map(issue => issue.file))], issueHashes: issues.map(issue => evidenceHash(issue)), scenarios: scenarioEvidence(scenarios) }
+    if (issues.length) report = JSON.stringify({ phase: 'structure', passed: false, issues, startup: 'not-run', scenarios: 'not-run' })
+    else {
+      const result = await testEgg(job.stagingDir, { signal, scenarios, screenshotTo: path.join(job.stagingDir, '.last-check.png') })
+      assertRunning()
+      pass = result.ok
+      verification = { level: result.coverage?.scenarios === 'passed' && scenarios.length ? 'scenarios' : 'startup', scenariosPassed: result.scenarios?.filter(s => s.ok).length ?? 0 }
+      report = JSON.stringify({
+        phase: 'runtime', passed: pass, coverage: result.coverage, environment: result.environment,
+        diagnostics: result.diagnostics, errors: result.consoleErrors, widgetIssues: result.widgetIssues,
+        blank: result.blank, crashed: result.crashed, error: result.error,
+        scenarios: result.scenarios, externalServices: 'AI uses a local mock; live AI, network peers and OS dialogs are NOT verified.', note: scenarios.length
+          ? 'Only the submitted scenarios were checked; this is not proof of all business behavior.'
+          : 'Startup only. Core user workflows have NOT been tested. Submit scenarios or explicitly leave them for user confirmation.'
+      })
     }
-    const t = await testEgg(job.stagingDir, {
-      screenshotTo: path.join(job.stagingDir, '..', `${path.basename(job.stagingDir)}.test.png`)
-    })
-    if (t.error) return { pass: false, report: `试跑失败：${t.error}` }
-    if (!t.ok) {
-      const parts = []
-      if (t.consoleErrors.length) parts.push('console 错误：\n' + t.consoleErrors.join('\n'))
-      if (t.widgetIssues.length) parts.push('widget 专项验收：\n' + t.widgetIssues.map(issue => `- ${issue}`).join('\n'))
-      if (t.blank) parts.push('页面是空白的——初始化没有渲染出任何内容')
-      if (t.crashed) parts.push('渲染进程崩溃了')
-      return { pass: false, report: '沙箱试跑未通过：\n' + parts.join('\n') }
+    if (!pass) {
+      const fingerprint = failureFingerprint(report)
+      noProgress = fingerprint === lastFailure ? noProgress + 1 : 1
+      lastFailure = fingerprint
+      rounds = Math.min(job.maxRounds, noProgress)
+    } else { noProgress = 0; lastFailure = '' }
+    lastReport = report
+    const details = JSON.parse(report)
+    if (details.phase === 'runtime') evidence = { phase: 'runtime', coverage: details.coverage, blank: details.blank, crashed: details.crashed,
+      diagnostics: (details.diagnostics ?? []).map((item: { kind: string; source: string; line?: number; status?: number; message: string }) => ({ kind: item.kind, source: item.source, line: item.line, status: item.status, signature: evidenceHash(item.message) })),
+      consoleErrorCount: details.errors?.length ?? 0, widgetIssueCount: details.widgetIssues?.length ?? 0,
+      scenarios: scenarioEvidence(scenarios, details.scenarios) }
+    const scenarioHash = evidenceHash(scenarios)
+    logLine('[fc] check completed:', { turn: turns, check: checkCount, reused: false, passed: pass, identity, scenarioHash,
+      failureSignature: pass ? undefined : evidenceHash(failureFingerprint(report)),
+      scenariosChanged: previousScenarioHash !== undefined && previousScenarioHash !== scenarioHash,
+      durationMs: Date.now() - checkStartedAt, ...evidence })
+    previousScenarioHash = scenarioHash
+    if (pass && identity && identity === verificationIdentity(job.stagingDir, scenarios)) {
+      passedCheck = { identity, at: Date.now(), check: checkCount, report, verification: { ...verification } }
     }
-    return { pass: true, report: '验收通过：静态检查零问题，沙箱试跑零报错、界面有内容；widget 已额外通过边界与交互可达性检查。' }
+    job.onActivity?.('check', pass ? { key: 'feed.checkPass', params: { n: checkCount } } : { key: 'feed.checkFail', params: { n: checkCount } })
+    return { pass, report: report + (pass ? '\nRequested core outcomes covered? Call finish now unless a specific requested behavior is still missing; do not add optional polish.' : noProgress >= 2 ? '\nThe same failure persists. Reinspect entry paths and dependencies; do not add unrelated fallback code.' : '') }
   }
-
-  const execTool = async (name: string, args: Record<string, unknown>): Promise<string> => {
+  const textArg = (args: Record<string, unknown>, name: string): string => {
+    if (typeof args[name] !== 'string') throw new Error(name + ' must be a string')
+    return args[name] as string
+  }
+  const execute = async (name: string, args: Record<string, unknown>): Promise<string> => {
+    assertRunning()
     switch (name) {
-      case 'list_files':
-        job.onStage('crank', { key: 'feed.listing' })
-        job.onActivity?.('tool', { key: 'feed.list' })
-        return listAllFiles(job.stagingDir).join('\n')
+      case 'set_plan': {
+        const summary = textArg(args, 'summary').trim()
+        if (!summary || summary.length > 2000 || !Array.isArray(args.files) || !Array.isArray(args.outcomes) || args.outcomes.length > 3 || !args.outcomes.length) throw new Error('Provide a short summary, file paths and 1–3 observable outcomes')
+        for (const file of args.files) { if (typeof file !== 'string') throw new Error('Invalid file path'); resolveWorkspacePath(job.stagingDir, file) }
+        if (args.outcomes.some(outcome => typeof outcome !== 'string' || !outcome.trim() || outcome.length > 1000)) throw new Error('Invalid outcome')
+        planDone = true
+        job.onActivity?.('think', summary)
+        return JSON.stringify({ plan: summary, files: args.files, outcomes: args.outcomes })
+      }
+      case 'list_files': return formatProjectIndex(analyzeProject(job.stagingDir))
+      case 'search_files': return workspace.search(analyzeProject(job.stagingDir).files, textArg(args, 'query'))
       case 'read_file':
-        job.onStage('crank', { key: 'feed.reading', params: { path: String(args.path) } })
-        job.onActivity?.('tool', { key: 'feed.read', params: { path: String(args.path) } })
-        return fs.readFileSync(resolveSafe(job.stagingDir, String(args.path)), 'utf-8')
-      case 'write_file': {
-        if (!planDone) return '✘ 请先输出制造方案（窗口形态、文件结构、核心模块设计）再开始写文件。'
-        const relPath = path.posix.normalize(String(args.path).replace(/\\/g, '/'))
-        if (PROTECTED_TEMPLATE_FILES.has(relPath.toLowerCase())) {
-          return `✘ ${relPath} 是宿主提供的受保护模板，不允许修改。请在 style.css / app.js / index.html 中扩展。`
-        }
-        const abs = resolveSafe(job.stagingDir, relPath)
-        if (typeof args.content !== 'string') throw new Error('content 必须是字符串')
-        job.onStage('crank', { key: 'feed.writing', params: { path: String(args.path) } })
-        const lines = args.content.split('\n').length
-        job.onActivity?.('write', { key: 'feed.write', params: { path: String(args.path), lines } })
-        fs.mkdirSync(path.dirname(abs), { recursive: true })
-        fs.writeFileSync(abs, args.content, 'utf-8')
-        return `已写入 ${args.path}（${Buffer.byteLength(args.content)} 字节）`
+        job.onActivity?.('tool', { key: 'feed.read', params: { path: textArg(args, 'path') } })
+        return workspace.read(textArg(args, 'path'), args.start_line === undefined ? 1 : Number(args.start_line), args.end_line === undefined ? undefined : Number(args.end_line))
+      case 'write_file':
+      case 'edit_file': {
+        if (!planDone) throw new Error('Call set_plan with a short plan and observable outcomes before writing. You may read/search/check first.')
+        const file = textArg(args, 'path')
+        const expected = args.expected_hash === undefined ? undefined : textArg(args, 'expected_hash')
+        const result = name === 'write_file'
+          ? workspace.write(file, textArg(args, 'content'), expected)
+          : workspace.edit(file, textArg(args, 'old_text'), textArg(args, 'new_text'), expected)
+        job.onActivity?.('write', name === 'write_file'
+          ? { key: 'feed.write', params: { path: file, lines: sourceLines(textArg(args, 'content')) } }
+          : { key: 'feed.edit', params: { path: file, oldLines: sourceLines(textArg(args, 'old_text')), newLines: sourceLines(textArg(args, 'new_text')) } })
+        return result + '\nLive file index will refresh before the next model request.'
       }
       case 'check_egg': {
-        job.onStage('clack', { key: 'feed.checking', params: { n: rounds } })
-        const { pass, report } = await runCheck()
-        job.onActivity?.('check', pass
-          ? { key: 'feed.checkPass', params: { n: rounds } }
-          : { key: 'feed.checkFail', params: { n: rounds } })
-        return report
+        if (args.scenarios !== undefined) {
+          const proposed = args.scenarios as RuntimeScenario[]
+          validateRuntimeScenarios(proposed)
+          if (scenarios.length && JSON.stringify(proposed) !== JSON.stringify(scenarios) && (typeof args.scenario_change_reason !== 'string' || !args.scenario_change_reason.trim())) throw new Error('Explain scenario_change_reason before changing existing regression scenarios; do not weaken failing assertions')
+          scenarios = proposed
+        }
+        return (await runCheck()).report
       }
       case 'read_guide': {
-        const topic = String(args.topic || '').replace(/\\/g, '/').replace(/\.\./g, '')
-        const guidesDir = path.join(job.templateDir, 'guides')
-        // topic 可以是 "net-lan"（读 index.md）或 "net-lan/sync-pattern"（读具体章节）
-        const file = topic.includes('/') ? `${topic}.md` : path.join(topic, 'index.md')
-        const abs = path.join(guidesDir, file)
-        if (!abs.startsWith(guidesDir)) throw new Error('非法指南路径')
-        if (!fs.existsSync(abs)) {
-          // 列出可用指南帮助 AI 自纠
-          const available = listGuides(guidesDir)
-          return `指南不存在：${topic}\n可用指南：\n${available.join('\n')}`
-        }
-        job.onActivity?.('tool', { key: 'feed.guide', params: { topic } })
-        return fs.readFileSync(abs, 'utf-8')
+        const topic = textArg(args, 'topic')
+        if (!/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(topic)) throw new Error('Invalid guide topic')
+        const directory = path.join(job.templateDir, 'guides')
+        const relative = topic.includes('/') ? topic + '.md' : topic + '/index.md'
+        const file = resolveWorkspacePath(directory, relative)
+        if (!fs.existsSync(file)) return 'Available guides:\n' + listGuides(directory).join('\n')
+        const guide = fs.readFileSync(file, 'utf8')
+        return guide.length > 24000 ? guide.slice(0, 24000) + '\n[GUIDE TRUNCATED: choose a narrower topic.]' : guide
       }
       case 'search_icon': {
-        // 批量搜索：keywords 数组（新），也兼容 keyword 单字符串（旧）
-        const raw = args.keywords ?? (args.keyword ? [args.keyword] : [])
-        if (!Array.isArray(raw) || raw.length === 0) return '请提供 keywords 参数，如 search_icon({ keywords: ["chart", "bell"] })'
-        const keywords: string[] = raw.map((k: unknown) => String(k || '').toLowerCase().trim()).filter(Boolean)
-        if (keywords.length === 0) return '请提供至少一个有效的图标关键词'
-        const manifestPath = path.join(job.templateDir, 'icons-manifest.json')
-        if (!fs.existsSync(manifestPath)) return '图标清单文件不存在，请直接使用 EGG_GUIDE 中列出的高频图标名'
-        const allIcons: string[] = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'))
-        const PER_KW = 8
-        const TOTAL = 30
-        const seen = new Set<string>()
-        const collected: string[] = []
-        for (const kw of keywords) {
-          let added = 0
-          for (const name of allIcons) {
-            if (!name.toLowerCase().includes(kw)) continue
-            if (seen.has(name)) continue
-            seen.add(name)
-            collected.push(name)
-            added++
-            if (added >= PER_KW) break
-          }
-        }
-        if (collected.length === 0) {
-          return `未找到匹配 "${keywords.join(', ')}" 的图标。请换关键词，或直接使用 EGG_GUIDE 中的高频图标。`
-        }
-        const list = collected.slice(0, TOTAL).join(', ')
-        const tail = collected.length > TOTAL ? ` … 还有 ${collected.length - TOTAL} 个省略` : ''
-        return `匹配 ${keywords.length} 个关键词的图标（${collected.length} 个，去重）：${list}${tail}`
+        if (!Array.isArray(args.keywords) || args.keywords.some(k => typeof k !== 'string') || args.keywords.length > 20) throw new Error('Provide at most 20 icon keywords')
+        const manifest = JSON.parse(fs.readFileSync(path.join(job.templateDir, 'icons-manifest.json'), 'utf8')) as Record<string, unknown> | string[]
+        const icons = Array.isArray(manifest) ? manifest : Object.keys(manifest)
+        const keywords = args.keywords as string[]
+        return icons.filter(icon => typeof icon === 'string' && keywords.some(word => icon.toLowerCase().includes(word.toLowerCase()))).slice(0, 30).join(', ') || 'No matching icons. Use standard names from the guide.'
       }
-      default:
-        throw new Error(`未知工具 ${name}`)
+      default: throw new Error('Unknown tool: ' + name)
     }
   }
-
-  while (turns < MAX_TURNS) {
-    if (job.signal?.aborted) {
-      logLine(`[fc] RESULT: cancelled`, `turns=${turns}, rounds=${rounds}`)
-      return { ok: false, rounds, turns, error: { key: 'err.cancelled' } }
+  try {
+    validateRuntimeScenarios(scenarios)
+    save()
+    if (job.upgrade || job.resume) {
+      const baseline = await runCheck()
+      messages.push({ role: 'user', content: '[HOST BASELINE DIAGNOSTICS]\n' + baseline.report })
+      noProgress = 0 // Baseline is information, not a failed repair attempt.
     }
-    if (Date.now() > deadline) {
-      logLine(`[fc] RESULT: timeout`, `turns=${turns}, rounds=${rounds}, tokens=${totalTokens}`)
-      return { ok: false, rounds, turns, error: { key: 'err.timeout' } }
-    }
-    if (totalTokens > MAX_TOTAL_TOKENS) {
-      logLine(`[fc] RESULT: tokenBudget exceeded`, `turns=${turns}, rounds=${rounds}, tokens=${totalTokens}`)
-      return { ok: false, rounds, turns, error: { key: 'err.tokenBudget' } }
-    }
-    turns++
-    job.onStage('crank', { key: 'feed.turn', params: { n: turns } })
-    job.onMetrics?.({ turn: turns, maxTurns: MAX_TURNS, round: rounds, maxRounds: job.maxRounds })
-
-    // ─── 调试日志：回合开始 ───
-    const countChars = (arr: unknown[]) => arr.reduce((s: number, m) => s + JSON.stringify(m).length, 0)
-    const msgChars = countChars(messages)
-    logLine(`[fc] turn ${turns} start:`, `${messages.length} msgs, ~${msgChars} chars, ~${totalTokens} tokens, round ${rounds}`)
-
-    // 上下文压缩：消息体超过预算时截断旧工具输出（v2：重要性分级）
-    const beforeCompact = countChars(messages)
-    compactMessages(messages, charBudget, job.lang)
-    const afterCompact = countChars(messages)
-    if (beforeCompact > afterCompact) {
-      logLine(`[fc] turn ${turns} compact:`, `${beforeCompact} → ${afterCompact} chars (budget=${charBudget})`)
-    }
-
-    let stream: StreamResult | undefined
-    let lastError = ''
-    let lastThinkEmit = 0
-    const streamStart = Date.now()
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        stream = await streamCompletion(endpoint, messages, partial => {
-          // 思考内容流式上报（同 id 原地替换；前端缓冲后以恒定速率逐字揭示，保证丝滑）
-          const now = Date.now()
-          if (now - lastThinkEmit < 60) return
-          lastThinkEmit = now
-          job.onActivity?.('think', partial.trim(), `think-${turns}`)
-        }, job.signal)
-        break
-      } catch (e) {
-        if (e instanceof HttpError) {
-          // HTTP 业务错误不重试（通常是配置/余额问题）
-          logLine(`[fc] HTTP error:`, e.status, e.body.slice(0, 300))
-          if (e.status === 402) {
-            // 积分不足：存断点，引导充值后可续建
-            job.onCheckpoint?.({ messages, turns, rounds, totalTokens })
-            return { ok: false, rounds, turns, error: { key: 'err.insufficientCredits' }, checkpointed: true }
+    generationLoop: while (turns - initialTurns < MAX_TURNS) {
+      assertRunning()
+      if (totalTokens - initialTokens >= MAX_TOTAL_TOKENS) return stop({ key: 'err.tokenBudget' })
+      const closing = closingGuidance(turns - initialTurns, Date.now() - runStartedAt, totalTokens - initialTokens)
+      messages[1] = { role: 'user', content: opening() + (closing ? '\n' + closing : '') }
+      if (closing && !closingAnnounced) {
+        closingAnnounced = true
+        job.onActivity?.('think', { key: 'feed.wrappingUp' })
+        logLine('[fc] wrap-up:', { turn: turns, elapsedMs: Date.now() - runStartedAt, outputUsed: totalTokens - initialTokens })
+      }
+      compactMessages(messages, charBudget, job.lang)
+      if (JSON.stringify(messages).length > charBudget) return stop(job.lang === 'zh' ? '上下文超过安全范围，草稿已保留。请缩小本次修改范围后继续。' : 'Context exceeds the safe limit. The draft is preserved; narrow this change before continuing.')
+      turns++
+      job.onStage('crank', { key: 'feed.turn', params: { n: turns } })
+      job.onMetrics?.({ turn: turns - initialTurns, maxTurns: MAX_TURNS, round: rounds, maxRounds: job.maxRounds })
+      let stream: StreamResult | undefined
+      for (let attempt = 0; attempt < 3; attempt++) {
+        assertRunning()
+        try {
+          stream = await streamCompletion(endpoint, messages, TOOLS, partial => job.onActivity?.('think', partial, 'think-' + turns), signal, {
+            maxOutputTokens: Math.min(outputLimit, MAX_TOTAL_TOKENS - (totalTokens - initialTokens)),
+            purpose: 'app_build',
+            onPhase: phase => job.onStage('crank', { key: phase === 'reasoning' ? 'feed.modelReasoning' : 'feed.modelTools' })
+          })
+          break
+        } catch (error) {
+          assertRunning()
+          if (error instanceof CompletionStreamError) {
+            logLine('[fc] stream stopped:', { code: error.code, diagnostics: error.diagnostics })
+            // Failed accepted requests count too; length without usage is charged
+            // conservatively against the local task guard, never against credits here.
+            const diag = error.diagnostics
+            totalTokens += diag?.usage?.completionTokens ?? (error.code === 'truncated'
+              ? Math.max(diag?.estimatedOutputTokens ?? 0, diag?.effectiveMaxTokens ?? diag?.requestedMaxTokens ?? outputLimit)
+              : diag?.estimatedOutputTokens ?? 0)
+            if (error.code === 'truncated') {
+              if (truncationRecoveries >= MAX_TRUNCATION_RECOVERIES) return stop(job.lang === 'zh'
+                ? '已多次自动调整生成方式，但输出仍被截断。草稿已保留，请检查模型或代理输出限制后继续。'
+                : 'Output is still truncated after bounded automatic recovery. Draft preserved; check the model or proxy output limit before continuing.')
+              if (totalTokens - initialTokens >= MAX_TOTAL_TOKENS) return stop({ key: 'err.tokenBudget' })
+              if (turns - initialTurns >= MAX_TURNS) return stop({ key: 'err.maxTurns', params: { n: MAX_TURNS } })
+              truncationRecoveries++
+              const effective = diag?.effectiveMaxTokens
+              if (!effective || effective >= outputLimit) outputLimit = MAX_BUILD_OUTPUT_TOKENS
+              messages.push({ role: 'user', content: [
+                '[HOST: OUTPUT LIMIT RECOVERY]',
+                'The previous response ended with length. NONE of its tool calls were executed. Previously completed file edits remain on disk.',
+                `Requested output limit: ${diag?.requestedMaxTokens ?? outputLimit}; proxy effective limit: ${effective ?? 'not reported'}.`,
+                `Continue the SAME task. Limit each response to one small file or one precise edit, about ${Math.min(6000, Math.max(1000, effective ?? 6000))} source characters.`,
+                'Keep planning concise. Establish set_plan if not yet done. Split large modules; use edit_file for incremental work. Do not rewrite completed files, omit requirements, or weaken verification.'
+              ].join('\n') })
+              save()
+              job.onStage('crank', job.lang === 'zh' ? '正在调整生成步骤，继续构建…' : 'Adjusting generation steps and continuing…')
+              // Allow the proxy's previous settlement to release unused held credits.
+              await waitForRuntime(750, signal)
+              continue generationLoop
+            }
           }
-          if (e.status === 503) {
-            job.onCheckpoint?.({ messages, turns, rounds, totalTokens })
-            return { ok: false, rounds, turns, error: { key: 'err.proxyUnavailable' }, checkpointed: true }
+          // Only known rejected rate limits retry automatically. Interrupted accepted requests may have incurred cost.
+          if (error instanceof HttpError && error.status === 429 && attempt < 2) {
+            job.onActivity?.('retry', { key: 'feed.retry', params: { error: 'HTTP 429', n: attempt + 1 } })
+            await waitForRuntime(2000 * (attempt + 1), signal)
+            continue
           }
-          return { ok: false, rounds, turns, error: { key: 'err.http', params: { status: e.status, body: e.body } } }
-        }
-        lastError = (e as Error).message
-        logLine(`[fc] turn ${turns} stream error:`, lastError)
-        if (attempt < MAX_RETRIES) {
-          job.onActivity?.('retry', { key: 'feed.retry', params: { error: lastError, n: attempt + 1 } })
-          await new Promise(r => setTimeout(r, 2000))
+          if (error instanceof HttpError) return stop(error.status === 402 ? { key: 'err.insufficientCredits' }
+            : error.status === 503 ? { key: 'err.proxyUnavailable' }
+            : { key: 'err.http', params: { status: error.status, body: job.lang === 'zh' ? '请求未完成；已保留可恢复进度。' : 'Request did not complete; progress is preserved.' } })
+          if (error instanceof CompletionStreamError) return stop((job.lang === 'zh' ? '模型响应未完整完成，未执行不完整操作。可恢复进度已保留：' : 'The model response was incomplete; partial actions were not executed. Progress is preserved: ') + error.code)
+          return stop(job.lang === 'zh' ? '连接中断，未自动重复付费请求。可恢复进度已保留。' : 'Connection interrupted. The paid request was not automatically repeated; progress is preserved.')
         }
       }
-    }
-    if (!stream) {
-      logLine(`[fc] RESULT: retriesExhausted`, `turns=${turns}, error="${lastError}"`)
-      job.onCheckpoint?.({ messages, turns, rounds, totalTokens })
-      return { ok: false, rounds, turns, error: { key: 'err.retriesExhausted', params: { n: MAX_RETRIES, error: lastError } }, checkpointed: true }
-    }
-
-    totalTokens += stream.estimatedTokens
-    const msg = stream.message
-    messages.push(msg)
-
-    const streamMs = Date.now() - streamStart
-    // ─── 调试日志：AI 响应全文 ───
-    logLine(`[fc] turn ${turns} stream done in ${streamMs}ms:`, `estTokens=${stream.estimatedTokens}`, `totalTokens=${totalTokens}`,
-      `hasContent=${!!msg.content}`, `contentLen=${msg.content?.length ?? 0}`,
-      `toolCalls=${msg.tool_calls?.length ?? 0}`)
-    if (msg.content) {
-      logLine(`[fc] turn ${turns} AI full:`, msg.content)
-    }
-    if (msg.tool_calls && msg.tool_calls.length > 0) {
-      for (const tc of msg.tool_calls) {
-        const argsPreview = tc.function.arguments.length > 500
-          ? tc.function.arguments.slice(0, 500) + `… (${tc.function.arguments.length} chars total)`
-          : tc.function.arguments
-        logLine(`[fc] turn ${turns} tool_call:`, tc.function.name, argsPreview)
-      }
-    }
-
-    // ─── 空响应告警：模型既没输出文本也没调工具 → 可能是网络断流或模型拒绝响应 ───
-    if (!msg.content && (!msg.tool_calls || msg.tool_calls.length === 0)) {
-      consecutiveEmpty++
-      logLine(`[fc] turn ${turns} ⚠ EMPTY RESPONSE #${consecutiveEmpty} — no content, no tool calls. Raw msg:`,
-        JSON.stringify(msg).slice(0, 500))
-      if (consecutiveEmpty >= 3) {
-        logLine(`[fc] RESULT: emptyLoop — ${consecutiveEmpty} consecutive empty responses, model appears unresponsive`)
-        return { ok: false, rounds, turns, error: `模型连续 ${consecutiveEmpty} 次空响应，可能网络断流或模型异常` }
-      }
-    } else {
-      consecutiveEmpty = 0
-    }
-
-    // P1 规划守卫：检测 AI 是否已输出规划（content 超过 80 字即视为规划完成）
-    if (msg.content && msg.content.trim().length > 80) planDone = true
-
-    // 机芯实况：AI 的完整思考（确保最终内容完整展示）
-    if (msg.content && msg.content.trim()) {
-      job.onActivity?.('think', msg.content.trim(), `think-${turns}`)
-    }
-
-    if (!msg.tool_calls || msg.tool_calls.length === 0) {
-      messages.push({ role: 'user', content: '请继续使用工具完成制造；全部完成后调用 finish。' })
-      continue
-    }
-
-    for (const tc of msg.tool_calls) {
-      let args: Record<string, unknown> = {}
-      try {
-        args = tc.function.arguments ? JSON.parse(tc.function.arguments) : {}
-      } catch {
-        messages.push({ role: 'tool', tool_call_id: tc.id, content: '工具参数不是合法 JSON，请重试', _tool: '_error' })
+      if (!stream) return stop({ key: 'err.retriesExhausted', params: { n: 2, error: 'Rate limited' } })
+      assertRunning()
+      totalTokens += stream.usage?.completionTokens ?? stream.estimatedTokens
+      logLine('[fc] turn completed:', { turn: turns, outputEstimate: stream.estimatedTokens, usage: stream.usage, finishReason: stream.finishReason, diagnostics: stream.diagnostics })
+      const msg = stream.message
+      messages.push(msg)
+      if (msg.content?.trim()) job.onActivity?.('think', msg.content.trim(), 'think-' + turns)
+      if (!msg.tool_calls?.length) {
+        messages.push({ role: 'user', content: 'Continue using tools. Record the plan with set_plan before writing; verify the result before finish.' })
+        save()
         continue
       }
-
-      if (tc.function.name === 'finish') {
-        job.onStage('clack', { key: 'feed.finalCheck', params: { n: rounds } })
-        const { pass, report } = await runCheck()
-        logLine(`[fc] turn ${turns} finish check:`, pass ? 'PASS' : 'FAIL', `round=${rounds}/${job.maxRounds}`)
-        if (!pass) {
-          logLine(`[fc] turn ${turns} finish report:`, report.slice(0, 800))
+      for (const [callIndex, call] of msg.tool_calls.entries()) {
+        assertRunning()
+        const args = JSON.parse(call.function.arguments) as Record<string, unknown>
+        const toolStartedAt = Date.now()
+        const toolEvent: Record<string, unknown> = { turn: turns, index: callIndex, tool: call.function.name }
+        if (typeof args.path === 'string') {
+          try { resolveWorkspacePath(job.stagingDir, args.path); toolEvent.path = args.path.replace(/\\/g, '/') } catch { /* Invalid/private paths are not logged. */ }
         }
-        if (pass) {
-          logLine(`[fc] RESULT: success`, `turns=${turns}, rounds=${rounds}, tokens=${totalTokens}`)
-          return { ok: true, rounds, turns }
+        if (call.function.name === 'write_file' && typeof args.content === 'string') toolEvent.writtenLines = sourceLines(args.content)
+        if (call.function.name === 'edit_file') {
+          if (typeof args.old_text === 'string') toolEvent.replacedLines = sourceLines(args.old_text)
+          if (typeof args.new_text === 'string') toolEvent.replacementLines = sourceLines(args.new_text)
         }
-        if (rounds >= job.maxRounds) {
-          logLine(`[fc] RESULT: maxRounds exceeded`, `turns=${turns}, rounds=${rounds}, tokens=${totalTokens}`)
-          return { ok: false, rounds, turns, error: { key: 'err.checksFailed', params: { n: job.maxRounds, report } } }
+        const logTool = (status: string, code?: string) => logLine('[fc] tool completed:', { ...toolEvent, status, code, durationMs: Date.now() - toolStartedAt })
+        if (call.function.name === 'finish') {
+          if (callIndex !== msg.tool_calls.length - 1) {
+            messages.push({ role: 'tool', tool_call_id: call.id, content: 'finish must be the last tool in a batch. Complete the remaining actions, then request final verification again.', _tool: '_error' })
+            logTool('failed', 'finish-order')
+            save()
+            continue
+          }
+          const checked = await runCheck(true)
+          logTool(checked.pass ? 'passed' : 'failed', checked.pass ? undefined : 'verification-failed')
+          messages.push({ role: 'tool', tool_call_id: call.id, content: checked.report, _tool: 'finish' })
+          assertRunning()
+          save()
+          if (checked.pass) return { ok: true, rounds, turns, verification, scenarios }
+        } else {
+          try {
+            const result = await execute(call.function.name, args)
+            logTool('completed')
+            assertRunning()
+            messages.push({ role: 'tool', tool_call_id: call.id, content: result.length > 28000 ? result.slice(0, 27500) + '\n[OUTPUT TRUNCATED: narrow the request; omitted content is not empty.]' : result, _tool: call.function.name })
+          } catch (error) {
+            assertRunning()
+            logTool('failed', toolFailureCode(error))
+            messages.push({ role: 'tool', tool_call_id: call.id, content: 'Tool failed: ' + (error as Error).message, _tool: '_error' })
+          }
+          save()
         }
-        rounds++
-        messages.push({ role: 'tool', tool_call_id: tc.id, content: `${report}\n请修复以上问题后再次 finish。`, _tool: 'finish' })
-        continue
-      }
-
-      try {
-        const out = await execTool(tc.function.name, args)
-        // ─── 调试日志：工具结果 ───
-        const outPreview = out.length > 600
-          ? out.slice(0, 600) + `… (${out.length} chars total)`
-          : out
-        logLine(`[fc] turn ${turns} tool_result:`, tc.function.name, outPreview)
-        const toolMsg: Record<string, unknown> = { role: 'tool', tool_call_id: tc.id, content: out.slice(0, 30_000), _tool: tc.function.name }
-        // 为 read_file 记录路径，供压缩时检测过期引用（write_file 后旧 read 结果自动废弃）
-        if (tc.function.name === 'read_file') toolMsg._path = String(args.path)
-        messages.push(toolMsg)
-      } catch (e) {
-        const errMsg = `工具执行失败: ${(e as Error).message}`
-        logLine(`[fc] turn ${turns} tool_error:`, tc.function.name, (e as Error).message)
-        messages.push({ role: 'tool', tool_call_id: tc.id, content: errMsg, _tool: tc.function.name })
+        if (noProgress >= Math.max(3, job.maxRounds)) {
+          messages.push({ role: 'user', content: 'Paused after repeated unchanged verification failures. Re-diagnose the root cause before further edits.\n' + lastReport })
+          return stop(job.lang === 'zh' ? '同一问题多次修复后仍未解决，已暂停并保留草稿，避免继续消耗。' : 'The same verification failure persists. Paused with the draft preserved to avoid further spending.')
+        }
       }
     }
+    return stop({ key: 'err.maxTurns', params: { n: MAX_TURNS } })
+  } catch (error) {
+    if (job.signal?.aborted) return stop({ key: 'err.cancelled' })
+    if (timeoutSignal.aborted) return stop({ key: 'err.timeout' })
+    logLine('[fc] task stopped:', (error as Error).name)
+    return stop(job.lang === 'zh' ? '构建检查未完成，已保留可恢复进度。' : 'Build verification did not complete; resumable progress is preserved.')
   }
-
-  // 超过最大回合数
-  logLine(`[fc] RESULT: maxTurns reached`, `turns=${turns}, rounds=${rounds}, tokens=${totalTokens}`)
-  return { ok: false, rounds, turns, error: { key: 'err.maxTurns', params: { n: MAX_TURNS } } }
 }

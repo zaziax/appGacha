@@ -27,6 +27,8 @@ interface ApiOptions {
   skipRefresh?: boolean
   /** 超时毫秒数，默认 30s */
   timeout?: number
+  /** Caller cancellation remains connected while the response body is consumed. */
+  signal?: AbortSignal
   /** refresh 失败时是否触发 logout（默认 false，仅 apiFetch 会 logout） */
   logoutOnAuthFail?: boolean
 }
@@ -54,10 +56,12 @@ interface ApiResult<T = unknown> {
  * 401 时自动尝试 refresh token，成功后重试原请求
  */
 export async function apiFetch<T = unknown>(path: string, opts: ApiOptions = {}): Promise<ApiResult<T>> {
-  const { method = 'GET', headers = {}, body, skipRefresh = false, timeout = 30_000 } = opts
+  const { method = 'GET', headers = {}, body, skipRefresh = false, timeout = 30_000, signal } = opts
 
   const doFetch = async (token: string | null): Promise<Response> => {
+    signal?.throwIfAborted()
     const controller = new AbortController()
+    const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
     const timer = setTimeout(() => controller.abort(), timeout)
     try {
       return await net.fetch(`${getApiBase()}${path}`, {
@@ -68,7 +72,7 @@ export async function apiFetch<T = unknown>(path: string, opts: ApiOptions = {})
           ...headers
         },
         body: body as BodyInit | undefined,
-        signal: controller.signal
+        signal: requestSignal
       })
     } finally {
       clearTimeout(timer)
@@ -81,7 +85,8 @@ export async function apiFetch<T = unknown>(path: string, opts: ApiOptions = {})
 
     // 401 → 尝试 refresh
     if (res.status === 401 && !skipRefresh) {
-      const refreshed = await tryRefresh()
+      const refreshed = await tryRefresh(signal)
+      signal?.throwIfAborted()
       if (refreshed) {
         token = getAccessToken()
         res = await doFetch(token)
@@ -112,7 +117,7 @@ export async function apiFetch<T = unknown>(path: string, opts: ApiOptions = {})
  * 尝试刷新 token
  * @returns true 刷新成功
  */
-async function tryRefresh(): Promise<boolean> {
+async function tryRefresh(signal?: AbortSignal): Promise<boolean> {
   const refreshToken = getRefreshToken()
   if (!refreshToken) return false
 
@@ -120,7 +125,8 @@ async function tryRefresh(): Promise<boolean> {
     const res = await net.fetch(`${getApiBase()}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: refreshToken })
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      ...(signal ? { signal } : {})
     })
 
     if (!res.ok) {
@@ -143,10 +149,14 @@ async function tryRefresh(): Promise<boolean> {
  * 与 apiFetch 同款 401 自动 refresh，但不消费响应体。
  */
 export async function apiFetchRaw(path: string, opts: ApiOptions = {}): Promise<Response> {
-  const { method = 'GET', headers = {}, body, skipRefresh = false, timeout = 30_000, logoutOnAuthFail = false } = opts
+  const { method = 'GET', headers = {}, body, skipRefresh = false, timeout = 30_000, logoutOnAuthFail = false, signal } = opts
+  signal?.throwIfAborted()
 
   const doFetch = async (token: string | null): Promise<Response> => {
     const controller = new AbortController()
+    // Clearing the response-header timeout must NOT detach caller cancellation:
+    // SSE consumers still need to abort the underlying request after headers arrive.
+    const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
     const timer = setTimeout(() => controller.abort(), timeout)
     try {
       return await net.fetch(`${getApiBase()}${path}`, {
@@ -156,7 +166,7 @@ export async function apiFetchRaw(path: string, opts: ApiOptions = {}): Promise<
           ...headers
         },
         body: body as BodyInit | undefined,
-        signal: controller.signal
+        signal: requestSignal
       })
     } finally {
       clearTimeout(timer)
@@ -166,8 +176,10 @@ export async function apiFetchRaw(path: string, opts: ApiOptions = {}): Promise<
   let token = getAccessToken()
   let res = await doFetch(token)
   if (res.status === 401 && !skipRefresh) {
-    const refreshed = await tryRefresh()
+    const refreshed = await tryRefresh(signal)
+    signal?.throwIfAborted()
     if (refreshed) {
+      await res.body?.cancel().catch(() => {})
       token = getAccessToken()
       res = await doFetch(token)
     } else if (logoutOnAuthFail) {

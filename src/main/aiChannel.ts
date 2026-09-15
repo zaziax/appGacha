@@ -88,6 +88,7 @@ export async function chatCompletionFetch(
   body: Record<string, unknown>,
   opts: { signal?: AbortSignal; timeout?: number; modelOverride?: string } = {}
 ): Promise<Response> {
+  opts.signal?.throwIfAborted()
   if (endpoint.kind === 'direct') {
     return net.fetch(`${endpoint.baseURL}/chat/completions`, {
       method: 'POST',
@@ -116,9 +117,10 @@ export function parseSseContent(raw: string): string {
     const json = trimmed.slice(5).trim()
     if (json === '[DONE]') break
     try {
-      const obj = JSON.parse(json) as { choices?: { delta?: { content?: string; reasoning_content?: string }; message?: { content?: string; reasoning_content?: string } }[] }
+      const obj = JSON.parse(json) as { choices?: { delta?: { content?: string }; message?: { content?: string } }[] }
       for (const c of obj.choices ?? []) {
-        const text = c.delta?.content || c.delta?.reasoning_content || c.message?.content || c.message?.reasoning_content || ''
+        // Reasoning is not the final answer and must not leak into user-facing text.
+        const text = c.delta?.content || c.message?.content || ''
         if (text) parts.push(text)
       }
     } catch { /* 跳过无法解析的行 */ }

@@ -2,14 +2,18 @@ import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { getEgg, loadManifest, registerEgg } from './eggs'
-import { closeEggWindow, closeEggWindowAndWait } from './eggWindow'
+import { closeEggWindowAndWait } from './eggWindow'
+import { setTimeout as delay } from 'node:timers/promises'
 import { getAiSettings } from './settings'
 import { appRoot, dataRoot } from './paths'
 import { copyDir } from './fsutil'
 import { testEgg } from './test'
-import { runFcDriver, DriverResult, ActivityType, IpcText } from './fcDriver'
+import { runFcDriver, DriverResult, ActivityType, IpcText, type BuildVerification } from './fcDriver'
 import { logLine } from './log'
 import { generateEggDoc } from './eggDoc'
+import { pruneBuildResources, verifyFinalArtifact } from './finalArtifact'
+import { uniqueEggFolder } from './eggFolder'
+import type { RuntimeScenario } from './runtimeScenarios'
 
 export const PIPELINE_VERSION = '0.2'
 const CHECKPOINT_VERSION = 1
@@ -30,6 +34,9 @@ export interface GachaCheckpoint {
   turns: number
   rounds: number
   totalTokens: number
+  scenarios?: RuntimeScenario[]
+  truncationRecoveries?: number
+  outputLimit?: number
   /** 中断原因 */
   errorKey: string
   createdAt: string
@@ -45,7 +52,9 @@ export function saveCheckpoint(stagingDir: string, cp: Omit<GachaCheckpoint, 've
     version: CHECKPOINT_VERSION,
     createdAt: new Date().toISOString()
   }
-  fs.writeFileSync(checkpointPath(stagingDir), JSON.stringify(data, null, 2), 'utf-8')
+  const temporary = path.join(stagingDir, '.checkpoint.tmp')
+  fs.writeFileSync(temporary, JSON.stringify(data, null, 2), 'utf-8')
+  fs.renameSync(temporary, checkpointPath(stagingDir))
 }
 
 export function loadCheckpoint(eggId: string): GachaCheckpoint | null {
@@ -97,6 +106,8 @@ export interface GachaProgress {
 
 export interface GachaResult {
   ok: boolean
+  verification?: BuildVerification
+  pendingBuildId?: string
   eggId?: string
   name?: string
   error?: IpcText
@@ -119,9 +130,9 @@ export function cancelGacha(): void {
   }
 }
 
-function cancelledResult(onProgress?: (p: GachaProgress) => void): GachaResult {
+function cancelledResult(onProgress?: (p: GachaProgress) => void, draftId?: string): GachaResult {
   onProgress?.({ stage: 'cancelled' })
-  return { ok: false, error: { key: 'err.cancelled' } }
+  return { ok: false, error: { key: 'err.cancelled' }, pendingBuildId: draftId && hasCheckpoint(draftId) ? draftId : undefined }
 }
 
 // 启动时调用：清扫上一次残留的 staging 目录，但保留断点续建的检查点
@@ -157,7 +168,7 @@ export async function runGacha(
   try {
     // ① 投币：备舱——模板落位，manifest 由管线写入（wish 不经智能体之手）
     onProgress({ stage: 'coin', detail: { key: 'pipe.coin' } })
-    if (signal.aborted) return cancelledResult(onProgress)
+    if (signal.aborted) return cancelledResult(onProgress, path.basename(stagingDir))
     fs.mkdirSync(stagingDir, { recursive: true })
     copyDir(appRoot('template'), stagingDir)
     fs.rmSync(path.join(stagingDir, 'EGG_GUIDE.md'), { force: true })
@@ -166,11 +177,11 @@ export async function runGacha(
 
     // ② 旋钮转动：驱动智能体制造
     onProgress({ stage: 'crank', detail: { key: 'pipe.crank' } })
-    if (signal.aborted) return cancelledResult(onProgress)
+    if (signal.aborted) return cancelledResult(onProgress, path.basename(stagingDir))
     const result: DriverResult = await runDriverSafely(driver, wish.trim(), lang, stagingDir, onProgress, signal)
 
     if (!result.ok) {
-      if (signal.aborted) return cancelledResult(onProgress)
+      if (signal.aborted) return cancelledResult(onProgress, path.basename(stagingDir))
       // 断点模式：保留 staging 目录，不归档失败（用户可续建）
       if (!result.checkpointed) {
         logLine('[pipeline] runGacha archiveFailure:', { eggId, error: result.error })
@@ -179,21 +190,22 @@ export async function runGacha(
         logLine('[pipeline] runGacha checkpointed (staging preserved):', { eggId })
       }
       onProgress({ stage: 'fail', detail: result.error })
-      return { ok: false, error: result.error }
+      return { ok: false, error: result.error, pendingBuildId: result.checkpointed ? path.basename(stagingDir) : undefined }
     }
 
-    if (signal.aborted) return cancelledResult(onProgress)
-    // ③ 咔哒：成功出蛋后清除断点（如果有的话）
-    try { fs.rmSync(checkpointPath(stagingDir), { force: true }) } catch { /* 可能本就不存在 */ }
+    if (signal.aborted) return cancelledResult(onProgress, path.basename(stagingDir))
+    // ③ 咔哒：最终产物复验，入柜成功后才清除断点
     // 剥离未用 vendor，管线复写受保护字段（防智能体篡改），原子入柜
     logLine('[pipeline] runGacha stripUnusedVendor start:', { eggId, stagingDir })
     stripUnusedVendor(stagingDir)
     logLine('[pipeline] runGacha stripUnusedVendor done:', { eggId, vendorExists: fs.existsSync(path.join(stagingDir, 'vendor')) })
     const manifest = writeManifestFields(stagingDir, { eggId, wish: wish.trim() })
-    const dest = uniqueFolder(dataRoot('eggs'), manifest.name)
+    const verification = await verifyFinalArtifact(stagingDir, signal, result.scenarios)
+    const dest = uniqueEggFolder(dataRoot('eggs'), manifest.name)
     logLine('[pipeline] runGacha uniqueFolder:', { eggId, name: manifest.name, dest })
     fs.mkdirSync(dataRoot('eggs'), { recursive: true })
-    await safeRename(stagingDir, dest)
+    await safeRename(stagingDir, dest, signal)
+    fs.rmSync(path.join(dest, 'checkpoint.json'), { force: true })
     const ctx = registerEgg(dest)
     logLine('[pipeline] runGacha registered:', { eggId: ctx.eggId, name: manifest.name, dest })
     // 生成结构快照，供未来升级时 AI 快速理解蛋的代码结构
@@ -203,13 +215,13 @@ export async function runGacha(
       logLine('[pipeline] runGacha EGGDOC written:', { dest, bytes: doc.length })
     } catch (e) { logLine('[pipeline] runGacha EGGDOC failed:', (e as Error).message) }
     onProgress({ stage: 'pop', detail: { key: 'pipe.pop', params: { name: manifest.name } } })
-    return { ok: true, eggId: ctx.eggId, name: manifest.name, icon: readIconSvg(dest) }
+    return { ok: true, verification, eggId: ctx.eggId, name: manifest.name, icon: readIconSvg(dest) }
   } catch (e) {
-    if (signal.aborted) return cancelledResult(onProgress)
+    if (signal.aborted) return cancelledResult(onProgress, path.basename(stagingDir))
     const error = (e as Error).message
-    try { archiveFailure(stagingDir, eggId, wish, { ok: false, rounds: 0, turns: 0, error }) } catch { /* 尽力而为 */ }
+    try { if (!fs.existsSync(checkpointPath(stagingDir))) archiveFailure(stagingDir, eggId, wish, { ok: false, rounds: 0, turns: 0, error }) } catch { /* 尽力而为 */ }
     onProgress({ stage: 'fail', detail: error })
-    return { ok: false, error }
+    return { ok: false, error, pendingBuildId: fs.existsSync(checkpointPath(stagingDir)) ? path.basename(stagingDir) : undefined }
   } finally {
     busy = false
     currentAbort = null
@@ -236,25 +248,25 @@ export async function resumeGacha(
   try {
     // 续建：staging 目录已存在，直接驱动继续
     onProgress({ stage: 'crank', detail: { key: 'pipe.crank' } })
-    if (signal.aborted) return cancelledResult(onProgress)
+    if (signal.aborted) return cancelledResult(onProgress, path.basename(stagingDir))
 
     const result: DriverResult = await runDriverSafely(driver, cp.wish, cp.lang, stagingDir, onProgress, signal, cp)
 
     if (!result.ok) {
-      if (signal.aborted) return cancelledResult(onProgress)
+      if (signal.aborted) return cancelledResult(onProgress, path.basename(stagingDir))
       if (!result.checkpointed) archiveFailure(stagingDir, eggId, cp.wish, result)
       onProgress({ stage: 'fail', detail: result.error })
-      return { ok: false, error: result.error }
+      return { ok: false, error: result.error, pendingBuildId: result.checkpointed ? path.basename(stagingDir) : undefined }
     }
 
-    if (signal.aborted) return cancelledResult(onProgress)
+    if (signal.aborted) return cancelledResult(onProgress, path.basename(stagingDir))
 
-    // 成功：清除断点
-    try { fs.rmSync(checkpointPath(stagingDir), { force: true }) } catch { /* 可能已不存在 */ }
+    // 草稿在最终验证和提交完成前始终保留
 
     if (isUpgrade) {
       // 升级续建：迁移试跑 + 换装（与 runUpgrade 相同的后处理）
       const egg = getEgg(cp.realEggId!)
+      if (!egg) throw new Error('Original app no longer exists; the upgrade draft was preserved')
       if (egg) {
         // 升级续建同样：先关蛋窗口再拷 data，避免 -shm/-wal 文件锁
         await closeEggWindowAndWait(cp.realEggId!)
@@ -262,17 +274,18 @@ export async function resumeGacha(
         if (fs.existsSync(dataDir)) {
           onProgress({ stage: 'clack', detail: { key: 'pipe.migrate' } })
           copyDir(dataDir, path.join(stagingDir, 'data'))
-          const t = await testEgg(stagingDir)
+          const t = await testEgg(stagingDir, { signal })
           await safeRm(path.join(stagingDir, 'data'))
           if (!t.ok) {
             const error: IpcText = { key: 'err.migrateFailed', params: { detail:
               (t.error ?? [t.crashed ? '渲染进程崩溃' : '', t.blank ? '页面空白' : '', ...t.consoleErrors].filter(Boolean).join('；')) } }
-            archiveFailure(stagingDir, eggId, cp.wish, { ...result, ok: false, error })
+            if (!fs.existsSync(checkpointPath(stagingDir))) archiveFailure(stagingDir, eggId, cp.wish, { ...result, ok: false, error })
             onProgress({ stage: 'fail', detail: error })
-            return { ok: false, error }
+            return { ok: false, error, pendingBuildId: fs.existsSync(checkpointPath(stagingDir)) ? path.basename(stagingDir) : undefined }
           }
         }
         stripUnusedVendor(stagingDir)
+        const verification = await verifyFinalArtifact(stagingDir, signal, result.scenarios)
         patchManifest(stagingDir, m => {
           m.eggId = cp.realEggId
           m.wish = egg.manifest.wish ?? cp.wish
@@ -281,7 +294,8 @@ export async function resumeGacha(
           m.createdBy = { model: getAiSettings()?.model ?? 'unknown', pipelineVersion: PIPELINE_VERSION }
           m.upgrades = [...(egg.manifest.upgrades ?? []), { wish: cp.wish, at: new Date().toISOString(), model: getAiSettings()?.model ?? 'unknown' }]
         })
-        closeEggWindow(cp.realEggId!)
+        await closeEggWindowAndWait(cp.realEggId!)
+        signal.throwIfAborted()
         try {
           swapCode(stagingDir, egg.dir)
         } catch (e) {
@@ -295,29 +309,31 @@ export async function resumeGacha(
           fs.writeFileSync(path.join(egg.dir, 'EGGDOC.md'), doc, 'utf-8')
         } catch (e) { logLine('[pipeline] resumeGacha(upgrade) EGGDOC failed:', (e as Error).message) }
         onProgress({ stage: 'pop', detail: { key: 'pipe.popUpgraded', params: { name: egg.manifest.name } } })
-        return { ok: true, eggId: cp.realEggId!, name: egg.manifest.name, icon: readIconSvg(egg.dir) }
+        return { ok: true, verification, eggId: cp.realEggId!, name: egg.manifest.name, icon: readIconSvg(egg.dir) }
       }
     }
 
     // 新蛋续建：与 runGacha 相同的后处理
     stripUnusedVendor(stagingDir)
     const manifest = writeManifestFields(stagingDir, { eggId, wish: cp.wish })
-    const dest = uniqueFolder(dataRoot('eggs'), manifest.name)
+    const verification = await verifyFinalArtifact(stagingDir, signal, result.scenarios)
+    const dest = uniqueEggFolder(dataRoot('eggs'), manifest.name)
     fs.mkdirSync(dataRoot('eggs'), { recursive: true })
-    await safeRename(stagingDir, dest)
+    await safeRename(stagingDir, dest, signal)
+    fs.rmSync(path.join(dest, 'checkpoint.json'), { force: true })
     const ctx = registerEgg(dest)
     try {
       const doc = generateEggDoc(dest)
       fs.writeFileSync(path.join(dest, 'EGGDOC.md'), doc, 'utf-8')
     } catch (e) { logLine('[pipeline] resumeGacha EGGDOC failed:', (e as Error).message) }
     onProgress({ stage: 'pop', detail: { key: 'pipe.pop', params: { name: manifest.name } } })
-    return { ok: true, eggId: ctx.eggId, name: manifest.name, icon: readIconSvg(dest) }
+    return { ok: true, verification, eggId: ctx.eggId, name: manifest.name, icon: readIconSvg(dest) }
   } catch (e) {
-    if (signal.aborted) return cancelledResult(onProgress)
+    if (signal.aborted) return cancelledResult(onProgress, path.basename(stagingDir))
     const error = (e as Error).message
-    try { archiveFailure(stagingDir, eggId, cp.wish, { ok: false, rounds: 0, turns: 0, error }) } catch { /* 尽力而为 */ }
+    try { if (!fs.existsSync(checkpointPath(stagingDir))) archiveFailure(stagingDir, eggId, cp.wish, { ok: false, rounds: 0, turns: 0, error }) } catch { /* 尽力而为 */ }
     onProgress({ stage: 'fail', detail: error })
-    return { ok: false, error }
+    return { ok: false, error, pendingBuildId: fs.existsSync(checkpointPath(stagingDir)) ? path.basename(stagingDir) : undefined }
   } finally {
     busy = false
     currentAbort = null
@@ -382,26 +398,9 @@ export async function runUpgrade(
 
     // ② 旋钮转动：增量进化（驱动自检走的是"无数据全新安装"路径）
     onProgress({ stage: 'crank', detail: { key: 'pipe.crankUpgrade' } })
-    if (signal.aborted) return cancelledResult(onProgress)
-    // 读取蛋的结构快照，供 AI 快速理解代码结构
-    let eggDoc = ''
-    const eggDocPath = path.join(egg.dir, 'EGGDOC.md')
-    if (fs.existsSync(eggDocPath)) {
-      eggDoc = fs.readFileSync(eggDocPath, 'utf-8')
-    } else {
-      // 旧蛋回退：简单文件列表
-      const listDir = (d: string, prefix = ''): string[] => {
-        const out: string[] = []
-        for (const e of fs.readdirSync(path.join(d, prefix), { withFileTypes: true })) {
-          if (e.name.startsWith('.') || e.name === 'data') continue
-          const rel = prefix ? `${prefix}/${e.name}` : e.name
-          if (e.isDirectory()) out.push(...listDir(d, rel))
-          else out.push(rel)
-        }
-        return out
-      }
-      eggDoc = `# 蛋结构快照\n\n（旧蛋，无结构快照。文件列表如下：）\n\n${listDir(egg.dir).join('\n')}`
-    }
+    if (signal.aborted) return cancelledResult(onProgress, path.basename(stagingDir))
+    // Rebuild from the actual staging tree, including newly supplied host resources.
+    const eggDoc = generateEggDoc(stagingDir)
     logLine('[pipeline] runUpgrade eggDoc:', { eggId, bytes: eggDoc.length })
     const result = await driver({
       wish: upgradeWish,
@@ -425,29 +424,34 @@ export async function runUpgrade(
           turns: state.turns,
           rounds: state.rounds,
           totalTokens: state.totalTokens,
+          scenarios: state.scenarios,
+          truncationRecoveries: state.truncationRecoveries,
+          outputLimit: state.outputLimit,
           errorKey: 'err.checkpointed'
         })
       }
     })
     if (!result.ok) {
-      if (signal.aborted) return cancelledResult(onProgress)
+      if (signal.aborted) return cancelledResult(onProgress, path.basename(stagingDir))
       if (!result.checkpointed) archiveFailure(stagingDir, tempId, upgradeWish, result)
       onProgress({ stage: 'fail', detail: result.error })
-      return { ok: false, error: result.error }
+      return { ok: false, error: result.error, pendingBuildId: result.checkpointed ? path.basename(stagingDir) : undefined }
     }
-    // ③ 机芯咔咔：把真实数据的副本放进舱，验证升级后的代码带着旧数据也能跑（迁移验收）
+    // ③ 机芯咔咔：在旧数据副本上做启动检查（不代表旧数据下的完整业务场景已通过）
+    await closeEggWindowAndWait(eggId)
+    signal.throwIfAborted()
     const dataDir = path.join(egg.dir, 'data')
     if (fs.existsSync(dataDir)) {
       onProgress({ stage: 'clack', detail: { key: 'pipe.migrate' } })
       copyDir(dataDir, path.join(stagingDir, 'data'))
-      const t = await testEgg(stagingDir)
+      const t = await testEgg(stagingDir, { signal })
       await safeRm(path.join(stagingDir, 'data'))
       if (!t.ok) {
         const error: IpcText = { key: 'err.migrateFailed', params: { detail:
           (t.error ?? [t.crashed ? '渲染进程崩溃' : '', t.blank ? '页面空白' : '', ...t.consoleErrors, ...t.widgetIssues].filter(Boolean).join('；')) } }
-        archiveFailure(stagingDir, tempId, upgradeWish, { ...result, ok: false, error })
+        if (!fs.existsSync(checkpointPath(stagingDir))) archiveFailure(stagingDir, tempId, upgradeWish, { ...result, ok: false, error })
         onProgress({ stage: 'fail', detail: error })
-        return { ok: false, error }
+        return { ok: false, error, pendingBuildId: fs.existsSync(checkpointPath(stagingDir)) ? path.basename(stagingDir) : undefined }
       }
     }
 
@@ -455,6 +459,7 @@ export async function runUpgrade(
     logLine('[pipeline] runUpgrade stripUnusedVendor start:', { tempId, realEggId: eggId })
     stripUnusedVendor(stagingDir)
     logLine('[pipeline] runUpgrade stripUnusedVendor done:', { tempId, vendorExists: fs.existsSync(path.join(stagingDir, 'vendor')) })
+    const verification = await verifyFinalArtifact(stagingDir, signal, result.scenarios)
     patchManifest(stagingDir, m => {
       m.eggId = eggId
       m.wish = egg.manifest.wish ?? upgradeWish
@@ -465,7 +470,8 @@ export async function runUpgrade(
       m.upgrades = [...(egg.manifest.upgrades ?? []),
         { wish: upgradeWish, at: new Date().toISOString(), model: getAiSettings()?.model ?? 'unknown' }]
     })
-    closeEggWindow(eggId)
+    await closeEggWindowAndWait(eggId)
+    signal.throwIfAborted()
     try {
       logLine('[pipeline] runUpgrade swapCode start:', { stagingDir, eggDir: egg.dir })
       swapCode(stagingDir, egg.dir)
@@ -487,13 +493,13 @@ export async function runUpgrade(
       logLine('[pipeline] runUpgrade EGGDOC updated:', { eggId, bytes: doc.length })
     } catch (e) { logLine('[pipeline] runUpgrade EGGDOC failed:', (e as Error).message) }
     onProgress({ stage: 'pop', detail: { key: 'pipe.popUpgraded', params: { name: egg.manifest.name } } })
-    return { ok: true, eggId, name: egg.manifest.name, icon: readIconSvg(egg.dir) }
+    return { ok: true, verification, eggId, name: egg.manifest.name, icon: readIconSvg(egg.dir) }
   } catch (e) {
-    if (signal.aborted) return cancelledResult(onProgress)
+    if (signal.aborted) return cancelledResult(onProgress, path.basename(stagingDir))
     const error = (e as Error).message
-    try { archiveFailure(stagingDir, tempId, upgradeWish, { ok: false, rounds: 0, turns: 0, error }) } catch { /* 尽力而为 */ }
+    try { if (!fs.existsSync(checkpointPath(stagingDir))) archiveFailure(stagingDir, tempId, upgradeWish, { ok: false, rounds: 0, turns: 0, error }) } catch { /* 尽力而为 */ }
     onProgress({ stage: 'fail', detail: error })
-    return { ok: false, error }
+    return { ok: false, error, pendingBuildId: fs.existsSync(checkpointPath(stagingDir)) ? path.basename(stagingDir) : undefined }
   } finally {
     busy = false
     currentAbort = null
@@ -545,7 +551,7 @@ function swapCode(stagingDir: string, eggDir: string): void {
     fs.rmSync(path.join(eggDir, entry), { recursive: true, force: true })
   }
   for (const entry of fs.readdirSync(stagingDir, { withFileTypes: true })) {
-    if (entry.name === 'data') continue
+    if (entry.name === 'data' || entry.name === 'checkpoint.json' || entry.name.startsWith('.')) continue
     const from = path.join(stagingDir, entry.name)
     const to = path.join(eggDir, entry.name)
     if (entry.isDirectory()) copyDir(from, to)
@@ -582,6 +588,7 @@ async function runDriverSafely(
     maxRounds: MAX_ROUNDS,
     lang,
     signal,
+    upgrade: resume?.upgrade,
     onStage: (stage, detail) => {
       // 驱动的实况全部转发：crank 是工作动作，clack 是自检
       onProgress({ stage: stage === 'clack' ? 'clack' : 'crank', detail, metrics: latestMetrics })
@@ -599,6 +606,9 @@ async function runDriverSafely(
         turns: state.turns,
         rounds: state.rounds,
         totalTokens: state.totalTokens,
+        scenarios: state.scenarios,
+        truncationRecoveries: state.truncationRecoveries,
+        outputLimit: state.outputLimit,
         errorKey: 'err.checkpointed'
       })
     },
@@ -606,7 +616,10 @@ async function runDriverSafely(
       messages: resume.messages,
       turns: resume.turns,
       rounds: resume.rounds,
-      totalTokens: resume.totalTokens
+      totalTokens: resume.totalTokens,
+      scenarios: resume.scenarios,
+      truncationRecoveries: resume.truncationRecoveries,
+      outputLimit: resume.outputLimit
     } : undefined
   })
 }
@@ -622,12 +635,6 @@ function writeManifestFields(dir: string, fields: { eggId: string; wish: string 
   return { name: typeof m.name === 'string' ? m.name : '未命名扭蛋' }
 }
 
-function uniqueFolder(rootDir: string, baseName: string): string {
-  let dir = path.join(rootDir, `${baseName}.gacha`)
-  let i = 2
-  while (fs.existsSync(dir)) dir = path.join(rootDir, `${baseName}-${i++}.gacha`)
-  return dir
-}
 
 function archiveFailure(stagingDir: string, eggId: string, wish: string, result: DriverResult): void {
   if (!fs.existsSync(stagingDir)) return
@@ -649,19 +656,21 @@ function archiveFailure(stagingDir: string, eggId: string, wish: string, result:
 }
 
 /** Windows 文件句柄释放有延迟，rename 加重试 + copy 兜底 */
-async function safeRename(from: string, to: string): Promise<void> {
+async function safeRename(from: string, to: string, signal: AbortSignal): Promise<void> {
   for (let i = 0; i < 3; i++) {
+    signal.throwIfAborted()
     try {
       fs.renameSync(from, to)
       return
     } catch (e) {
       if (i === 2) {
         // 最后一次重试失败：复制后删除
+        signal.throwIfAborted()
         copyDir(from, to)
         fs.rmSync(from, { recursive: true, force: true })
         return
       }
-      await new Promise(r => setTimeout(r, 800))
+      await delay(800, undefined, { signal })
     }
   }
 }
@@ -686,48 +695,5 @@ async function safeRm(target: string): Promise<void> {
  * 蛋保持自包含可移植，不用的库不占体积。
  */
 function stripUnusedVendor(dir: string): void {
-  // 生成期参考文件，运行时不需要：图标清单 + 专题指南（read_guide 读的是原始模板目录 appRoot('template')，蛋内副本纯冗余）
-  fs.rmSync(path.join(dir, 'icons-manifest.json'), { force: true })
-  fs.rmSync(path.join(dir, 'guides'), { recursive: true, force: true })
-
-  // standard 蛋不携带 widget 专用骨架；widget 蛋由验收保证已正确引用。
-  try {
-    const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf-8'))
-    if (manifest.window?.type !== 'widget') {
-      fs.rmSync(path.join(dir, 'widget.css'), { force: true })
-      fs.rmSync(path.join(dir, 'widget.js'), { force: true })
-    }
-  } catch { /* manifest 错误会在验收阶段报告，这里不阻断清理 */ }
-
-  const vendorDir = path.join(dir, 'vendor')
-  if (!fs.existsSync(vendorDir)) return
-
-  // 扫描蛋自身代码（跳过 vendor/ 和 data/）中的 vendor 引用
-  const referenced = new Set<string>()
-  const scanImports = (rel: string) => {
-    for (const entry of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
-      const relPath = rel ? `${rel}/${entry.name}` : entry.name
-      if (entry.isDirectory()) {
-        if (relPath !== 'vendor' && relPath !== 'data') scanImports(relPath)
-        continue
-      }
-      if (!entry.name.endsWith('.js') && !entry.name.endsWith('.html')) continue
-      const content = fs.readFileSync(path.join(dir, relPath), 'utf-8')
-      for (const m of content.matchAll(/\.\/vendor\/([\w.-]+)/g)) referenced.add(m[1])
-    }
-  }
-  scanImports('')
-
-  // 带资产子目录的 vendor（如 KaTeX 的 katex/）：主文件被 import 时连带保留其子目录
-  const COMPANION_DIRS: Record<string, string> = { 'katex.esm.js': 'katex' }
-  for (const file of fs.readdirSync(vendorDir)) {
-    if (referenced.has(file)) continue
-    let keep = false
-    for (const [main, dir] of Object.entries(COMPANION_DIRS)) {
-      if (referenced.has(main) && file === dir) { keep = true; break }
-    }
-    if (!keep) fs.rmSync(path.join(vendorDir, file), { recursive: true, force: true })
-  }
-  // vendor 目录空了则整个移除
-  if (fs.readdirSync(vendorDir).length === 0) fs.rmSync(vendorDir, { recursive: true, force: true })
+  pruneBuildResources(dir)
 }

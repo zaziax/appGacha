@@ -1,4 +1,5 @@
 import { shelf, GachaProgress, GachaResult, GachaActivity, IpcText } from './shelf'
+import { buildProgressKey } from '../../shared/buildProgress'
 
 // 扭蛋状态独立于任何组件存在（支持关掉弹窗后台挂起）。
 // preload 的 on* 只能增不能减监听，所以订阅放模块级、只做一次。
@@ -15,11 +16,13 @@ export interface GachaState {
   metrics?: { turn: number; maxTurns: number; round: number; maxRounds: number }
   /** 扭蛋开始时间戳（用于计算已用时间） */
   startedAt: number
+  lastUpdateAt: number
+  progressKey: string
 }
 
 const MAX_ACTIVITIES = 80
 
-let state: GachaState = { running: false, stage: null, detail: '', result: null, upgrade: null, activities: [], startedAt: 0 }
+let state: GachaState = { running: false, stage: null, detail: '', result: null, upgrade: null, activities: [], startedAt: 0, lastUpdateAt: 0, progressKey: 'live.starting' }
 const listeners = new Set<() => void>()
 
 function setState(patch: Partial<GachaState>): void {
@@ -37,7 +40,7 @@ export function getGachaState(): GachaState {
 }
 
 export function beginGacha(upgrade: GachaState['upgrade']): void {
-  setState({ running: true, stage: 'coin', detail: '', result: null, upgrade, activities: [], metrics: undefined, startedAt: Date.now() })
+  setState({ running: true, stage: 'coin', detail: '', result: null, upgrade, activities: [], metrics: undefined, startedAt: Date.now(), lastUpdateAt: Date.now(), progressKey: 'live.starting' })
 }
 
 export function clearGachaResult(): void {
@@ -62,7 +65,8 @@ export function onGachaDone(cb: DoneCallback): () => void {
 }
 
 shelf.onGachaProgress(p => {
-  const patch: Partial<GachaState> = { running: true, stage: p.stage, detail: p.detail ?? state.detail }
+  const patch: Partial<GachaState> = { running: true, stage: p.stage, detail: p.detail ?? state.detail,
+    lastUpdateAt: Date.now(), progressKey: buildProgressKey(p) ?? state.progressKey }
   if (p.metrics) patch.metrics = p.metrics
   if (p.activity) {
     const act = p.activity
