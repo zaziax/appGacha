@@ -12,7 +12,7 @@ import path from 'node:path'
 import { apiFetchRaw, apiDownloadStream } from './api'
 import { packGacha, unpackGacha } from './gachaPkg'
 import { dataRoot } from './paths'
-import { copyDir } from './fsutil'
+import { installEggAtomically } from './atomicEggInstall'
 import { getEgg, registerEgg, loadManifest } from './eggs'
 import { cancelAllForEgg, initSchedules } from './schedule'
 import {
@@ -256,6 +256,7 @@ export async function downloadEgg(
   onProgress?: (percent: number, stage: 'downloading' | 'installing') => void,
   mode: 'replace' | 'copy' = 'replace'
 ): Promise<{ name: string; eggId: string; contentHash: string; cloudVersion: number }> {
+  dataRoot('eggs') // Fail before downloading if storage needs recovery.
   // 流式下载 + 进度回调
   const downloaded = await apiDownloadStream(
     `/sync/eggs/${eggId}`,
@@ -294,7 +295,7 @@ export async function downloadEgg(
       copyManifest.name = `${manifest.name} (Cloud copy)`
       fs.writeFileSync(manifestPath, JSON.stringify(copyManifest, null, 2), 'utf-8')
       const dest = uniqueEggFolder(copyManifest.name)
-      safeRename(tmpDir, dest)
+      installEggAtomically(tmpDir, dest, false, message => logLine('[sync]', message))
       const ctx = registerEgg(dest)
       initSchedules([ctx])
       return { name: copyManifest.name, eggId: newId, contentHash, cloudVersion }
@@ -303,7 +304,7 @@ export async function downloadEgg(
     const existing = getEgg(manifest.eggId)
     if (existing) {
       if (registry.isEggActive(existing.eggId)) throw new Error('SYNC_EGG_IN_USE')
-      await replaceEggAtomically(tmpDir, existing.dir)
+      installEggAtomically(tmpDir, existing.dir, true, message => logLine('[sync]', message))
       existing.manifest = loadManifest(existing.dir)
       cancelAllForEgg(existing.eggId)
       initSchedules([existing])
@@ -312,7 +313,7 @@ export async function downloadEgg(
 
     // 新蛋 → 入柜（目录名必须以 .gacha 结尾，discoverEggs 只认这种）
     const dest = uniqueEggFolder(manifest.name)
-    safeRename(tmpDir, dest)
+    installEggAtomically(tmpDir, dest, false, message => logLine('[sync]', message))
     const ctx = registerEgg(dest)
     initSchedules([ctx])
     rememberSync(manifest.eggId, contentHash, cloudVersion)
@@ -338,31 +339,4 @@ function uniqueEggFolder(name: string): string {
   let i = 2
   while (fs.existsSync(dest)) dest = path.join(eggsRoot, `${base}-${i++}.gacha`)
   return dest
-}
-
-async function replaceEggAtomically(src: string, dest: string): Promise<void> {
-  const backup = path.join(dataRoot('staging'), `__sync-backup-${Date.now()}-${crypto.randomUUID()}`)
-  let oldMoved = false
-  try {
-    safeRename(dest, backup)
-    oldMoved = true
-    safeRename(src, dest)
-  } catch (e) {
-    try { fs.rmSync(dest, { recursive: true, force: true }) } catch { /* best-effort */ }
-    if (oldMoved && fs.existsSync(backup)) safeRename(backup, dest)
-    throw e
-  }
-  try { fs.rmSync(backup, { recursive: true, force: true }) } catch (e) {
-    logLine('[sync] backup cleanup deferred:', (e as Error).message)
-  }
-}
-
-/** Windows rename 可能因文件被占用（杀软/索引）失败，降级为 copy+delete */
-function safeRename(src: string, dest: string): void {
-  try {
-    fs.renameSync(src, dest)
-  } catch {
-    copyDir(src, dest)
-    fs.rmSync(src, { recursive: true, force: true })
-  }
 }
