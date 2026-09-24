@@ -56,7 +56,7 @@ Intel Macs and Linux are not supported.
 
 ## Local-first
 
-**Development preview:** local external-agent capsule authoring via MCP is available in Settings → External agents. It is off by default and requires a locally launched stdio MCP client. See the [setup, security boundaries and test instructions](docs/mcp.md). This does not imply availability in the current public installer.
+**New in 0.1.2 (experimental):** local external-agent capsule authoring via MCP is available in Settings → External agents. It is off by default and requires a locally launched stdio MCP client. See the [setup, security boundaries and test instructions](docs/mcp.md). Install version 0.1.2 or later to use it.
 
 Eggs and their data are stored locally by default. Existing eggs run locally without an AppGacha account; capabilities that intentionally use AI, cloud services, or LAN peers still need the corresponding connection. You can connect your own OpenAI-compatible API provider, while managed AI, cloud sync, and share codes are optional account-backed services. Portable `.gacha` file import and export remain available without cloud lock-in.
 
