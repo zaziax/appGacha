@@ -278,5 +278,5 @@ describe('safe project index and ESM dependency validation', () => {
     const analysis = analyzeProject(dir)
     expect(analysis.issues).toEqual([])
     expect(Object.keys(analysis.modules).filter(name => name.startsWith('vendor/'))).toHaveLength(vendors.length)
-  })
+  }, 15_000) // Parses every bundled library; allow slower Windows/CI disks without weakening assertions.
 })

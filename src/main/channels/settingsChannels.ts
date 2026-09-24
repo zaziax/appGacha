@@ -1,4 +1,6 @@
-import { net } from 'electron'
+import { net, dialog, shell } from 'electron'
+import fs from 'node:fs'
+import { eggStorage } from '../paths'
 import { getAiSettings, getAiSettingsMasked, setAiSettings, hasProviderKey, getProviderKey, clearProviderKey, getAppSettings, setAppSettings, setLang, getEggAutoStart, setEggAutoStart, getCategories, saveCategory, deleteCategory, getEggCategoryMap, setEggCategory, setSyncDisabledForEgg, isSyncDisabledForEgg, type CloseBehavior } from '../settings'
 import { executeCloseAction } from '../shelfWindow'
 import { getEgg } from '../eggs'
@@ -8,6 +10,29 @@ import { handle } from './ipc'
 import { track, aiMode } from '../telemetry'
 
 export function registerSettingsChannels(): void {
+  handle('shelf:eggStorageStatus', () => eggStorage().status())
+  handle('shelf:chooseEggDirectory', async (copyExisting) => {
+    if (typeof copyExisting !== 'boolean') throw new Error('Invalid migration option')
+    const storage = eggStorage()
+    const selected = await dialog.showOpenDialog({
+      title: '扭蛋存储目录 / Egg storage directory',
+      defaultPath: storage.status().pending?.directory ?? storage.directory,
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    if (selected.canceled || !selected.filePaths[0]) return storage.status()
+    return storage.schedule(selected.filePaths[0], copyExisting)
+  })
+  handle('shelf:resetEggDirectory', (copyExisting) => {
+    if (typeof copyExisting !== 'boolean') throw new Error('Invalid migration option')
+    const storage = eggStorage()
+    fs.mkdirSync(storage.defaultDirectory, { recursive: true })
+    return storage.schedule(storage.defaultDirectory, copyExisting)
+  })
+  handle('shelf:cancelEggDirectoryChange', () => eggStorage().cancel())
+  handle('shelf:openEggDirectory', async () => {
+    const error = await shell.openPath(eggStorage().directory)
+    if (error) throw new Error(error)
+  })
   handle('shelf:getAiSettings', () => getAiSettingsMasked())
 
   handle('shelf:saveAiSettings', (s) => {

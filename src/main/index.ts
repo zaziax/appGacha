@@ -8,7 +8,7 @@ import { createShelfWindow, sendToShelf, showShelfWindow, isShelfWindowReady } f
 import { registerShelfChannels, registerWindowControls, bindWindowStateEvents, importGachaFile } from './shelf'
 import { registerWidgetControlEvents } from './widgetControls'
 import { initSchedules } from './schedule'
-import { dataRoot } from './paths'
+import { dataRoot, eggStorage } from './paths'
 import { initLogging } from './log'
 import { runSmoke, runShelfSmoke, runPipelineFailSmoke, runUpgradeSmoke, runLayoutProbe } from './smoke'
 import { runGolden, GOLDEN_CORE, GOLDEN_FULL, goldenFakeDriver } from './golden'
@@ -26,6 +26,7 @@ import { handleCallback } from './auth'
 import { continueUpdateInstallAfterCleanup, initAutoUpdater, stopAutoUpdater } from './updater'
 import { eggLaunchId } from './launchIntent'
 import { initTelemetry, stopTelemetry } from './telemetry'
+import { initMcp, stopMcp } from './mcp/host'
 
 // ── 禁止 Chromium 窗口遮挡检测：失焦/被覆盖时不停合成器，避免 WebGL canvas 白屏 ──
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,IntensiveWakeUpThrottling')
@@ -60,6 +61,8 @@ if (!isHeadless) initLogging()
 let pendingFiles: string[] = []
 /** 冷启动时 open-url 投递的 appgacha:// 协议 URL（macOS 可能先于 ready 触发，排队等就绪后处理） */
 let pendingUrls: string[] = []
+let libraryReady = false
+const pendingLaunchArgs: string[][] = []
 let directEggLaunchHandled = false
 /** 冷启动时 .gacha 导入冲突排队：收藏柜窗口还没建，等建完再发 IPC */
 const pendingImportConflicts: Array<{ file: string; eggId: string; name: string }> = []
@@ -68,6 +71,7 @@ if (!isHeadless) {
     app.quit()
   } else {
     app.on('second-instance', (_e, argv) => {
+      if (!libraryReady) { pendingLaunchArgs.push(argv); return }
       // A shortcut targets an egg; an ordinary application launch restores the shelf.
       if (!eggLaunchId(argv)) showShelfWindow()
       void routeLaunchArgs(argv)
@@ -75,13 +79,13 @@ if (!isHeadless) {
     // macOS：双击 .gacha 文件触发 open-file（可能先于 ready，排队等就绪后处理）
     app.on('open-file', (e, filePath) => {
       e.preventDefault()
-      if (app.isReady()) void routeLaunchArgs([filePath])
+      if (libraryReady) void routeLaunchArgs([filePath])
       else pendingFiles.push(filePath)
     })
     // macOS：appgacha:// 协议 URL 走 open-url 事件（与 Win/Linux 的 second-instance argv 不同）
     app.on('open-url', (e, url) => {
       e.preventDefault()
-      if (app.isReady()) void routeLaunchArgs([url])
+      if (libraryReady) void routeLaunchArgs([url])
       else pendingUrls.push(url)
     })
   }
@@ -146,6 +150,10 @@ app.whenReady().then(async () => {
     Menu.setApplicationMenu(null)
   }
 
+  // Switch/copy only before any egg, background sync, import or MCP job can run.
+  if (!isHeadless) {
+    await eggStorage().initialize()
+  }
   registerCapabilities()
   registerShelfChannels()
   registerWindowControls()
@@ -155,17 +163,29 @@ app.whenReady().then(async () => {
   // P2 局域网联机：UDP 发现 + 隐藏 WebRTC 宿主窗（smoke 模式不启动，避免干扰测试）
   if (!isHeadless) net.init().catch(e => console.error('[net] init failed:', e.message))
 
-  const eggs = discoverEggs(dataRoot('eggs'))
+  let eggs: ReturnType<typeof discoverEggs> = []
+  try {
+    if (isHeadless || eggStorage().status().available) eggs = discoverEggs(dataRoot('eggs'))
+  } catch (error) {
+    if (isHeadless) throw error
+    eggStorage().markUnavailable((error as Error).message)
+  }
+  // The shelf reads storage status on mount and presents the shared app dialog.
+  // No native warning may block startup before the recovery Settings UI exists.
   console.log(`[appgacha] loaded ${eggs.length} egg(s): ${eggs.map(e => e.manifest.name).join(', ') || '(none)'}`)
   if (!isHeadless) initSchedules(eggs)
   if (!isHeadless) void initTelemetry()
+  if (!isHeadless) void initMcp().catch(() => console.error('[mcp] Could not start local bridge; check Settings'))
 
   // 文件关联 + 协议注册 + 启动参数路由（双击 .gacha / appgacha:// 唤起）
   if (!isHeadless) {
     registerAssociations()
+    libraryReady = true
     // 冷启动双击 .gacha：先 await 导入完成再建收藏柜窗口，
     // 避免 UI 拉列表时导入还没完、蛋不入架
     await routeLaunchArgs(process.argv)
+    for (const argv of pendingLaunchArgs) await routeLaunchArgs(argv)
+    pendingLaunchArgs.length = 0
     for (const f of pendingFiles) await routeLaunchArgs([f])
     pendingFiles = []
     // 冷启动 open-url（macOS 协议深链）同队列处理
@@ -283,10 +303,11 @@ app.on('window-all-closed', () => {
 // macOS：点击 Dock 图标恢复收藏柜窗口（应用可能已无窗口）
 app.on('activate', () => {
   if (isHeadless) return
-  if (app.isReady()) showShelfWindow()
+  if (libraryReady) showShelfWindow()
 })
 
 app.on('before-quit', async (event) => {
+  stopMcp()
   stopTelemetry()
   const spaceIds = getSpaceEggIds()
   const windowIds = getOpenWindowEggIds()

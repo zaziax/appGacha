@@ -18,6 +18,8 @@ import { getLangPref, setLangPref, type LangPref } from '../i18n'
 import { providerIcon } from '../config/providerIcons'
 import providersData from '../../../shared/ai-providers.json'
 import { ProductInfoPanel, ReleaseNotes } from './ProductInfo'
+import { McpPanel } from './McpPanel'
+import { EggStoragePanel } from './EggStoragePanel'
 
 interface ProviderModel { id: string; context: number }
 interface Provider {
@@ -40,7 +42,7 @@ const ownKeyProviders = providers.filter(p => !p.useProxy)
 const DEFAULT_OWN_PROVIDER = ownKeyProviders.find(p => p.id === 'deepseek')?.id ?? ownKeyProviders[0]?.id ?? 'custom'
 const CUSTOM_MODEL = '__custom__'
 
-type SettingsSection = 'general' | 'ai'
+type SettingsSection = 'general' | 'ai' | 'mcp'
 type AiMode = 'managed' | 'own'
 type Status = { text: string; cls: '' | 'ok' | 'warn' | 'err' }
 
@@ -289,6 +291,10 @@ export function SettingsDialog({ onClose, onToast }: Props) {
                 <Sparkles className="h-[17px] w-[17px]" strokeWidth={2.3} />
                 <span>{t('settings.tabAi')}</span>
               </NavBtn>
+              <NavBtn active={section === 'mcp'} onClick={() => switchSection('mcp')}>
+                <Plug className="h-[17px] w-[17px]" strokeWidth={2.3} />
+                <span>{zh ? '外部智能体' : 'External agents'}</span>
+              </NavBtn>
             </div>
           </aside>
 
@@ -309,9 +315,10 @@ export function SettingsDialog({ onClose, onToast }: Props) {
                   onToast={onToast}
                 />
                 {updateStatus.version && <div className="mt-4"><ReleaseNotes version={updateStatus.version} notes={updateStatus.releaseNotes} /></div>}
+                <EggStoragePanel />
                 <ProductInfoPanel />
                 </>
-              ) : (
+              ) : section === 'mcp' ? <McpPanel /> : (
                 <AiPanel
                   mode={mode}
                   onModeChange={selectMode}

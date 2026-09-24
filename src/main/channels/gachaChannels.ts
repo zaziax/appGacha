@@ -8,6 +8,7 @@ import { runGacha, runUpgrade, resumeGacha, isGachaBusy, cancelGacha, listCheckp
 import { allEggs, getEgg } from '../eggs'
 import type { IpcText } from '../fcDriver'
 import { handle } from './ipc'
+import { dataRoot } from '../paths'
 import { track, trackBuildSuccess, aiMode, type MetricFields } from '../telemetry'
 
 interface WishQuestion { text: string; options: string[] }
@@ -207,6 +208,7 @@ function launchGacha(run: Promise<{ ok: boolean; eggId?: string; name?: string; 
 
 export function registerGachaChannels(): void {
   handle('shelf:wish', async (wish, lang) => {
+    dataRoot('eggs')
     logLine('[shelf:wish] IPC received:', { wish: String(wish ?? '').slice(0, 80), lang, busy: isGachaBusy() })
     if (isGachaBusy()) throw new Error(makeError(ErrorCode.BUSY, '机芯正忙，请等上一颗蛋出来'))
     const l = lang === 'en' ? 'en' : 'zh'
@@ -216,6 +218,7 @@ export function registerGachaChannels(): void {
   })
 
   handle('shelf:upgrade', async (eggId, wish, lang) => {
+    dataRoot('eggs')
     logLine('[shelf:upgrade] IPC received:', { eggId, wish: String(wish ?? '').slice(0, 80), lang, busy: isGachaBusy() })
     if (isGachaBusy()) throw new Error(makeError(ErrorCode.BUSY, '机芯正忙，请等上一颗蛋出来'))
     const l = lang === 'en' ? 'en' : 'zh'
@@ -255,6 +258,7 @@ export function registerGachaChannels(): void {
   })
 
   handle('shelf:resumeBuild', async (eggId) => {
+    dataRoot('eggs')
     if (isGachaBusy()) throw new Error(makeError(ErrorCode.BUSY, '机芯正忙，请等上一颗蛋出来'))
     const cp = listCheckpoints().find(c => c.eggId === eggId)
     if (!cp) throw new Error('checkpoint not found')
@@ -268,6 +272,7 @@ export function registerGachaChannels(): void {
   })
 
   handle('shelf:wishChat', async (messages, context) => {
+    dataRoot('eggs') // Even requirement clarification must not spend credits without a usable library.
     const msgs = messages as { role: string; content: string }[]
     if (!Array.isArray(msgs) || msgs.length === 0) throw new Error('messages 不能为空')
     // 场景上下文装配：升级 → 注入目标蛋档案；新愿望 → 注入已有蛋名单
@@ -289,6 +294,7 @@ export function registerGachaChannels(): void {
   })
 
   handle('shelf:wishSuggest', async (lang) => {
+    dataRoot('eggs')
     const endpoint = await resolveAiEndpoint()
     if (!endpoint) throw new Error('AI not configured')
     const existing = allEggs().filter(e => !e.ephemeral).map(e => e.manifest.name).slice(0, 20)

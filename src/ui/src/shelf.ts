@@ -1,3 +1,6 @@
+import type { McpStatus, McpConnectionConfig } from '../../shared/mcp'
+import type { EggStorageStatus } from '../../shared/eggStorage'
+
 export interface EggInfo {
   eggId: string
   name: string
@@ -182,6 +185,17 @@ export interface PendingBuild {
 }
 
 export interface ShelfBridge {
+  eggStorageStatus(): Promise<EggStorageStatus>
+  chooseEggDirectory(copyExisting: boolean): Promise<EggStorageStatus>
+  resetEggDirectory(copyExisting: boolean): Promise<EggStorageStatus>
+  cancelEggDirectoryChange(): Promise<EggStorageStatus>
+  openEggDirectory(): Promise<void>
+  mcpStatus(): Promise<McpStatus>
+  mcpEnabled(enabled: boolean): Promise<McpStatus>
+  mcpConnect(name: string): Promise<McpConnectionConfig>
+  mcpRevoke(id: string): Promise<McpStatus>
+  mcpDiscard(id: string): Promise<McpStatus>
+  onMcpChanged(fn: () => void): () => void
   list(): Promise<EggInfo[]>
   open(eggId: string): Promise<void>
   import(): Promise<{ imported: boolean; name?: string }>

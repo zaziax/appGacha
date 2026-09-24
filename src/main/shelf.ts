@@ -10,6 +10,7 @@ import { registerAuthChannels } from './channels/authChannels'
 import { registerBillingChannels } from './channels/billingChannels'
 import { registerSyncChannels } from './channels/syncChannels'
 import { registerUpdateChannels } from './channels/updateChannels'
+import { registerMcpChannels } from './channels/mcpChannels'
 import { registerWindowControls, bindWindowStateEvents } from './channels/windowChannels'
 
 export { importGachaFile }
@@ -24,4 +25,5 @@ export function registerShelfChannels(): void {
   registerBillingChannels()
   registerSyncChannels()
   registerUpdateChannels()
+  registerMcpChannels()
 }

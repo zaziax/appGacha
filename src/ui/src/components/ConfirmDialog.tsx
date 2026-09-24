@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { AlertTriangle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -16,20 +17,45 @@ interface Props {
 export function ConfirmDialog({ title, message, confirmText, cancelText, danger = false, onConfirm, onCancel }: Props) {
   const { t } = useTranslation()
   const confirmRef = useRef<HTMLButtonElement>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
+  const cancelRef = useRef(onCancel)
+  cancelRef.current = onCancel
+  const titleId = useId(), messageId = useId()
 
   useEffect(() => {
+    const previousFocus = document.activeElement as HTMLElement | null
     confirmRef.current?.focus()
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel()
+      const dialogs = document.querySelectorAll('[data-appgacha-confirm]')
+      if (dialogs[dialogs.length - 1] !== overlayRef.current) return
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopImmediatePropagation() // Do not also close the parent Settings dialog.
+        cancelRef.current()
+      }
+      if (e.key === 'Tab') {
+        const buttons = overlayRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')
+        if (!buttons?.length) return
+        const first = buttons[0], last = buttons[buttons.length - 1]
+        if (!overlayRef.current?.contains(document.activeElement) || (e.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+          e.preventDefault()
+          ;(e.shiftKey ? last : first).focus()
+        }
+        e.stopImmediatePropagation()
+      }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onCancel])
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      if (previousFocus?.isConnected) previousFocus.focus()
+    }
+  }, [])
 
-  return (
-    <div className="fixed inset-0 bg-black/25 flex items-center justify-center z-[110]"
+  return createPortal(
+    <div ref={overlayRef} data-appgacha-confirm className="fixed inset-0 bg-black/25 flex items-center justify-center z-[110]"
       onClick={e => { if (e.target === e.currentTarget) onCancel() }}>
-      <div className="bg-white border-[4px] border-text rounded-2xl p-6 w-[380px] max-w-[92vw] animate-[popIn_.18s_ease-out]"
+      <div role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId}
+        className="bg-white border-[4px] border-text rounded-2xl p-6 w-[380px] max-w-[92vw] max-h-[90vh] overflow-y-auto animate-[popIn_.18s_ease-out]"
         style={{ boxShadow: '6px 6px 0 rgba(92,64,51,0.2)' }}>
         <div className="flex items-start gap-3">
           <div className={`w-10 h-10 rounded-xl border-[3px] border-text flex items-center justify-center shrink-0 ${danger ? 'bg-red-100' : 'bg-cream'}`}
@@ -37,8 +63,8 @@ export function ConfirmDialog({ title, message, confirmText, cancelText, danger 
             <AlertTriangle className={`w-5 h-5 ${danger ? 'text-red-600' : 'text-brand'}`} strokeWidth={2.5} />
           </div>
           <div className="min-w-0">
-            <h3 className="text-[15px] font-extrabold text-text leading-snug">{title}</h3>
-            <p className="text-[13px] font-semibold text-muted mt-1 leading-relaxed">{message}</p>
+            <h3 id={titleId} className="text-[15px] font-extrabold text-text leading-snug">{title}</h3>
+            <p id={messageId} className="text-[13px] font-semibold text-muted mt-1 leading-relaxed whitespace-pre-wrap break-words">{message}</p>
           </div>
         </div>
         <div className="flex justify-end gap-2.5 mt-5">
@@ -54,6 +80,6 @@ export function ConfirmDialog({ title, message, confirmText, cancelText, danger 
           </button>
         </div>
       </div>
-    </div>
+    </div>, document.body
   )
 }

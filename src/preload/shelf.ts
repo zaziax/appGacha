@@ -13,6 +13,21 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
 }
 
 contextBridge.exposeInMainWorld('shelf', {
+  eggStorageStatus: () => invoke('shelf:eggStorageStatus'),
+  chooseEggDirectory: (copyExisting: boolean) => invoke('shelf:chooseEggDirectory', copyExisting),
+  resetEggDirectory: (copyExisting: boolean) => invoke('shelf:resetEggDirectory', copyExisting),
+  cancelEggDirectoryChange: () => invoke('shelf:cancelEggDirectoryChange'),
+  openEggDirectory: () => invoke('shelf:openEggDirectory'),
+  mcpStatus: () => invoke('shelf:mcpStatus'),
+  mcpEnabled: (enabled: boolean) => invoke('shelf:mcpEnabled', enabled),
+  mcpConnect: (name: string) => invoke('shelf:mcpConnect', name),
+  mcpRevoke: (id: string) => invoke('shelf:mcpRevoke', id),
+  mcpDiscard: (id: string) => invoke('shelf:mcpDiscard', id),
+  onMcpChanged: (fn: () => void) => {
+    const listener = () => fn()
+    ipcRenderer.on('mcp:changed', listener)
+    return () => ipcRenderer.removeListener('mcp:changed', listener)
+  },
   list: () => invoke('shelf:list'),
   open: (eggId: string) => invoke('shelf:open', eggId),
   import: () => invoke('shelf:import'),

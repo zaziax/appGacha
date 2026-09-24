@@ -12,6 +12,7 @@ import { runFcDriver, DriverResult, ActivityType, IpcText, type BuildVerificatio
 import { logLine } from './log'
 import { generateEggDoc } from './eggDoc'
 import { pruneBuildResources, verifyFinalArtifact } from './finalArtifact'
+import { hasExternalBuildActivity } from './buildActivity'
 import { uniqueEggFolder } from './eggFolder'
 import type { RuntimeScenario } from './runtimeScenarios'
 
@@ -119,7 +120,7 @@ let busy = false
 let currentAbort: AbortController | null = null
 
 export function isGachaBusy(): boolean {
-  return busy
+  return busy || hasExternalBuildActivity()
 }
 
 /** 取消当前正在进行的扭蛋/升级。安全幂等：无在途任务时调用无副作用。 */
@@ -155,7 +156,7 @@ export async function runGacha(
   onProgress: (p: GachaProgress) => void,
   driver: GachaDriver = runFcDriver
 ): Promise<GachaResult> {
-  if (busy) return { ok: false, error: { key: 'err.busy' } }
+  if (isGachaBusy()) return { ok: false, error: { key: 'err.busy' } }
   if (typeof wish !== 'string' || wish.trim().length < 2) return { ok: false, error: { key: 'err.wishTooShort' } }
   busy = true
   currentAbort = new AbortController()
@@ -167,6 +168,7 @@ export async function runGacha(
 
   try {
     // ① 投币：备舱——模板落位，manifest 由管线写入（wish 不经智能体之手）
+    dataRoot('eggs') // Refuse unavailable storage before any model call/credit usage.
     onProgress({ stage: 'coin', detail: { key: 'pipe.coin' } })
     if (signal.aborted) return cancelledResult(onProgress, path.basename(stagingDir))
     fs.mkdirSync(stagingDir, { recursive: true })
@@ -236,7 +238,7 @@ export async function resumeGacha(
 ): Promise<GachaResult> {
   const cp = loadCheckpoint(eggId)
   if (!cp) return { ok: false, error: 'no checkpoint found' }
-  if (busy) return { ok: false, error: { key: 'err.busy' } }
+  if (isGachaBusy()) return { ok: false, error: { key: 'err.busy' } }
 
   busy = true
   currentAbort = new AbortController()
@@ -247,6 +249,7 @@ export async function resumeGacha(
 
   try {
     // 续建：staging 目录已存在，直接驱动继续
+    dataRoot('eggs')
     onProgress({ stage: 'crank', detail: { key: 'pipe.crank' } })
     if (signal.aborted) return cancelledResult(onProgress, path.basename(stagingDir))
 
@@ -350,7 +353,7 @@ export async function runUpgrade(
   onProgress: (p: GachaProgress) => void,
   driver: GachaDriver = runFcDriver
 ): Promise<GachaResult> {
-  if (busy) return { ok: false, error: { key: 'err.busy' } }
+  if (isGachaBusy()) return { ok: false, error: { key: 'err.busy' } }
   if (typeof wish !== 'string' || wish.trim().length < 2) return { ok: false, error: { key: 'err.wishTooShort' } }
   const egg = getEgg(eggId)
   if (!egg || egg.ephemeral) return { ok: false, error: 'egg not found' }

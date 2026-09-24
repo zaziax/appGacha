@@ -28,6 +28,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/ui/tsconfig.json && tsc --noEmit -p tests/tsconfig.json",
     "test:runtime": "node tests/run-runtime-electron.cjs",
+    "test:dialogs": "node tests/run-dialogs-electron.cjs",
+    "test:mcp": "node tests/run-mcp-electron.cjs",
     "pretest:db": "electron-rebuild -w better-sqlite3",
     "test:db": "tsc && node test-db.cjs",
     "test:all": "npm run test && npm run test:db",
@@ -179,6 +181,7 @@
   },
   "dependencies": {
     "@lobehub/icons-static-svg": "^1.94.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
     "acorn": "^8.18.0",

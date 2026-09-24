@@ -16,6 +16,7 @@ import { ClosePromptDialog } from './components/ClosePromptDialog'
 import { UpdateDialog } from './components/UpdateDialog'
 import { UsageStatisticsNotice, WhatsNew } from './components/ProductInfo'
 import { ConfirmDialog } from './components/ConfirmDialog'
+import { EggStorageNotice } from './components/EggStorageNotice'
 import { LoginDialog } from './components/LoginDialog'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ShelfToolbar, SortMode } from './components/ShelfToolbar'
@@ -509,6 +510,7 @@ export default function App() {
       </Canvas>
 
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} onToast={showToast} />}
+      <EggStorageNotice onOpenSettings={() => setSettingsOpen(true)} />
       <LoginDialog open={loginOpen} onClose={() => setLoginOpen(false)} onSuccess={() => setLoginOpen(false)} />
       {confirm && (
         <ConfirmDialog
