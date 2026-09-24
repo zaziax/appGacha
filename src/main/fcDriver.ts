@@ -7,6 +7,7 @@ import { resolveAiEndpoint } from './aiChannel'
 import { logLine } from './log'
 import { analyzeProject, formatProjectIndex } from './projectIndex'
 import { WorkspaceTools, resolveWorkspacePath } from './fcWorkspaceTools'
+import { retainRegressionScenarios } from './scenarioPolicy'
 import { generationRules } from './generationRules'
 import { compactMessages, checkpointMessages } from './fcContext'
 import { streamCompletion, HttpError, CompletionStreamError, type StreamResult } from './fcStream'
@@ -529,7 +530,7 @@ export async function runFcDriver(job: DriverJob): Promise<DriverResult> {
           const proposed = args.scenarios as RuntimeScenario[]
           validateRuntimeScenarios(proposed)
           if (scenarios.length && JSON.stringify(proposed) !== JSON.stringify(scenarios) && (typeof args.scenario_change_reason !== 'string' || !args.scenario_change_reason.trim())) throw new Error('Explain scenario_change_reason before changing existing regression scenarios; do not weaken failing assertions')
-          scenarios = proposed
+          scenarios = retainRegressionScenarios(scenarios, proposed)
         }
         return (await runCheck()).report
       }

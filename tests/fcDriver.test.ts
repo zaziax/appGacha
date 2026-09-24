@@ -396,6 +396,18 @@ describe('driver lifecycle without network or Electron windows', () => {
     expect(mocks.runtime.mock.calls.at(-1)?.[1].scenarios).toEqual([scenario])
   })
 
+  it('does not allow a reason to erase a failing regression without fixing code', async () => {
+    mocks.runtime.mockImplementation(async (_dir, options) => ({ ok: !options.scenarios.length,
+      coverage: { startup: 'passed', scenarios: options.scenarios.length ? 'failed' : 'not-run' },
+      scenarios: options.scenarios.map((s: RuntimeScenario) => ({ name: s.name, ok: false, steps: [] })),
+      diagnostics: [], consoleErrors: [], widgetIssues: [], blank: false, crashed: false }))
+    replies(answer([plan(), toolCall('check_egg', { scenarios: [scenario] })]),
+      answer([toolCall('check_egg', { scenarios: [], scenario_change_reason: 'Testing is inconvenient' }), toolCall('finish', {})]))
+    const result = await runFcDriver(job())
+    expect(result.ok).toBe(false)
+    expect(mocks.runtime.mock.calls.every(([, options]) => options.scenarios.length === 1)).toBe(true)
+  })
+
   it('stops repeated identical failures and does not execute remaining tool calls', async () => {
     mocks.validate.mockReturnValue([{ file: 'app.js', message: 'Missing module' }])
     replies(answer([plan(), toolCall('check_egg', {}), toolCall('check_egg', {}), toolCall('check_egg', {}), toolCall('write_file', { path: 'never.js', content: 'never' })]))
