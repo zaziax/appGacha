@@ -24,6 +24,15 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/Electron-37-47848F?logo=electron&amp;logoColor=white" alt="Electron 37" />
+  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&amp;logoColor=black" alt="React 19" />
+  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&amp;logoColor=white" alt="TypeScript 5" />
+  <img src="https://img.shields.io/badge/Vite-8-646CFF?logo=vite&amp;logoColor=white" alt="Vite 8" />
+  <img src="https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&amp;logoColor=white" alt="Tailwind CSS 4" />
+  <img src="https://img.shields.io/badge/Three.js-0.185-000000?logo=threedotjs&amp;logoColor=white" alt="Three.js 0.185" />
+</p>
+
+<p align="center">
   <a href="https://appgacha.com/#download"><strong>Download AppGacha</strong></a> ·
   <a href="https://github.com/zaziax/appGacha/releases">Releases</a> ·
   <a href="docs/mcp.md">MCP setup</a> ·
