@@ -1,507 +1,170 @@
 <p align="center">
-  <img src="assets/icon.png" alt="AppGacha" width="128" height="128" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/appgacha-wordmark-dark.png" />
+    <img src="assets/readme/appgacha-wordmark.png" alt="AppGacha" width="360" />
+  </picture>
 </p>
 
-<h1 align="center">AppGacha</h1>
-<h3 align="center">Gacha Machine for Desktop Apps</h3>
+<h3 align="center">Turn a sentence into your own tiny desktop app.</h3>
 
 <p align="center">
-  <a href="README.md">EN</a>
-  &nbsp;·&nbsp;
-  <a href="README.zh-CN.md">CN</a>
+  An open-source AI app builder for Windows and macOS.<br />
+  Describe an idea. Open your capsule. Make it part of your day.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Electron-37.2-blue?logo=electron" alt="Electron" />
-  <img src="https://img.shields.io/badge/React-19-blue?logo=react" alt="React" />
-  <img src="https://img.shields.io/badge/TypeScript-5.5-blue?logo=typescript" alt="TypeScript" />
-  <img src="https://img.shields.io/badge/Tailwind_CSS-4.3-blue?logo=tailwindcss" alt="Tailwind CSS" />
-  <img src="https://img.shields.io/badge/Three.js-0.185-blue?logo=three.js" alt="Three.js" />
+  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
   <a href="https://github.com/zaziax/appGacha/releases/latest"><img src="https://img.shields.io/github/v/release/zaziax/appGacha?label=release" alt="Latest release" /></a>
-  <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license" /></a>
+  <img src="https://img.shields.io/badge/Windows-x64-blue" alt="Windows x64" />
+  <img src="https://img.shields.io/badge/macOS-Apple_Silicon-black" alt="macOS Apple silicon" />
 </p>
 
 <p align="center">
-  <a href="https://appgacha.com/#download"><strong>Download AppGacha</strong></a>
-  &nbsp;·&nbsp;
-  <a href="https://github.com/zaziax/appGacha/releases">GitHub Releases</a>
+  <a href="https://appgacha.com/#download"><strong>Download AppGacha</strong></a> ·
+  <a href="https://github.com/zaziax/appGacha/releases">Releases</a> ·
+  <a href="docs/mcp.md">MCP setup</a> ·
+  <a href="https://github.com/zaziax/appGacha/issues">Feedback</a>
 </p>
+
+![Describe what you need and get your own desktop app](assets/readme/01-wish-for-an-app.png)
 
 <p align="center">
-  <img src="assets/readme/01-wish-for-an-app.png" alt="Say what you need and get your own desktop app with AppGacha" width="100%" />
+  <a href="https://youtu.be/IcDF_kpP8BM"><strong>Watch the product film on YouTube →</strong></a><br />
+  <sub>An animated tour of AppGacha, from an idea to your desktop workspace.</sub>
 </p>
 
----
+## Small apps, made for you
 
-## What is this?
+A notes app that fits the way you think. A timer that stays on your desktop. A personal expense tracker, a workout log, or a tiny game.
 
-AppGacha is a desktop app that turns natural language wishes into real, runnable desktop applications — called **eggs** (`.gacha` folder). You describe what you want, an AI agent pipeline builds it, and the egg runs in a sandboxed environment with its own database, file system, and AI capabilities. Copy the egg folder to another device with AppGacha installed, and it just works.
+AppGacha turns a plain-language request into a **capsule**: a small HTML/CSS/JavaScript app that runs inside AppGacha's desktop runtime, with its own local data. No development environment is needed to use the downloaded app.
 
-> 🥚 **What is an egg?** One `.gacha` folder = one complete desktop app. It contains `manifest.json` (identity + permissions), HTML/CSS/JS (functionality), and `data/` (persistent storage). Pure web technologies, zero Node.js dependencies, zero build steps. Migration is copy-paste.
+- **Build by describing.** Refine your request, then let AI create and check the app.
+- **Use it on your desktop.** Open apps from shortcuts, or use frameless, always-on-top widgets.
+- **Keep your tools together.** Organize apps on your shelf and switch between them in a GachaSpace workspace.
+- **Keep control.** Inspect the generated code, export capsules, and bring your own OpenAI-compatible API key.
+- **Build with another agent.** Connect a compatible local MCP client to create new capsules using your existing agent workflow.
 
-### Why "Gacha"?
+![Example capsules: a ledger, notes, a game and a workout tracker](assets/readme/05-any-kind-of-app.png)
 
-The gacha metaphor sets the right expectation: results have an element of randomness, and if you're not happy with what you get, you can always spin again. It's a product decision that acknowledges AI generation isn't perfect — and that's okay.
+> Capsules need AppGacha to run; they are not standalone installers. AI-generated apps may need refinement, and automated checks do not guarantee every workflow will work.
 
-## Download
+## Get started
 
-Download the latest public build from [appgacha.com](https://appgacha.com/#download) or [GitHub Releases](https://github.com/zaziax/appGacha/releases).
+### 1. Download
 
-| Platform | Support | Distribution |
+Get the latest build from [appgacha.com](https://appgacha.com/#download) or [GitHub Releases](https://github.com/zaziax/appGacha/releases/latest).
+
+| Platform | Support | Installation |
 |---|---|---|
-| **Windows** | Windows 10/11, x64 | Unsigned installer; Windows SmartScreen may show a warning |
-| **macOS** | Apple silicon (M1 or newer) | Developer ID signed and Apple-notarized |
+| Windows | Windows 10/11, x64 | Unsigned installer; SmartScreen may show a warning |
+| macOS | Apple silicon (M1 or newer) | Developer ID signed and Apple-notarized |
 
-Intel Macs and Linux are not supported.
+Intel Macs and Linux are not currently supported.
 
-## Local-first
+### 2. Choose your AI
 
-**New in 0.1.2 (experimental):** local external-agent capsule authoring via MCP is available in Settings → External agents. It is off by default and requires a locally launched stdio MCP client. See the [setup, security boundaries and test instructions](docs/mcp.md). Install version 0.1.2 or later to use it.
+In Settings, connect your own **OpenAI-compatible provider** with its base URL, model name and API key, or sign in to use optional hosted AI.
 
-Eggs and their data are stored locally by default. Existing eggs run locally without an AppGacha account; capabilities that intentionally use AI, cloud services, or LAN peers still need the corresponding connection. You can connect your own OpenAI-compatible API provider, while managed AI, cloud sync, and share codes are optional account-backed services. Portable `.gacha` file import and export remain available without cloud lock-in.
+BYOK does not require an AppGacha account or subscription. Your provider's usage charges still apply. Hosted AI and optional cloud services are account-backed.
 
-## Product tour
+### 3. Make a wish
 
-<table>
-  <tr>
-    <td width="50%"><img src="assets/readme/02-one-sentence-to-app.png" alt="From one sentence to a working desktop app" /></td>
-    <td width="50%"><img src="assets/readme/03-desktop-widgets.png" alt="Frameless, always-on-top desktop widgets with position memory" /></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="assets/readme/04-your-gacha-space.png" alt="Arrange personal apps into a custom Gacha Space workspace" /></td>
-    <td width="50%"><img src="assets/readme/05-any-kind-of-app.png" alt="Generated apps include local data, notifications, AI, files and schedules" /></td>
-  </tr>
-</table>
+Start with a focused request, for example:
 
-<p align="center">
-  <img src="assets/readme/06-your-apps-stay-yours.png" alt="Local-first apps with portable files, inspectable code and bring-your-own-key AI" width="100%" />
-</p>
+> Build a workout log where I can add exercises, record sets and reps, and review my previous sessions.
 
-## Demo
+Answer the clarification questions, let AppGacha build and check the capsule, then open it from your shelf. Try its core workflow and ask for changes if needed.
 
-From wish to egg, in three steps:
+<details>
+<summary>See the creation flow</summary>
 
-**1 · Wish** — Say what you want in one line.
+![From a sentence to a working app](assets/readme/02-one-sentence-to-app.png)
 
-![Wish](assets/demo/step1_en.gif)
+**Describe → clarify → build.** These recordings show the in-app flow; generation time varies with the request and model.
 
-**2 · Confirm** — AI nails down the details.
+![Describe your wish](assets/demo/step1_en.gif)
 
-![Confirm](assets/demo/step2_en.gif)
+![Clarify the details](assets/demo/step2_en.gif)
 
-**3 · Crank** — Built & verified automatically.
+![Build and check the capsule](assets/demo/step3_en.gif)
 
-![Crank](assets/demo/step3_en.gif)
+</details>
 
-## Features
+## A workspace for your everyday apps
 
-### For Users
+Keep notes, accounts and personal tools together in **GachaSpace**. Choose your apps, arrange the sidebar, and switch without hunting through separate windows.
 
-- **Wishing Well** — Describe the app you want in natural language. The AI asks clarifying questions, then builds it.
-- **Shelf** — All your eggs in one place. 3D capsule previews with idle animations, one-click open, drag-to-reorder.
-- **GachaSpace** — Pin eggs into a multi-tab workspace inside the shelf window. No taskbar clutter.
-- **Widget Mode** — Transparent, frameless, always-on-top desktop widgets. Pomodoro timers, sticky notes, countdowns — real desktop presence.
-- **LAN Multiplayer** — Eggs auto-discover each other on the local network. Real-time P2P battles, collaboration, data sharing — no server needed.
-- **System Tray & Notifications** — Eggs can schedule reminders via cron. Notifications survive app restart. Click a notification to open the egg.
-- **AI Choice** — Use AppGacha managed AI or connect your own OpenAI-compatible provider and API key.
-- **Optional Cloud Sync** — Keep selected eggs available across devices when cloud convenience is useful.
-- **Share Codes & Portable Export** — Share an app through a short-lived claim code, or export a `.gacha` file with or without its data. File import/export requires no account.
+![A personal workspace with notes, a ledger and a fitness companion](assets/readme/04-your-gacha-space.png)
 
-### For Developers
+<details>
+<summary>Desktop widgets and local-first ownership</summary>
 
-- **Open `.gacha` Specification** — Pure HTML/CSS/JS (ES Modules). No build tools. Anyone can hand-craft an egg. See [egg-spec.md](docs/egg-spec.md).
-- **Bridge API v1** — 9 permissioned capability domains + 2 permissionless UI ops, all async, all type-declared in `egg.d.ts`:
+Use frameless, always-on-top widgets for tools you want to keep in view.
 
-  | Domain | Permission | API |
-  |---|---|---|
-  | AI | `ai` | `egg.ai.chat()` / `egg.ai.extract()` |
-  | Database | `db` | `egg.db.query()` / `egg.db.exec()` (SQLite) |
-  | Storage | `storage` | `egg.storage.get()` / `set()` / `delete()` (JSON KV) |
-  | Files | `fs` | `egg.fs.read()` / `write()` / `list()` / `readBytes()` / `writeBytes()` (sandboxed to `data/`) |
-  | ZIP | `zip` | `egg.zip.create()` / `egg.zip.extract()` |
-  | Notifications | `notify` | `egg.notify.send()` |
-  | Scheduler | `schedule` | `egg.schedule.set()` / `cancel()` / `list()` (cron, max 20) |
-  | Window | `window` | `egg.window.setAlwaysOnTop()` / `setSize()` |
-  | Network | `network` | `egg.net.createRoom()` / `findRooms()` / `joinRoom()` / `broadcast()` / `close()` (WebRTC P2P) |
-  | UI (no perm) | — | `egg.ui.toast()` / `confirm()` / `pickFile()` / `saveFile()` / `pickBinary()` / `saveBinary()` |
-  | Shell (no perm) | — | `egg.minimize()` / `maximize()` / `close()` |
+![Desktop widgets with position memory](assets/readme/03-desktop-widgets.png)
 
-- **Template + Scaffolding** — Eggs start from a template with a desktop-app-shell design system (`base.css`), a Lucide icon sprite, and pre-installed vendor ESM libraries (no network needed):
+Capsules and their data stay local by default. Export them when you want to move or share them.
 
-  | Category | Libraries |
-  |---|---|
-  | 3D / Graphics | Three.js, p5.js, matter.js |
-  | Charts / Documents | Chart.js, KaTeX, ExcelJS, pdfmake |
-  | Utilities | marked, qrcode, canvas-confetti, dayjs, anime.js, js-yaml, jsdiff, Tone.js |
+![Local data, portable capsules and bring-your-own-key AI](assets/readme/06-your-apps-stay-yours.png)
 
-- **Dual Validation** — `validate_egg` (static: manifest schema, forbidden APIs, emoji ban, external URL detection, CSP check, JS syntax check) → `test_egg` (headless run + screenshot + console error collection). Up to 3 repair rounds before failing.
+</details>
 
-- **Function-Calling Driver** — Custom `fcDriver` with 6 tools (`list_files`, `read_file`, `read_guide`, `write_file`, `check_egg`, `finish`), SSE streaming with stall detection, context window compaction, and budget guardrails (60 turns / 300k tokens / 15 min).
+## Create capsules with your own agent
 
-## Quick Start
+**Experimental, available from 0.1.2.** AppGacha can act as a local MCP server: your external agent writes the app, while AppGacha provides the template, API documentation, checks, preview and installation onto the shelf.
 
-### Prerequisites
+1. Open **Settings → External agents** and enable local MCP.
+2. Create a connection and copy its configuration into a client that supports launching local **stdio MCP** servers.
+3. Keep AppGacha running and ask your agent to create, check and install a new capsule.
 
-- **Node.js** ≥ 20
-- **npm** ≥ 10
-- **Windows 10/11 x64** or **macOS on Apple silicon**
+This path does not use AppGacha's built-in generation credits. External model/provider charges may apply, and AI features inside a finished capsule still use your AppGacha AI configuration.
 
-### Install & Run
+MCP is off by default. Treat the connection token as a secret. It does not expose your existing capsules' private data or API keys.
 
-```powershell
+[Connection instructions, limitations and security boundaries →](docs/mcp.md)
+
+## Your apps and data stay yours
+
+A capsule's working directory ends in `.gacha` and contains its manifest, app code and persistent data. Portable export packages the capsule into a `.gacha` file, with or without its data.
+
+- **Local by default.** Existing capsules can run without an AppGacha account. AI, cloud and LAN features still need their corresponding connections.
+- **Your choice of AI.** BYOK credentials are encrypted on-device and are not uploaded to AppGacha.
+- **Portable.** File import/export does not require an account. The destination device needs AppGacha.
+- **Optional cloud.** Hosted AI, cloud sync and share codes are optional services; the desktop client is MIT-licensed, while the hosted backend is not open source.
+- **Your storage location.** Choose a capsule directory in Settings. See [storage and migration](docs/egg-storage.md).
+
+## For developers
+
+The desktop client uses **Electron, React and TypeScript**. Capsules use plain HTML/CSS/JavaScript with a permissioned bridge for local storage, SQLite, files, AI, notifications and more.
+
+```sh
 git clone https://github.com/zaziax/appGacha.git
 cd appGacha
 npm install
-npm start              # Full build (tsc + vite) → launch Electron (Windows)
-npm run start:mac      # macOS
 ```
 
-### Dev Mode
+Run `npm start` on Windows or `npm run start:mac` on macOS. Development requires Node.js 20+ and npm 10+; end users should use the packaged downloads above.
 
-```powershell
-npm run dev:ui         # Terminal 1: Vite dev server (hot reload for shelf UI)
-npm run dev            # Terminal 2: Electron connected to dev server
-```
-
-### Smoke Test & Golden Wishes
-
-```powershell
-npm run smoke          # Headless verification: egg bridge pipeline + shelf + failure/upgrade pipelines
-npm run test           # Unit tests (Vitest)
-npm run golden:fake    # Golden wish regression — full gacha→probe run (fake AI)
-npm run golden         # Golden wish regression (real AI)
-```
-
-### Package
-
-```powershell
-npm run pack           # Unpacked build (Windows)
-npm run dist           # Unsigned NSIS installer (Windows x64)
-npm run dist:mac       # Local signed + notarized DMG/ZIP (macOS Apple silicon)
-```
-
-`dist:mac` requires a Developer ID Application certificate in the macOS Keychain and the Apple notarization API credentials configured in `.env`. It creates local artifacts in `release/` and does not upload them to GitHub automatically.
-
-### China Mirror Setup
-
-If npm installs fail on native binaries in mainland China:
-
-```powershell
-# Electron binary — download manually and skip download in install.js:
-# https://npmmirror.com/mirrors/electron/37.2.0/electron-v37.2.0-win32-x64.zip
-
-# better-sqlite3 (needs Electron ABI 136) — download and extract:
-# https://registry.npmmirror.com/-/binary/better-sqlite3/v<ver>/better-sqlite3-v<ver>-electron-v136-win32-x64.tar.gz
-```
-
-## Architecture
-
-```
-┌────────────────── AppGacha (Electron) ───────────────────────────┐
-│                                                                  │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
-│  │  Shelf UI        │  │  GachaSpace      │  │  Egg Windows    │  │
-│  │  React + Vite    │  │  (multi-tab)     │  │  (standalone)   │  │
-│  │                  │  │  WebContentsView │  │  BrowserWindow  │  │
-│  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘ │
-│           │                     │                      │          │
-│  ┌────────┴─────────────────────┴──────────────────────┴────────┐ │
-│  │                    preload + Bridge API                        │ │
-│  │  ai · db (SQLite) · storage · fs · zip · notify · schedule    │ │
-│  │  window · network (WebRTC P2P) · ui (toast/dialogs)           │ │
-│  └───────────────────────────────────────────────────────────────┘ │
-│                                                                  │
-│  ┌────────────────┐  ┌────────────────┐  ┌───────────────────┐  │
-│  │  Gacha Core     │  │  Egg Manager   │  │  Auth              │  │
-│  │  fcDriver       │  │  install       │  │  Google OAuth      │  │
-│  │  validate_egg   │  │  export/import │  │  Email login       │  │
-│  │  test_egg       │  │  upgrade       │  │                    │  │
-│  │  pipeline       │  │  rollback      │  │                    │  │
-│  └────────────────┘  └────────────────┘  └───────────────────┘  │
-│                                                                  │
-│  ┌────────────────┐  ┌────────────────┐  ┌───────────────────┐  │
-│  │  Scheduler      │  │  Widget Ctrl    │  │  Auto Updater      │  │
-│  │  cron reminders │  │  satellite win  │  │  electron-updater  │  │
-│  │  click-to-open  │  │  drag/pin/close │  │  GitHub Releases   │  │
-│  └────────────────┘  └────────────────┘  └───────────────────┘  │
-└──────────────────────────────────────────────────────────────────┘
-         │                                                   │
-         ▼                                                   ▼
-   ┌──────────┐                                  ┌──────────────────┐
-   │  .gacha dir│                                  │  AppGacha Server  │
-   │  Local FS │                                  │  FastAPI + PG 16  │
-   └──────────┘                                  │  api.appgacha.com │
-                                                 └──────────────────┘
-```
-
-### Generation Pipeline
-
-```
-Wish (natural language)
-   │
-   ▼
-① Coin (投币)      Copy template scaffold → staging/<eggId>/
-   │                Pipeline writes protected manifest fields
-   ▼
-② Crank (旋钮)     fcDriver: custom function-calling loop
-   │                Tools: list_files / read_file / read_guide /
-   │                       write_file / check_egg / finish
-   │                Budget: 60 turns / 300k tokens / 15 min
-   ▼
-③ Clack (咔咔)     validate_egg (static checks) →
-   │                test_egg (headless run + screenshot + console)
-   │                Failures fed back to agent, max 3 rounds
-   ▼
-④ Pop (咔哒)       Pass → atomic move to eggs/<name>.gacha/
-                    Exceeded → archive to staging/failed/
-```
-
-### AI Model Path
-
-AppGacha offers two AI paths: managed AI through the optional account service, or bring-your-own-key access to OpenAI-compatible providers such as DeepSeek, OpenAI, Kimi, and Qwen. BYOK credentials are encrypted on-device with Electron `safeStorage` (Windows DPAPI / macOS Keychain) and are not uploaded to AppGacha.
-
-## Project Structure
-
-```
-appGacha/
-├── src/
-│   ├── main/                    # Electron main process
-│   │   ├── index.ts             #   Entry, single-instance lock, CLI routing, quit sync
-│   │   ├── pipeline.ts          #   Gacha pipeline (coin→crank→clack→pop)
-│   │   ├── fcDriver.ts          #   Custom function-calling loop (6 tools, SSE, context compaction)
-│   │   ├── validate.ts          #   Static egg validation (schema, forbidden APIs, emoji, CSP)
-│   │   ├── test.ts              #   Runtime egg testing (headless + screenshot + console)
-│   │   ├── aiChannel.ts         #   Managed AI + BYOK channel (safeStorage-encrypted credentials)
-│   │   ├── auth.ts              #   Google OAuth + email code + password login, JWT mgmt
-│   │   ├── api.ts               #   Unified HTTP client with auto token refresh
-│   │   ├── eggs.ts              #   Egg registry (discover, register, remove, loadManifest)
-│   │   ├── eggWindow.ts         #   Egg window factory (frameless, sandboxed, per-egg partition)
-│   │   ├── eggDoc.ts            #   Egg structure snapshot (Markdown) for upgrade
-│   │   ├── space.ts             #   GachaSpace: WebContentsView-based multi-tab workspace
-│   │   ├── shelf.ts             #   IPC registration barrel — re-exports domain registrars from channels/
-│   │   ├── shelfWindow.ts       #   Shelf window lifecycle (dev server vs built dist)
-│   │   ├── protocol.ts          #   egg:// custom protocol + session lockdown
-│   │   ├── settings.ts          #   Persistent settings (AI keys, per-egg flags, categories, space)
-│   │   ├── gachaPkg.ts          #   .gacha ZIP pack/unpack with path traversal protection
-│   │   ├── schedule.ts          #   Cron-based egg reminders (cron-parser, max 20/egg)
-│   │   ├── widgetControls.ts    #   Widget satellite control window (grip/pin/close)
-│   │   ├── widgetPlacement.ts   #   Widget window placement / persistence
-│   │   ├── tray.ts              #   System tray icon + context menu
-│   │   ├── menu.ts              #   macOS minimal native menu
-│   │   ├── updater.ts           #   Auto-updater (electron-updater, GitHub Releases)
-│   │   ├── smoke.ts             #   Smoke tests (bridge + shelf + pipeline + upgrade)
-│   │   ├── golden.ts            #   Golden wishes regression benchmark
-│   │   ├── wishGuide.ts         #   Wish chat AI prompt assembly
-│   │   ├── assoc.ts             #   File association + protocol registration (Windows)
-│   │   ├── registry.ts          #   WebContents → egg mapping for permission checks
-│   │   ├── log.ts               #   Logging + crash reporter
-│   │   ├── i18n.ts              #   Main-process i18n (tray menu, window title: en/zh)
-│   │   ├── paths.ts             #   Path helpers (dataRoot, appRoot)
-│   │   ├── fsutil.ts            #   copyDir (avoids Node 22 fs.cpSync emoji-path crash)
-│   │   ├── ico.ts               #   ICO encoding for egg-specific icons
-│   │   ├── channels/            #   Shelf IPC registrars, split by domain
-│   │   │   ├── ipc.ts           #     Shared handle() wrapper (sender gate + {ok,value}/{ok,error})
-│   │   │   ├── eggChannels.ts   #     Egg list/open/import/export/trash/rollback
-│   │   │   ├── gachaChannels.ts #     Wish/upgrade/cancel/resume + wishChat AI
-│   │   │   ├── settingsChannels.ts #  AI settings / models / app settings / categories
-│   │   │   ├── spaceChannels.ts #     Space add/remove/reorder/activate/bounds
-│   │   │   ├── authChannels.ts  #     Auth status/login/logout/code/password
-│   │   │   ├── updateChannels.ts #    Check/status/install update
-│   │   │   └── windowChannels.ts #    Window controls + state events
-│   │   ├── capabilities/        #   Bridge API implementations
-│   │   │   ├── index.ts         #     IPC handler registration + permission checks
-│   │   │   ├── storage.ts       #     JSON KV store (file-backed)
-│   │   │   ├── db.ts            #     SQLite via better-sqlite3
-│   │   │   ├── dbGuard.ts       #     SQL safety guardrails (forbidden SQL, row/byte caps)
-│   │   │   ├── dbWorker.ts      #     SQLite worker thread
-│   │   │   ├── ai.ts            #     AI chat + extract (rate-limited: 20/min/egg)
-│   │   │   ├── fsx.ts           #     Sandboxed file I/O (data/ only)
-│   │   │   └── zip.ts           #     In-memory ZIP create/extract
-│   │   └── net/                 #   LAN multiplayer (P2P WebRTC)
-│   │       ├── coordinator.ts   #     Room management (create/join/broadcast/close)
-│   │       ├── discovery.ts     #     UDP multicast discovery
-│   │       ├── rtcHost.ts       #     Hidden BrowserWindow hosting WebRTC connections
-│   │       └── signaling.ts     #     Signaling protocol
-│   ├── preload/                 # Preload scripts (bridge injection + UI chrome)
-│   │   ├── index.ts             #   Bridge API exposure, titlebar injection, toast/confirm UI
-│   │   └── shelf.ts             #   Shelf-specific bridge
-│   ├── shared/                  # Types shared between main ↔ renderer
-│   └── ui/                      # Shelf UI (React + Vite + Tailwind CSS)
-│       ├── src/
-│       │   ├── App.tsx          #   Root: state management, i18n
-│       │   ├── config/          #   Constants (provider icons)
-│       │   ├── i18n/            #   i18next resources (zh / en)
-│       │   └── components/
-│       │       ├── EggCard.tsx          # Egg card with 3D capsule
-│       │       ├── Capsule3D.tsx        # Three.js gacha capsule scene
-│       │       ├── GachaMachine3D.tsx   # 3D gacha machine (wishing interface)
-│       │       ├── GachaMachineV5.tsx   # Gacha machine variant
-│       │       ├── MachineView.tsx      # Machine view layout
-│       │       ├── GachaShowcase3D.tsx  # 3D showcase scene
-│       │       ├── AppAssemblyStage.tsx # App assembly progress stage
-│       │       ├── SpaceView.tsx        # GachaSpace multi-tab workspace
-│       │       ├── ShelfToolbar.tsx     # Toolbar (search, filter, settings)
-│       │       ├── LoginDialog.tsx      # OAuth + email login
-│       │       ├── SettingsDialog.tsx   # AI keys, app preferences
-│       │       ├── ExportDialog.tsx     # Export egg as .gacha
-│       │       ├── UpdateDialog.tsx     # Update available / progress
-│       │       ├── ConfirmDialog.tsx    # Styled confirmation modal
-│       │       ├── ClosePromptDialog.tsx # Close behavior prompt (tray vs quit)
-│       │       ├── ErrorBoundary.tsx    # Render error boundary
-│       │       ├── Toast.tsx            # Toast notification
-│       │       ├── TitleBar.tsx         # Custom frameless titlebar
-│       │       └── UserPanel.tsx        # User account panel
-│       └── vite.config.ts
-├── template/                    # Egg scaffold (copied to staging/ for each generation)
-│   ├── manifest.json            #   Placeholder manifest
-│   ├── index.html               #   Entry HTML shell
-│   ├── app.js                   #   Blank entry module
-│   ├── style.css                #   Custom styles placeholder
-│   ├── base.css                 #   Desktop app-shell design system (CSS variables, components)
-│   ├── widget.css               #   Widget-mode styles
-│   ├── widget.js                #   Widget-mode entry
-│   ├── egg.d.ts                 #   Bridge API TypeScript declarations
-│   ├── EGG_GUIDE.md             #   Agent handbook: rules, layout, icon spec, vendor libs
-│   ├── icons.svg                #   Icon sprite
-│   ├── icons-manifest.json      #   Available icon names catalog
-│   ├── vendor/                  #   Pre-installed ESM libraries (no network needed)
-│   │   ├── three.module.js      #     Three.js
-│   │   ├── chart.esm.js         #     Chart.js
-│   │   ├── marked.esm.js        #     Markdown parser
-│   │   ├── qrcode.esm.js        #     QR code generator
-│   │   ├── canvas-confetti.esm.js #   Confetti effects
-│   │   ├── dayjs.esm.js         #     Date utilities
-│   │   ├── anime.esm.js         #     Anime.js
-│   │   ├── jsyaml.esm.js        #     YAML parser
-│   │   ├── p5.esm.js            #     p5.js
-│   │   ├── katex.esm.js         #     KaTeX math rendering
-│   │   ├── exceljs.esm.js       #     ExcelJS
-│   │   ├── math.esm.js          #     Math.js
-│   │   ├── pdfmake.esm.js       #     pdfmake
-│   │   ├── jsdiff.esm.js        #     Text diff
-│   │   ├── matter.esm.js        #     Matter.js physics
-│   │   └── tone.esm.js          #     Tone.js audio
-│   └── guides/                  #   Topic guides loaded by read_guide tool
-│       └── net-lan/             #     LAN multiplayer patterns for AI agent
-├── assets/                      # App icon + static resources
-├── docs/                        # Design documents
-│   ├── design.md                #   Architecture decisions & trade-offs
-│   ├── egg-spec.md              #   .gacha format specification & Bridge API
-│   ├── gacha-core.md            #   Gacha engine design
-│   ├── runtime.md               #   Egg runtime: sandbox, protocol, security
-│   ├── desktop-value.md         #   Desktop value proposition
-│   ├── server-architecture.md   #   Server architecture (not open source)
-│   ├── threat-model.md          #   Security threat model & mitigations
-│   ├── vendor-roadmap.md        #   Vendor library roadmap
-│   └── project-assessment-report.md # Project assessment report
-├── package.json
-└── LICENSE
-```
-
-## Tech Stack
-
-| Layer | Technology |
+| Read more | What you will find |
 |---|---|
-| Desktop Shell | Electron 37 |
-| Shelf UI | React 19 + TypeScript 5.5 + Vite 8 + Tailwind CSS 4 |
-| 3D Rendering | Three.js + @react-three/fiber + @react-three/drei |
-| Animation | Motion (Framer Motion) |
-| Local Database | better-sqlite3 |
-| i18n | i18next + react-i18next |
-| Cron Parser | cron-parser |
-| Archiving | yazl + yauzl (ZIP) |
-| Testing | Vitest |
-| Updater | electron-updater |
-| Icons | Lucide React |
-| Server (private) | Python FastAPI + PostgreSQL 16 + Docker Compose |
-
-## Egg Window Types
-
-Eggs declare their window type in `manifest.json` (`window.type`). The manifest supports two values:
-
-| Type | Description | Titlebar | Use Case |
-|---|---|---|---|
-| **standard** | Frameless window with injected custom titlebar | ✅ Auto-injected | Most eggs |
-| **widget** | Transparent, frameless, always-on-top. Satellite control window for drag/pin/close. | ❌ None | Pomodoro, sticky notes, clocks |
-
-Additionally, eggs pinned to the **GachaSpace** are rendered as embedded `WebContentsView` inside the shelf window — this is a host-level feature, not a manifest `window.type` value.
-
-## Roadmap
-
-| Milestone | Status | Description |
-|---|---|---|
-| **M1** Egg Runtime | ✅ Done | egg:// protocol, sandbox, permission model, sample egg |
-| **M2** Capabilities + Shelf | ✅ Done | 9 bridge API domains, basic shelf UI, model config (BYOK) |
-| **M3** Gacha Core | ✅ Done | Custom fcDriver, dual validation (validate + test), live progress, background pending |
-| **M3.5** Wish Upgrade | ✅ Done | Full backup, incremental evolution, data migration, atomic swap, rollback |
-| **M4** Shelf Polish | ✅ Done | 3D gacha machine (4th-gen), spring animations, HSL color picker, drag-drop space, sound effects, i18n (zh/en, 344 keys each) |
-| **M5** Golden Wishes | ✅ Done | Golden wish regression benchmark — representative wishes across app shape × capability domain × difficulty, with per-wish probes |
-| **M6** Cross-platform | ✅ Done | Windows x64 + macOS Apple silicon (no Intel Mac or Linux plan) |
-
-## Documentation
-
-| Document | Description |
-|---|---|
-| [Design Overview](docs/design.md) | Architecture decisions, trade-offs, decision records (D1–D10) |
-| [.gacha Spec & Bridge API](docs/egg-spec.md) | The contract anchor — runtime, generator, and manager all conform to this |
-| [Egg Runtime](docs/runtime.md) | Sandbox isolation, egg:// protocol, permission enforcement |
-| [Gacha Core](docs/gacha-core.md) | Generation pipeline, fcDriver, validation tools |
-| [Desktop Value](docs/desktop-value.md) | Product direction: why desktop-native is the moat |
-| [Server Architecture](docs/server-architecture.md) | Backend design (not open source) |
-| [Threat Model](docs/threat-model.md) | Security threat model and mitigations |
-| [Vendor Roadmap](docs/vendor-roadmap.md) | Pre-installed vendor library roadmap |
-| [Project Assessment](docs/project-assessment-report.md) | Project assessment report |
-
-## FAQ
-
-<details>
-<summary><b>Why independent BrowserWindow instead of iframe/webview?</b></summary>
-
-Independent windows give each egg its own taskbar icon, Alt-Tab, and window controls — this is the "real desktop app" promise. Separate render processes provide natural isolation. See [runtime.md](docs/runtime.md).
-</details>
-
-<details>
-<summary><b>Why a custom function-calling loop instead of an Agent SDK?</b></summary>
-
-Hard constraint: all capabilities must be self-contained. Users cannot be expected to have any runtime pre-installed. Agent SDKs require a local Node/CLI environment. The custom `fcDriver` runs entirely inside Electron's main process. See [design.md D2'](docs/design.md#d2-修订自研微型机芯自建-function-calling-循环agent-sdk-出局).
-</details>
-
-<details>
-<summary><b>Can eggs access the internet?</b></summary>
-
-No by default. Each egg's session is locked after load — only `egg://` protocol and bridge API calls are allowed. External HTTP requests are blocked. Vendor libraries (`template/vendor/`) are pre-installed so eggs can use Three.js, Chart.js, etc. without network access.
-</details>
-
-<details>
-<summary><b>How do I hand-craft an egg?</b></summary>
-
-See [egg-spec.md](docs/egg-spec.md). The short version: create a folder `my-app.gacha/`, write `manifest.json` (declare permissions), write `index.html` (use `egg.*` bridge APIs), drop it into the eggs directory. No build tools needed.
-</details>
-
-<details>
-<summary><b>What AI models are supported?</b></summary>
-
-Any OpenAI-compatible API: DeepSeek, Kimi, Qwen, GPT-4, etc. Configure base URL + model name + API key in Settings.
-</details>
+| [Development guide](docs/development.md) | Build, test, package, architecture and source map |
+| [Capsule specification](docs/egg-spec.md) | Manifest, permissions and bridge APIs |
+| [MCP guide](docs/mcp.md) | External-agent authoring and connection setup |
+| [Generation quality](docs/generation-quality.md) | Build, validation and repair workflow |
+| [Runtime](docs/runtime.md) · [Security](docs/threat-model.md) | Isolation and capability boundaries |
+| [Manual release checklist](docs/release-manual-checklist.md) | Installation and cross-platform verification |
 
 ## Contributing
 
-Contributions welcome. The project is in early stage. Key areas:
+Bug reports, real-world capsule ideas, documentation, translations and code contributions are welcome. Please [open an issue](https://github.com/zaziax/appGacha/issues) to discuss a substantial change before submitting a PR.
 
-- 🐛 Bug reports & fixes
-- 📝 Documentation improvements
-- 🧪 Golden wish set (standard test cases for regression)
-- 🌐 i18n contributions
-- 🎨 Egg template & `base.css` design system
-
-Please open an issue before submitting a PR.
+For a failed build, include your AppGacha version, OS, provider/model and reproducible steps. Remove API keys, tokens and private data from logs before sharing.
 
 ## License
 
-[MIT](LICENSE)
-
----
-
-<p align="center">
-  <sub>Made with 🥚 by AppGacha</sub>
-</p>
+[MIT](LICENSE).
