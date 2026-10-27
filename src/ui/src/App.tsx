@@ -73,7 +73,6 @@ export default function App() {
         setAuth(s)
         // 登录后拉取套餐信息，判断是否有云同步权限
         if (s.loggedIn) {
-          setLoginOpen(false)
           shelf.billingSummary().then(b => {
             const enabled = (b.plan?.storage_quota_bytes ?? 0) > 0
             setHasSyncAccess(enabled)
@@ -86,7 +85,11 @@ export default function App() {
       }).catch((err) => { console.error('[App] authStatus failed:', (err as Error).message) })
     }
     checkAuth()
-    shelf.onAuthChanged(() => checkAuth())
+    return shelf.onAuthChanged(s => {
+      // Email login owns its password-setup step. Only OAuth completes externally.
+      if (s.loggedIn && s.reason === 'oauth') setLoginOpen(false)
+      checkAuth()
+    })
   }, [])
 
   // 拉取云端蛋列表 → 推算每个蛋的同步状态 + 云端独有蛋（仅 Pro 用户）

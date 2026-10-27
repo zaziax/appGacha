@@ -14,6 +14,7 @@ import { app, net, safeStorage, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { logLine } from './log'
+import type { AuthChangedEvent } from '../shared/auth'
 
 // ─── 配置 ───
 // 注意：不放在模块顶层直接访问 app.isPackaged —— Electron 37 在模块初始化阶段
@@ -58,7 +59,13 @@ function authFilePath(): string {
   return path.join(app.getPath('userData'), 'auth.json')
 }
 
-function saveTokens(tokens: AuthTokens): void {
+function notifyAuthChanged(status: AuthChangedEvent): void {
+  // Node's Process overloads only describe built-in events.
+  const events: NodeJS.EventEmitter = process
+  events.emit('appgacha:auth-changed', status)
+}
+
+function saveTokens(tokens: AuthTokens, reason: AuthChangedEvent['reason'] = 'refresh'): void {
   const dir = path.dirname(authFilePath())
   fs.mkdirSync(dir, { recursive: true })
 
@@ -81,7 +88,7 @@ function saveTokens(tokens: AuthTokens): void {
   fs.writeFileSync(tmp, JSON.stringify(stored, null, 2), 'utf-8')
   fs.renameSync(tmp, authFilePath())
   logLine('[auth] tokens saved')
-  process.emit('appgacha:auth-changed' as never)
+  notifyAuthChanged({ loggedIn: true, reason })
 }
 
 function loadTokens(): AuthTokens | null {
@@ -108,7 +115,7 @@ function loadTokens(): AuthTokens | null {
 function clearTokens(): void {
   try { fs.rmSync(authFilePath(), { force: true }) } catch { /* ignore */ }
   logLine('[auth] tokens cleared')
-  process.emit('appgacha:auth-changed' as never)
+  notifyAuthChanged({ loggedIn: false, reason: 'logout' })
 }
 
 // ─── 公开 API ───
@@ -196,7 +203,7 @@ export async function handleCallback(callbackUrl: string): Promise<{ ok: boolean
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
       user: data.user
-    })
+    }, 'oauth')
 
     logLine('[auth] login success:', data.user.email)
     return { ok: true }
@@ -262,7 +269,7 @@ export async function verifyEmailCode(email: string, code: string): Promise<{ ok
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
       user: data.user
-    })
+    }, 'email-code')
     logLine('[auth] email login success:', data.user.email)
     return { ok: true, hasPassword: !!data.user.has_password }
   } catch (e) {
@@ -291,7 +298,7 @@ export async function loginWithPassword(email: string, password: string): Promis
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
       user: data.user
-    })
+    }, 'password')
     logLine('[auth] password login success:', data.user.email)
     return { ok: true }
   } catch (e) {

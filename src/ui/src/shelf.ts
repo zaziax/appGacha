@@ -1,5 +1,6 @@
 import type { McpStatus, McpConnectionConfig } from '../../shared/mcp'
 import type { EggStorageStatus } from '../../shared/eggStorage'
+import type { AuthChangedEvent } from '../../shared/auth'
 
 export interface EggInfo {
   eggId: string
@@ -271,7 +272,7 @@ export interface ShelfBridge {
   syncDownload(eggId: string): Promise<{ name: string; eggId: string }>
   syncDeleteCloud(eggId: string): Promise<boolean>
   setSyncEnabled(v: boolean): Promise<void>
-  onAuthChanged(cb: (s: { loggedIn: boolean }) => void): void
+  onAuthChanged(cb: (s: AuthChangedEvent) => void): () => void
   onGachaProgress(cb: (p: GachaProgress) => void): void
   onGachaDone(cb: (r: GachaResult) => void): void
   /** 平台通道构建完成后的积分结算通知（本次消耗 + 剩余余额） */

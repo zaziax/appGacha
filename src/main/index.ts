@@ -97,12 +97,7 @@ async function routeLaunchArgs(argv: string[]): Promise<void> {
   if (url) {
     // OAuth 回调：appgacha://callback?code=xxx&state=yyy
     if (url.startsWith('appgacha://callback')) {
-      const result = await handleCallback(url)
-      if (result.ok) {
-        // 通知收藏柜刷新登录状态
-        const { sendToShelf } = await import('./shelfWindow')
-        sendToShelf('auth:changed', { loggedIn: true })
-      }
+      await handleCallback(url)
       return
     }
     const id = eggLaunchId(argv)

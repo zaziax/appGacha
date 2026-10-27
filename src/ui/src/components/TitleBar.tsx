@@ -33,7 +33,7 @@ export function TitleBar({ view, onViewChange, gachaRunning, gachaStage, onImpor
   // 登录状态
   useEffect(() => {
     shelf.authStatus().then(setAuth).catch(() => {})
-    shelf.onAuthChanged((s) => {
+    return shelf.onAuthChanged(() => {
       shelf.authStatus().then(setAuth).catch(() => {})
     })
   }, [])

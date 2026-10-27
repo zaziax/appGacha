@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { AuthChangedEvent } from '../shared/auth'
 
 interface BridgeResult {
   ok: boolean
@@ -100,8 +101,10 @@ contextBridge.exposeInMainWorld('shelf', {
   syncDownload: (eggId: string) => invoke('shelf:syncDownload', eggId),
   syncDeleteCloud: (eggId: string) => invoke('shelf:syncDeleteCloud', eggId),
   setSyncEnabled: (v: boolean) => invoke('shelf:setSyncEnabled', v),
-  onAuthChanged: (cb: (s: { loggedIn: boolean }) => void) => {
-    ipcRenderer.on('auth:changed', (_e, s) => cb(s))
+  onAuthChanged: (cb: (s: AuthChangedEvent) => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, s: AuthChangedEvent) => cb(s)
+    ipcRenderer.on('auth:changed', listener)
+    return () => ipcRenderer.removeListener('auth:changed', listener)
   },
   onGachaProgress: (cb: (p: unknown) => void) => {
     ipcRenderer.on('gacha:progress', (_e, p) => cb(p))

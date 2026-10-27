@@ -1,8 +1,17 @@
 import { startLogin, logout, getAuthStatus, sendEmailCode, verifyEmailCode, loginWithPassword, setPassword, resetPassword } from '../auth'
 import { checkHealth, apiFetch } from '../api'
 import { handle } from './ipc'
+import { sendToShelf } from '../shelfWindow'
+import type { AuthChangedEvent } from '../../shared/auth'
+
+function forwardAuthChanged(status: AuthChangedEvent): void {
+  sendToShelf('auth:changed', status)
+}
 
 export function registerAuthChannels(): void {
+  // Bridge every persisted auth change, not only the browser OAuth callback.
+  process.removeListener('appgacha:auth-changed', forwardAuthChanged)
+  process.on('appgacha:auth-changed', forwardAuthChanged)
   handle('shelf:authStatus', () => getAuthStatus())
 
   handle('shelf:authLogin', async () => {
