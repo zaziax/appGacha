@@ -5,8 +5,9 @@ import { getEgg, loadManifest, registerEgg } from './eggs'
 import { unpackGacha, UnpackLimits } from './gachaPkg'
 import { initSchedules } from './schedule'
 import { dataRoot } from './paths'
-import { copyDir } from './fsutil'
 import { validateEgg } from './validate'
+import { uniqueEggFolder } from './eggFolder'
+import { installEggAtomically } from './atomicEggInstall'
 
 /** 导入前置校验：结构不合法（缺入口 / 权限未知 / 禁用的 JS 等）直接拒绝入柜 */
 function assertValidEgg(dir: string): void {
@@ -16,41 +17,8 @@ function assertValidEgg(dir: string): void {
   }
 }
 
-function eggsRoot(): string {
-  return dataRoot('eggs')
-}
-
-function uniqueFolder(root: string, baseName: string): string {
-  let dir = path.join(root, `${baseName}.gacha`)
-  let i = 2
-  while (fs.existsSync(dir)) dir = path.join(root, `${baseName}-${i++}.gacha`)
-  return dir
-}
-
-/**
- * 导入 .gacha 包文件：解包到临时目录 → 校验 → 冲突检测 → 移入收藏柜 → 注册。
- * 收藏柜导入按钮与双击 .gacha 文件共用此入口。
- */
 export async function importGachaFile(gachaFile: string, limits?: UnpackLimits): Promise<{ name: string; eggId: string }> {
-  const tmp = dataRoot('staging', `__import-${Date.now()}`)
-  fs.mkdirSync(tmp, { recursive: true })
-  try {
-    await unpackGacha(gachaFile, tmp, limits)
-    const manifest = loadManifest(tmp) // 校验不通过会抛错给调用方
-    assertValidEgg(tmp)
-    if (getEgg(manifest.eggId)) throw new Error(`「${manifest.name}」已在收藏柜里（eggId 相同）`)
-    const dest = uniqueFolder(eggsRoot(), manifest.name)
-    try {
-      fs.renameSync(tmp, dest)
-    } catch {
-      copyDir(tmp, dest) // Windows 文件锁致 rename 失败时降级复制
-    }
-    const ctx = registerEgg(dest)
-    initSchedules([ctx]) // 蛋若随身带着提醒，落地即生效
-    return { name: manifest.name, eggId: manifest.eggId }
-  } finally {
-    fs.rmSync(tmp, { recursive: true, force: true })
-  }
+  return importPackage(gachaFile, false, limits)
 }
 
 /**
@@ -58,28 +26,32 @@ export async function importGachaFile(gachaFile: string, limits?: UnpackLimits):
  * 用于"仅应用"导出文件的冲突解决——用户选择"导入为新副本"时走此路径。
  */
 export async function importGachaAsNew(gachaFile: string, limits?: UnpackLimits): Promise<{ name: string; eggId: string }> {
-  const tmp = dataRoot('staging', `__import-${Date.now()}`)
-  fs.mkdirSync(tmp, { recursive: true })
+  return importPackage(gachaFile, true, limits)
+}
+
+async function importPackage(gachaFile: string, asNew: boolean, limits?: UnpackLimits): Promise<{ name: string; eggId: string }> {
+  const root = dataRoot('eggs')
+  const staging = dataRoot('staging')
+  fs.mkdirSync(staging, { recursive: true })
+  const tmp = fs.mkdtempSync(path.join(staging, '__import-'))
   try {
     await unpackGacha(gachaFile, tmp, limits)
     const manifest = loadManifest(tmp)
     assertValidEgg(tmp)
-    // 重写 eggId 为新 UUID，避免与原蛋冲突
-    const newId = randomUUID().toLowerCase()
-    const manifestPath = path.join(tmp, 'manifest.json')
-    const m = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'))
-    m.eggId = newId
-    fs.writeFileSync(manifestPath, JSON.stringify(m, null, 2), 'utf-8')
-    const dest = uniqueFolder(eggsRoot(), manifest.name)
-    try {
-      fs.renameSync(tmp, dest)
-    } catch {
-      copyDir(tmp, dest)
+    if (asNew) {
+      manifest.eggId = randomUUID()
+      fs.writeFileSync(path.join(tmp, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf-8')
+    } else if (getEgg(manifest.eggId)) {
+      throw new Error(`「${manifest.name}」已在收藏柜里（eggId 相同）`)
     }
+    fs.mkdirSync(root, { recursive: true })
+    const dest = uniqueEggFolder(root, manifest.name)
+    installEggAtomically(tmp, dest, false, message => console.warn('[import]', message))
     const ctx = registerEgg(dest)
     initSchedules([ctx])
-    return { name: manifest.name, eggId: newId }
+    return { name: ctx.manifest.name, eggId: ctx.eggId }
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true })
+    try { fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }) }
+    catch (error) { console.warn('[import] failed to clean staging:', (error as Error).message) }
   }
 }

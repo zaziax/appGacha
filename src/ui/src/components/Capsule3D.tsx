@@ -11,6 +11,12 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
  */
 /** 每个 renderer 一张独立环境贴图——支持多 Canvas（详情弹窗等） */
 const envCache = new WeakMap<THREE.WebGLRenderer, THREE.Texture>()
+// All previews use the same immutable geometry. Keep it across scrolling and tab changes.
+const cupGeometry = new THREE.SphereGeometry(1, 48, 24, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2)
+const lidGeometry = new THREE.SphereGeometry(1, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2)
+const fillingGeometry = new THREE.SphereGeometry(0.56, 32, 16)
+const iconGeometry = new THREE.PlaneGeometry(1.05, 1.05)
+const rimGeometry = new THREE.TorusGeometry(0.985, 0.02, 12, 64)
 function getStudioEnv(gl: THREE.WebGLRenderer): THREE.Texture {
   if (!envCache.has(gl)) {
     const pmrem = new THREE.PMREMGenerator(gl)
@@ -25,6 +31,7 @@ interface Props {
   contentColor: string
   dimmed?: boolean
   hovered?: boolean
+  active?: boolean
   /** 随机相位——让每颗蛋的浮动节奏不同步 */
   phase?: number
   /** 蛋图标 data URL——有则替代内容球，成为胶囊内的 3D 玩具 */
@@ -39,7 +46,7 @@ interface Props {
  * - 内容物：蛋图标双面卡片（有图标时）或亮色小球（兜底），沉在杯内（几何遮挡 = 层级永远正确）
  * - 悬浮呼吸 + hover 摇摆 + 图标左右摆动（胶囊不自转，图标始终朝向用户）
  */
-export function CapsuleScene({ cupColor, contentColor, dimmed, hovered, phase = 0, iconUrl }: Props) {
+export function CapsuleScene({ cupColor, contentColor, dimmed, hovered, phase = 0, iconUrl, active = true }: Props) {
   const group = useRef<THREE.Group>(null)
   const iconRef = useRef<THREE.Group>(null)
   const gl = useThree(s => s.gl)
@@ -74,6 +81,7 @@ export function CapsuleScene({ cupColor, contentColor, dimmed, hovered, phase = 
   }, [gl, scene])
 
   useFrame((state, delta) => {
+    if (!active) return
     const g = group.current
     if (!g) return
     const t = state.clock.elapsedTime
@@ -139,37 +147,31 @@ export function CapsuleScene({ cupColor, contentColor, dimmed, hovered, phase = 
       <PerspectiveCamera makeDefault position={[0, 0.9, 3.2]} fov={38} onUpdate={(cam) => cam.lookAt(0, 0, 0)} />
       <group ref={group}>
         {/* 下半杯（实心塑料）——低粗糙度 + 环境反射 = 光泽玩具感，DoubleSide 内壁不透明 */}
-        <mesh>
-          <sphereGeometry args={[1, 48, 24, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2]} />
+        <mesh geometry={cupGeometry}>
           <meshStandardMaterial color={cupColor} roughness={0.24} metalness={0} envMapIntensity={0.9} side={THREE.DoubleSide} />
         </mesh>
         {/* 内容物：有图标 = 双面卡片玩具（随球旋转，透过玻璃盖可见）；无图标 = 亮色小球兜底 */}
         {iconTex ? (
           <group ref={iconRef} position={[0, 0.22, 0]}>
-            <mesh position={[0, 0, 0.004]}>
-              <planeGeometry args={[1.05, 1.05]} />
+            <mesh geometry={iconGeometry} position={[0, 0, 0.004]}>
               <meshBasicMaterial map={iconTex} transparent depthWrite={false} toneMapped={false} />
             </mesh>
             {/* 背面：绕 Y 旋转 180°，从后面看图标也是正的 */}
-            <mesh position={[0, 0, -0.004]} rotation={[0, Math.PI, 0]}>
-              <planeGeometry args={[1.05, 1.05]} />
+            <mesh geometry={iconGeometry} position={[0, 0, -0.004]} rotation={[0, Math.PI, 0]}>
               <meshBasicMaterial map={iconTex} transparent depthWrite={false} toneMapped={false} />
             </mesh>
           </group>
         ) : (
-          <mesh position={[0, -0.08, 0]}>
-            <sphereGeometry args={[0.56, 32, 16]} />
+          <mesh geometry={fillingGeometry} position={[0, -0.08, 0]}>
             <meshStandardMaterial color={contentColor} roughness={0.3} metalness={0} envMapIntensity={0.8} />
           </mesh>
         )}
         {/* 接缝环 */}
-        <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[0.985, 0.02, 12, 64]} />
+        <mesh geometry={rimGeometry} rotation={[Math.PI / 2, 0, 0]}>
           <meshStandardMaterial color={cupColor} roughness={0.4} metalness={0} envMapIntensity={0.7} />
         </mesh>
         {/* 上半透明盖（玻璃）——clearcoat 映出环境柔光箱 */}
-        <mesh>
-          <sphereGeometry args={[1, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2]} />
+        <mesh geometry={lidGeometry}>
           <meshPhysicalMaterial
             color="#ffffff"
             transparent

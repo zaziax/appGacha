@@ -1,7 +1,7 @@
 import { BrowserWindow, session } from 'electron'
 import path from 'node:path'
 import { EggContext } from './eggs'
-import { registerEggProtocol, lockdownSession } from './protocol'
+import { registerEggProtocol, lockdownSession, restrictEggNavigation } from './protocol'
 import { bindWindowStateEvents } from './channels/windowChannels'
 import * as registry from './registry'
 import { attachControls } from './widgetControls'
@@ -22,8 +22,8 @@ export function prepareEggSession(egg: EggContext, testMode = false): string {
   const partition = testMode ? `test-egg-${egg.eggId}` : `persist:egg-${egg.eggId}`
   const ses = session.fromPartition(partition)
   if (!preparedPartitions.has(partition)) {
-    registerEggProtocol(ses, testMode ? egg : undefined)
-    lockdownSession(ses)
+    registerEggProtocol(ses, egg)
+    lockdownSession(ses, egg.manifest.eggId)
     // Every verifier has a unique in-memory partition; do not retain its ID forever.
     if (!testMode) preparedPartitions.add(partition)
   }
@@ -158,7 +158,7 @@ export function createEggWindow(egg: EggContext, opts?: { show?: boolean; deferL
   })
 
   // R4: 蛋不能创建窗口
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  restrictEggNavigation(win.webContents, egg.manifest.eggId)
 
   // widget 的 <title> 会经 page-title-updated 同步到原生窗口标题；幽灵标题栏（electron#47440）一旦复现就会把蛋名画出来。
   // 拦截后原生标题保持构造时的空串，失焦幽灵栏无内容可画。standard 窗保留同步（任务栏显示蛋名是期望行为）。

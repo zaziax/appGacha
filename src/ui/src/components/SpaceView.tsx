@@ -1,30 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Plus, X, GripVertical, Egg, Search, Check, Settings2, LoaderCircle } from 'lucide-react'
-import { View } from '@react-three/drei'
 import { useTranslation } from 'react-i18next'
 import { shelf, EggInfo, SpaceConfig, CategoryData } from '../shelf'
-import { CapsuleScene } from './Capsule3D'
-
-/** SVG 原文 → data URL（与收藏柜一致） */
-function iconDataUrl(svg: string): string {
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`
-}
-
-/** 扭蛋配色（与收藏架 EggCard 同款：按 eggId 哈希散布色相） */
-function eggColors(eggId: string): { cup: string; content: string } {
-  let h = 0
-  for (let i = 0; i < eggId.length; i++) h = ((h << 5) - h + eggId.charCodeAt(i)) | 0
-  const hue = Math.round((Math.abs(h) % 24) * 137.508) % 360
-  const sat = 74 + (Math.abs(h >> 8) % 14)
-  const lit = 52 + (Math.abs(h >> 16) % 9)
-  return {
-    cup: `hsl(${hue},${sat}%,${lit}%)`,
-    content: `hsl(${hue},${Math.min(sat + 6, 94)}%,${lit + 21}%)`
-  }
-}
+import { CapsulePreview, eggColors, iconDataUrl } from './CapsulePreview'
 
 interface Props {
+  active: boolean
   eggs: EggInfo[]
   categories: CategoryData
   onToast: (msg: string) => void
@@ -45,7 +27,7 @@ function displaySummary(wish: string): string {
   return (marker >= 0 ? normalized.slice(0, marker) : normalized).trim()
 }
 
-export function SpaceView({ eggs, categories, onToast, dimmed }: Props) {
+export function SpaceView({ active, eggs, categories, onToast, dimmed }: Props) {
   const { t } = useTranslation()
   const [cfg, setCfg] = useState<SpaceConfig | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -63,56 +45,51 @@ export function SpaceView({ eggs, categories, onToast, dimmed }: Props) {
   // 按下信息：未超过位移阈值前不进入拖拽态（纯点击无任何拖拽视觉）
   const downInfo = useRef<{ idx: number; startY: number } | null>(null)
 
-  // tab 列表滚动裁切：滚出列表可视区的 tab 隐藏其 3D 蛋
-  const [tabVisibleIds, setTabVisibleIds] = useState<Set<string>>(() => new Set())
-
   // 拉配置
   const load = useCallback(() => {
     shelf.spaceGet().then(setCfg).catch(err => onToast(err.message))
   }, [onToast])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { if (active) load() }, [active, load])
+  useEffect(() => { if (!active) setPickerOpen(false) }, [active])
 
-  // 挂载 = 进入空间 tab：通知主进程可见；卸载 = 切走 → 隐藏蛋视图
-  useEffect(() => {
-    shelf.spaceSetVisible(true)
-    return () => { shelf.spaceSetVisible(false) }
-  }, [])
-
-  // 内容区 bounds 上报：主进程据此摆放蛋的 WebContentsView
-  useEffect(() => {
+  // 上报实际内容坐标，避免重复通知相同位置。
+  useLayoutEffect(() => {
     const el = contentRef.current
-    if (!el) return
+    if (!el || !active) return
+    let last = ''
     const report = () => {
       const r = el.getBoundingClientRect()
-      shelf.spaceSetBounds({ x: r.left, y: r.top, width: r.width, height: r.height })
+      const rect = { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) }
+      const next = `${rect.x},${rect.y},${rect.width},${rect.height}`
+      if (next === last) return
+      last = next
+      void shelf.spaceSetBounds(rect).catch(() => {})
     }
     const ro = new ResizeObserver(report)
     ro.observe(el)
     report()
-    // 视图入场动画（translateY）会短暂偏移 rect，动画结束后补报一次确保精确
-    const timer = setTimeout(report, 450)
-    return () => { clearTimeout(timer); ro.disconnect() }
-  }, [])
+    return () => ro.disconnect()
+  }, [active])
 
-  // 选蛋弹窗打开时隐藏蛋视图（原生 WebContentsView 会盖在 DOM 弹窗之上）
-  useEffect(() => {
-    if (!pickerOpen) return
-    shelf.spaceSetVisible(false)
-    return () => { shelf.spaceSetVisible(true) }
-  }, [pickerOpen])
+  // 原生视图盖在 DOM 之上，在弹窗显示和离开空间时统一隐藏。
+  const showNative = active && !dimmed && !pickerOpen
+  useLayoutEffect(() => {
+    void shelf.spaceSetVisible(showNative).catch(() => {})
+  }, [showNative])
+  useLayoutEffect(() => () => { void shelf.spaceSetVisible(false).catch(() => {}) }, [])
 
   useEffect(() => {
-    if (!pickerOpen) return
+    if (!active || !pickerOpen) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !saving) setPickerOpen(false)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [pickerOpen, saving])
+  }, [active, pickerOpen, saving])
 
   // 外部唤起聚焦（快捷方式/收藏柜点开已在空间的蛋）：主进程已改 active，这里刷新本地
-  useEffect(() => { shelf.onSpaceFocus(() => load()) }, [load])
+  useEffect(() => shelf.onSpaceFocus(load), [load])
 
   // 空间里的蛋（按配置顺序，剔除列表中已不存在的）
   const spaceEggs = useMemo(() => {
@@ -128,22 +105,6 @@ export function SpaceView({ eggs, categories, onToast, dimmed }: Props) {
     return spaceEggs.find(e => e.eggId === cfg.active) ?? spaceEggs[0] ?? null
   }, [cfg?.active, spaceEggs])
 
-  // tab 列表滚动可见性观察（列表内容变化时重建；IO 回调只携带变化项，需用累积 Set 增量维护）
-  useEffect(() => {
-    const root = listRef.current
-    if (!root) return
-    const vis = new Set<string>()
-    const io = new IntersectionObserver(entries => {
-      for (const e of entries) {
-        const id = (e.target as HTMLElement).dataset.spaceEggId!
-        if (e.isIntersecting) vis.add(id); else vis.delete(id)
-      }
-      setTabVisibleIds(new Set(vis))
-    }, { root })
-    root.querySelectorAll('[data-space-egg-id]').forEach(el => io.observe(el))
-    return () => io.disconnect()
-  }, [spaceEggs])
-
   const activeId = cfg?.active && spaceEggs.some(e => e.eggId === cfg.active)
     ? cfg.active
     : (spaceEggs[0]?.eggId ?? null)
@@ -151,7 +112,7 @@ export function SpaceView({ eggs, categories, onToast, dimmed }: Props) {
   const activate = (eggId: string) => {
     if (eggId === activeId) return
     setCfg(c => c ? { ...c, active: eggId } : c)
-    shelf.spaceActivate(eggId).catch(err => onToast(err.message))
+    shelf.spaceActivate(eggId).catch(err => { onToast(err.message); load() })
   }
 
   const remove = (eggId: string) => {
@@ -271,7 +232,7 @@ export function SpaceView({ eggs, categories, onToast, dimmed }: Props) {
                 ? dragY - TAB_H / 2 - idx * (TAB_H + TAB_GAP)
                 : 0
               return (
-                <div key={egg.eggId} data-space-egg-id={egg.eggId}>
+                <div key={egg.eggId}>
                   {/* 插入指示线 */}
                   {dragIdx !== null && dropIdx === idx && dragIdx !== idx && (
                     <div className="h-[3px] rounded-full bg-brand mb-1" style={{ marginTop: idx === 0 ? 0 : -TAB_GAP }} />
@@ -294,23 +255,10 @@ export function SpaceView({ eggs, categories, onToast, dimmed }: Props) {
                     onPointerUp={() => onTabPointerUp(idx)}
                   >
                     <GripVertical className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-text/30' : 'text-text/25'}`} strokeWidth={3} />
-                    {/* 3D 扭蛋（收藏架同款胶囊，由全屏 Canvas 的 View 锚定到这里；选蛋弹窗打开/滚出列表时隐藏） */}
-                    {pickerOpen || !tabVisibleIds.has(egg.eggId) ? (
-                      <div className="w-11 h-11 shrink-0" />
-                    ) : (
-                      <div className="w-11 h-11 shrink-0 pointer-events-none">
-                        <View className="w-full h-full">
-                          <CapsuleScene
-                            cupColor={eggColors(egg.eggId).cup}
-                            contentColor={eggColors(egg.eggId).content}
-                            dimmed={false}
-                            hovered={false}
-                            phase={idx * 1.3}
-                            iconUrl={egg.icon ? iconDataUrl(egg.icon) : undefined}
-                          />
-                        </View>
-                      </div>
-                    )}
+                    <div className="w-11 h-11 shrink-0 pointer-events-none">
+                      <CapsulePreview {...eggColors(egg.eggId)} iconUrl={egg.icon ? iconDataUrl(egg.icon) : undefined}
+                        visible={!pickerOpen} phase={idx * 1.3} />
+                    </div>
                     <span className="flex-1 text-[12px] font-extrabold truncate">{egg.name}</span>
                     {/* 移出空间（点击不触发拖拽/激活） */}
                     <button
@@ -330,7 +278,7 @@ export function SpaceView({ eggs, categories, onToast, dimmed }: Props) {
           )}
         </div>
 
-        {/* 添加按钮（z-20 + 不透明底：盖住列表滚出底部的 3D 蛋，Canvas z-10 盖不到这里） */}
+        {/* 添加按钮 */}
         <div className="p-3 pt-1 relative z-20 bg-[#F1EAE0]">
           <button
             className="w-full flex items-center justify-center gap-1.5 rounded-xl border-[3px] border-text bg-white text-text text-xs font-extrabold py-2.5 active:translate-y-0.5 transition-all hover:bg-cream"
@@ -351,7 +299,7 @@ export function SpaceView({ eggs, categories, onToast, dimmed }: Props) {
       {/* ═══ 右侧内容区：去白盒，内容区直接浮在奶油底上；DOM 只留空位，蛋的 WebContentsView 由主进程叠在这里 ═══ */}
       <div className="flex-1 min-w-0 p-2">
         <div ref={contentRef} className="h-full w-full relative bg-cream rounded-xl overflow-hidden">
-          {/* dimmed 占位：弹窗/面板打开时蛋视图隐藏，显示 3D 扭蛋冻结画面 */}
+          {/* 弹窗打开时用胶囊占位。 */}
           <AnimatePresence>
             {dimmed && activeEgg && (
               <motion.div
@@ -362,7 +310,6 @@ export function SpaceView({ eggs, categories, onToast, dimmed }: Props) {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.25 }}
               >
-                {/* 3D 扭蛋 — 与侧边栏同款 CapsuleScene，复用全局 Canvas */}
                 <motion.div
                   className="w-36 h-36 pointer-events-none"
                   initial={{ scale: 0.5, y: 20 }}
@@ -370,16 +317,7 @@ export function SpaceView({ eggs, categories, onToast, dimmed }: Props) {
                   exit={{ scale: 0.5, y: -14 }}
                   transition={{ type: 'spring', stiffness: 280, damping: 16, mass: 1.0 }}
                 >
-                  <View className="w-full h-full">
-                    <CapsuleScene
-                      cupColor={eggColors(activeEgg.eggId).cup}
-                      contentColor={eggColors(activeEgg.eggId).content}
-                      dimmed
-                      hovered={false}
-                      phase={0}
-                      iconUrl={activeEgg.icon ? iconDataUrl(activeEgg.icon) : undefined}
-                    />
-                  </View>
+                  <CapsulePreview {...eggColors(activeEgg.eggId)} dimmed iconUrl={activeEgg.icon ? iconDataUrl(activeEgg.icon) : undefined} />
                 </motion.div>
                 <motion.p
                   className="text-[15px] font-extrabold text-text"

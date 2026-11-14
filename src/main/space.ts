@@ -6,6 +6,7 @@ import * as registry from './registry'
 import { getSpaceConfig, setSpaceConfig, SpaceConfig } from './settings'
 import { onEggClosed } from './net/coordinator'
 import { trackEggOpen } from './telemetry'
+import { restrictEggNavigation } from './protocol'
 
 // 不直接 import shelfWindow：避免 space ↔ shelfWindow 循环依赖。
 // openEggSmart / focusEggInSpace 只在 IPC/启动路由时（模块全部加载完毕后）被调，延迟 require 安全。
@@ -36,6 +37,7 @@ let bounds: SpaceBounds | null = null   // UI 报告的右侧内容区（窗口�
 let uiVisible = false                    // UI 当前是否处于空间 tab
 let hostVisible = true                   // 宿主窗口可见且未最小化
 let activeId: string | null = null
+let attachedView: WebContentsView | null = null
 
 // 聚焦事件回调：由 shelf.ts 注册（sendToShelf），避免本模块直依 shelfWindow
 type FocusListener = (eggId: string) => void
@@ -103,7 +105,7 @@ function createView(egg: EggContext): WebContentsView {
     // 空间蛋的同步入口：createView（会话开始）+ 用户手动点云图标。
   })
   // R4: 蛋不能创建窗口
-  wc.setWindowOpenHandler(() => ({ action: 'deny' }))
+  restrictEggNavigation(wc, egg.manifest.eggId)
   wc.loadURL(`egg://${egg.eggId}/index.html`)
   return view
 }
@@ -116,6 +118,7 @@ function destroyView(eggId: string): void {
     const cv = hostWin.contentView
     if (cv.children.includes(v)) cv.removeChildView(v)
   }
+  if (attachedView === v) attachedView = null
   ;(v.webContents as { destroy?: () => void }).destroy?.()
 }
 
@@ -123,26 +126,27 @@ function destroyView(eggId: string): void {
 function applyActive(): void {
   if (!hostWin || hostWin.isDestroyed()) return
   const cv = hostWin.contentView
-  // 先撤下所有空间 view（不销毁，保活）
-  for (const v of views.values()) {
-    if (cv.children.includes(v)) cv.removeChildView(v)
+  const targetBounds = uiVisible && hostVisible && bounds && bounds.width > 40 && bounds.height > 40 ? bounds : null
+  const egg = targetBounds && activeId ? getEgg(activeId) : undefined
+  const current = egg && !isWidgetEgg(egg) ? egg : undefined
+  let view = current && views.get(current.eggId)
+  if (attachedView && attachedView !== view) {
+    cv.removeChildView(attachedView)
+    attachedView = null
   }
-  const shouldShow = uiVisible && hostVisible && bounds && bounds.width > 40 && bounds.height > 40
-  if (!shouldShow || !activeId) return
-  const egg = getEgg(activeId)
-  if (!egg || isWidgetEgg(egg)) return
-  let view = views.get(activeId)
+  if (!current || !targetBounds) return
   if (!view) {
-    view = createView(egg)
-    views.set(activeId, view)
+    view = createView(current)
+    views.set(current.eggId, view)
   }
-  view.setBounds({
-    x: Math.round(bounds!.x),
-    y: Math.round(bounds!.y),
-    width: Math.round(bounds!.width),
-    height: Math.round(bounds!.height)
-  })
-  cv.addChildView(view)
+  const old = view.getBounds()
+  if (old.x !== targetBounds.x || old.y !== targetBounds.y || old.width !== targetBounds.width || old.height !== targetBounds.height) {
+    view.setBounds(targetBounds)
+  }
+  if (attachedView !== view) {
+    cv.addChildView(view)
+    attachedView = view
+  }
 }
 
 // ─── 宿主窗口接线 ───
@@ -157,6 +161,9 @@ export function attachSpaceHost(win: BrowserWindow): void {
   win.on('closed', () => {
     for (const eggId of [...views.keys()]) destroyView(eggId)
     hostWin = null
+    bounds = null
+    uiVisible = false
+    hostVisible = true
   })
 }
 
@@ -174,14 +181,14 @@ export function spaceAdd(eggId: string): SpaceConfig {
 }
 
 export function spaceRemove(eggId: string): SpaceConfig {
-  destroyView(eggId)
   const cfg = getSpace()
   cfg.eggs = cfg.eggs.filter(id => id !== eggId)
   if (cfg.active === eggId) {
     cfg.active = cfg.eggs[0] ?? null
-    activeId = cfg.active
   }
   save(cfg)
+  activeId = cfg.active
+  destroyView(eggId)
   applyActive()
   return cfg
 }
@@ -241,8 +248,8 @@ export function spaceActivate(eggId: string): void {
   const cfg = getSpace()
   if (!cfg.eggs.includes(eggId)) throw new Error('egg not in space')
   cfg.active = eggId
-  activeId = eggId
   save(cfg)
+  activeId = eggId
   if (uiVisible && hostVisible) trackEggOpen(eggId)
   applyActive()
 }
@@ -250,12 +257,13 @@ export function spaceActivate(eggId: string): void {
 export function spaceSetBounds(b: unknown): void {
   const o = b as Partial<SpaceBounds> | undefined
   if (!o || [o.x, o.y, o.width, o.height].some(v => typeof v !== 'number' || !Number.isFinite(v))) return
-  bounds = { x: o.x!, y: o.y!, width: o.width!, height: o.height! }
+  bounds = { x: Math.round(o.x!), y: Math.round(o.y!), width: Math.round(o.width!), height: Math.round(o.height!) }
   applyActive()
 }
 
 export function spaceSetVisible(v: boolean): void {
-  uiVisible = v === true
+  if (uiVisible === v) return
+  uiVisible = v
   // 切回空间 tab 时确保激活项与配置一致
   if (uiVisible && !activeId) activeId = getSpace().active
   if (uiVisible && hostVisible && activeId) trackEggOpen(activeId)
@@ -267,8 +275,8 @@ export function focusEggInSpace(eggId: string): void {
   const cfg = getSpace()
   if (!cfg.eggs.includes(eggId)) return
   cfg.active = eggId
-  activeId = eggId
   save(cfg)
+  activeId = eggId
   if (hostVisible) trackEggOpen(eggId)
   applyActive()
   // UI 可能停在其它顶级 tab：推送事件让它切到空间视图

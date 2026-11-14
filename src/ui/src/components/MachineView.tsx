@@ -54,9 +54,9 @@ interface QARecord { question: string; answer: string }
 /** 聊天流消息：AI 问题 + 用户回答交替 */
 interface ChatMsg { kind: 'q' | 'a'; text: string; options?: string[] }
 
-interface Props { onToast: (msg: string) => void; onEggCreated: () => void }
+interface Props { active: boolean; onToast: (msg: string) => void; onEggCreated: () => void }
 
-export function MachineView({ onToast, onEggCreated }: Props) {
+export function MachineView({ active, onToast, onEggCreated }: Props) {
   const { t, i18n } = useTranslation()
   const gacha = useSyncExternalStore(subscribeGacha, getGachaState)
 
@@ -93,13 +93,6 @@ export function MachineView({ onToast, onEggCreated }: Props) {
     }
   }, [gacha.result, gacha.running])
 
-  // 初始挂载时也检查一次
-  useEffect(() => {
-    if (!gacha.running && !gacha.result) {
-      shelf.getPendingBuild().then(setPendingBuild).catch(() => setPendingBuild(null))
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
   const isUpgrade = !!gacha.upgrade
 
   // 重置向导
@@ -109,6 +102,11 @@ export function MachineView({ onToast, onEggCreated }: Props) {
     setStyleNote(null); setStyleOverride(''); setHue(null); setScheme('mono'); setRevealed(true)
     setSuggestions([]); setSuggestLoading(false)
   }, [])
+
+  const upgradeId = gacha.upgrade?.eggId
+  useEffect(() => {
+    if (upgradeId) resetWizard()
+  }, [upgradeId, resetWizard])
 
   // 取消升级：清掉升级目标并重置向导，回到普通许愿流程（不再卡死在升级态）
   const cancelUpgrade = useCallback(() => {
@@ -298,6 +296,7 @@ export function MachineView({ onToast, onEggCreated }: Props) {
         <div className="machine-stage mx-auto flex h-full w-full max-w-[1280px]">
           <div className="machine-rail w-[clamp(240px,38vw,360px)] shrink-0 flex flex-col items-center justify-center overflow-hidden bg-cream">
             <AppAssemblyStage
+              visible={active}
               stage={gacha.running ? gacha.stage : null}
               running={gacha.running}
               resultReady={resultReady}
@@ -347,6 +346,7 @@ export function MachineView({ onToast, onEggCreated }: Props) {
         {/* Left: Wish state visual — 始终保留双栏；窄窗只缩放舞台，不折叠为单栏 */}
         <div className="machine-rail w-[clamp(240px,38vw,360px)] shrink-0 flex flex-col items-center justify-center gap-4 overflow-hidden bg-cream">
           <AppAssemblyStage
+            visible={active}
             stage={null}
             running={false}
             resultReady={false}

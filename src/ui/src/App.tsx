@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { motion, AnimatePresence } from 'motion/react'
-import { Canvas } from '@react-three/fiber'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { Canvas, useFrame } from '@react-three/fiber'
 import { View as DreiView } from '@react-three/drei'
 import { useTranslation } from 'react-i18next'
 import { shelf, EggInfo, CategoryData, AuthStatus, SyncStatus, CloudEggInfo, UpdateStatus, DownloadProgress } from './shelf'
@@ -11,6 +10,7 @@ import { MachineView } from './components/MachineView'
 import { SpaceView } from './components/SpaceView'
 import { EggCard } from './components/EggCard'
 import { CloudEggCard } from './components/CloudEggCard'
+import { CapsulePageActive } from './components/CapsulePreview'
 import { SettingsDialog } from './components/SettingsDialog'
 import { ClosePromptDialog } from './components/ClosePromptDialog'
 import { UpdateDialog } from './components/UpdateDialog'
@@ -27,11 +27,13 @@ type View = 'machine' | 'shelf' | 'space'
 
 /** 能力筛选 chip 的固定显示顺序 */
 const PERM_ORDER = ['ai', 'db', 'storage', 'fs', 'notify', 'schedule', 'window', 'network']
+const getGachaRunning = () => getGachaState().running
 
 export default function App() {
   const { t } = useTranslation()
   const [eggs, setEggs] = useState<EggInfo[]>([])
   const [view, setView] = useState<View>('machine')
+  const [visited, setVisited] = useState({ shelf: false, space: false })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [closePromptOpen, setClosePromptOpen] = useState(false)
   const [loginOpen, setLoginOpen] = useState(false)
@@ -51,7 +53,7 @@ export default function App() {
   const [showUpdateDialog, setShowUpdateDialog] = useState(false)
   const [hasSyncAccess, setHasSyncAccess] = useState(false)
   const [auth, setAuth] = useState<AuthStatus>({ loggedIn: false })
-  const gacha = useSyncExternalStore(subscribeGacha, getGachaState)
+  const gachaRunning = useSyncExternalStore(subscribeGacha, getGachaRunning)
 
   // ─── 搜索 / 筛选 / 排序 ───
   const [query, setQuery] = useState('')
@@ -144,7 +146,7 @@ export default function App() {
   }), [refresh, showToast, t])
 
   // 蛋柜变动（双击 .gacha 热导入等）：主进程推送后重拉列表，新蛋即时上架
-  useEffect(() => { shelf.onEggsChanged(() => refresh()) }, [refresh])
+  useEffect(() => shelf.onEggsChanged(refresh), [refresh])
 
   // 平台通道扣费可见化：构建结算完成后提示“本次消耗 X 积分，剩余 Y”
   useEffect(() => shelf.onBillingSettled(p => {
@@ -152,20 +154,20 @@ export default function App() {
   }), [showToast, t])
 
   // 外部唤起聚焦空间（快捷方式/收藏柜点开已在空间的蛋）：切到空间视图
-  useEffect(() => { shelf.onSpaceFocus(() => setView('space')) }, [])
+  const changeView = useCallback((next: View) => {
+    if (next !== 'machine') setVisited(prev => prev[next] ? prev : { ...prev, [next]: true })
+    if (next !== 'shelf') setSelectedEgg(null)
+    setView(next)
+  }, [])
+
+  useEffect(() => shelf.onSpaceFocus(() => changeView('space')), [changeView])
 
   // .gacha 导入冲突弹窗（双击/导入的 .gacha 与已有蛋 eggId 相同）
-  useEffect(() => { shelf.onImportConflict(p => setImportConflict(p)) }, [])
+  useEffect(() => shelf.onImportConflict(setImportConflict), [])
 
   // 全屏弹窗（设置/关闭确认/登录）打开时隐藏空间蛋视图：原生 WebContentsView 会盖在所有 DOM 弹窗之上
-  const viewRef = useRef(view)
-  viewRef.current = view
-  const modalOpen = settingsOpen || closePromptOpen || loginOpen || userPanelOpen
-  useEffect(() => {
-    if (!modalOpen) return
-    shelf.spaceSetVisible(false)
-    return () => { shelf.spaceSetVisible(viewRef.current === 'space') }
-  }, [modalOpen])
+  const modalOpen = settingsOpen || closePromptOpen || loginOpen || userPanelOpen ||
+    Boolean(confirm || importConflict || shareLoginPrompt || showUpdateDialog)
 
   // ─── 下载队列处理器（串行） ───
   useEffect(() => {
@@ -206,7 +208,7 @@ export default function App() {
 
   const handleUpgrade = (eggId: string, name: string) => {
     setGachaUpgrade({ eggId, name })
-    setView('machine')
+    changeView('machine')
   }
 
   const handleImport = async () => {
@@ -352,9 +354,9 @@ export default function App() {
         {/* Custom Title Bar */}
         <TitleBar
         view={view}
-        onViewChange={setView}
-        gachaRunning={gacha.running}
-        gachaStage={gacha.running ? t('app.gachaRunning') : null}
+        onViewChange={changeView}
+        gachaRunning={gachaRunning}
+        gachaStage={gachaRunning ? t('app.gachaRunning') : null}
         onImport={handleImport}
         onSettings={() => setSettingsOpen(true)}
         onRequestLogin={() => setLoginOpen(true)}
@@ -362,37 +364,21 @@ export default function App() {
       />
 
       {/* Content */}
-      <div className="flex-1 overflow-hidden">
-        <AnimatePresence mode="wait">
-          {view === 'machine' ? (
-            <motion.div
-              key="machine"
-              className="h-full"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0, transition: { type: 'spring', stiffness: 200, damping: 20, mass: 0.8 } }}
-              exit={{ opacity: 0, transition: { duration: 0.15, ease: 'easeOut' } }}
-            >
-              <MachineView onToast={showToast} onEggCreated={refresh} />
-            </motion.div>
-          ) : view === 'space' ? (
-            <motion.div
-              key="space"
-              className="h-full"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0, transition: { type: 'spring', stiffness: 200, damping: 20, mass: 0.8 } }}
-              exit={{ opacity: 0, transition: { duration: 0.15, ease: 'easeOut' } }}
-            >
-              <SpaceView eggs={eggs} categories={catData} onToast={showToast} dimmed={modalOpen} />
-            </motion.div>
-          ) : (
-            <motion.div
-              key="shelf"
-              className="h-full flex flex-col"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ type: 'spring', stiffness: 200, damping: 20, mass: 0.8 }}
-            >
+      <div className="relative flex-1 overflow-hidden">
+        {/* Keep the wish draft and cabinet renderer mounted. The scene stops drawing off-tab. */}
+        <div className={`absolute inset-0${view === 'machine' ? '' : ' invisible'}`} inert={view !== 'machine'}>
+          <MachineView active={view === 'machine'} onToast={showToast} onEggCreated={refresh} />
+        </div>
+        {visited.space && (
+          <CapsulePageActive.Provider value={view === 'space'}>
+            <div className={`absolute inset-0${view === 'space' ? '' : ' invisible'}`} inert={view !== 'space'}>
+              <SpaceView active={view === 'space'} eggs={eggs} categories={catData} onToast={showToast} dimmed={modalOpen} />
+            </div>
+          </CapsulePageActive.Provider>
+        )}
+        {visited.shelf && (
+          <CapsulePageActive.Provider value={view === 'shelf'}>
+            <div className={`absolute inset-0 flex flex-col${view === 'shelf' ? '' : ' invisible'}`} inert={view !== 'shelf'}>
               <ShelfToolbar
                 query={query}
                 onQuery={setQuery}
@@ -423,7 +409,7 @@ export default function App() {
                     <div className="col-span-full flex flex-col items-center justify-center min-h-[240px] gap-3">
                       {/* 空架引导：虚线球体 */}
                       <div
-                        onClick={(e) => { e.stopPropagation(); setView('machine') }}
+                        onClick={(e) => { e.stopPropagation(); changeView('machine') }}
                         className="w-[88px] h-[88px] rounded-full border-[3px] border-dashed border-text/25 flex items-center justify-center cursor-pointer hover:border-brand hover:bg-brand/[0.03] transition-colors select-none group"
                         title={t('app.wishTooltip')}
                       >
@@ -495,22 +481,23 @@ export default function App() {
                   )}
                 </div>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            </div>
+          </CapsulePageActive.Provider>
+        )}
       </div>
 
       {/* Resize handles for frameless window */}
       <ResizeHandles />
 
-      {/* 3D 视口：单 Canvas 覆盖全屏，每颗蛋用自己的 View 锚定 DOM 位置 */}
-      <Canvas
-        style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 10 }}
-        gl={{ antialias: true, alpha: true }}
-        dpr={[1, 2]}
-      >
-        <DreiView.Port />
-      </Canvas>
+      {(visited.shelf || visited.space) && (
+        <Canvas
+          style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 10, visibility: view === 'machine' ? 'hidden' : 'visible' }}
+          gl={{ antialias: true, alpha: true }} dpr={[1, 2]} frameloop={view === 'machine' ? 'never' : 'always'}
+        >
+          <ClearCapsuleCanvas />
+          <DreiView.Port />
+        </Canvas>
+      )}
 
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} onToast={showToast} />}
       <EggStorageNotice onOpenSettings={() => setSettingsOpen(true)} />
@@ -531,11 +518,13 @@ export default function App() {
           confirmText={t('app.importConflictImport')}
           cancelText={t('app.importConflictOpen')}
           onConfirm={() => {
-            shelf.resolveImportConflict(importConflict.file, importConflict.eggId, 'import')
+            void shelf.resolveImportConflict(importConflict.file, importConflict.eggId, 'import')
+              .catch(error => showToast(error.message))
             setImportConflict(null)
           }}
           onCancel={() => {
-            shelf.resolveImportConflict(importConflict.file, importConflict.eggId, 'open')
+            void shelf.resolveImportConflict(importConflict.file, importConflict.eggId, 'open')
+              .catch(error => showToast(error.message))
             setImportConflict(null)
           }}
         />
@@ -555,7 +544,7 @@ export default function App() {
         <UpdateDialog
           version={updateStatus.version ?? ''}
           notes={updateStatus.releaseNotes}
-          busy={gacha.running}
+          busy={gachaRunning}
           onInstall={() => { void shelf.installUpdate().then(() => setShowUpdateDialog(false)).catch(error => showToast(String(error.message || error))) }}
           onDismiss={() => setShowUpdateDialog(false)}
         />
@@ -573,6 +562,12 @@ export default function App() {
       </div>
     </ErrorBoundary>
   )
+}
+
+/** Clear pixels from views that moved, left the viewport or switched tabs. */
+function ClearCapsuleCanvas() {
+  useFrame(({ gl }) => gl.clear())
+  return null
 }
 
 /** Thin resize borders for frameless window edges */

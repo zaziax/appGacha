@@ -11,6 +11,7 @@ import * as zip from './zip'
 import * as schedule from '../schedule'
 import { showNotification } from '../schedule'
 import * as coordinator from '../net/coordinator'
+import { isEggUrl } from '../protocol'
 
 type Handler = (ctx: EggContext, args: unknown[], event: IpcMainInvokeEvent) => unknown
 
@@ -20,6 +21,9 @@ function handle(channel: string, permission: Permission | null, fn: Handler): vo
     try {
       const ctx = registry.get(event.sender.id)
       if (!ctx) throw new Error('caller is not a registered egg')
+      if (!event.senderFrame || !isEggUrl(event.senderFrame.url, ctx.manifest.eggId)) {
+        throw new Error('caller is outside the registered egg origin')
+      }
       if (permission && !ctx.manifest.permissions.includes(permission)) {
         throw new Error(`permission denied: "${permission}" not declared in manifest`)
       }

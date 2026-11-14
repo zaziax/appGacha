@@ -289,7 +289,7 @@ export function ShowcaseBalls({ agitatedRef, resultReady, count = BALL_COUNT, wa
    全屏开奖仪式：3D 扭蛋落下 → 弹跳 → 摇晃蓄力 → 裂壳 · 光灵迸发
    ================================================================ */
 
-export function RevealCeremony({ onDone, icon }: { onDone: () => void; icon?: string }) {
+export function RevealCeremony({ onDone, icon, visible = true }: { onDone: () => void; icon?: string; visible?: boolean }) {
   const color = useMemo(() => BALL_COLORS[Math.floor(Math.random() * BALL_COLORS.length)], [])
   return (
     <motion.div
@@ -300,7 +300,7 @@ export function RevealCeremony({ onDone, icon }: { onDone: () => void; icon?: st
       exit={{ opacity: 0, transition: { duration: 0.4 } }}
       transition={{ duration: 0.25 }}
     >
-      <Canvas gl={{ antialias: true, alpha: true }} dpr={[1, 2]}>
+      <Canvas frameloop={visible ? 'always' : 'never'} gl={{ antialias: true, alpha: true }} dpr={[1, 2]}>
         <RevealScene color={color} icon={icon} onDone={onDone} />
       </Canvas>
     </motion.div>
@@ -391,10 +391,13 @@ function RevealScene({ color, icon, onDone }: { color: string; icon?: string; on
   const bounces = useRef(0)
   const shake = useRef(0)
   const done = useRef(false)
+  const elapsed = useRef(0)
 
-  useFrame((state, delta) => {
+  useFrame((_state, delta) => {
     const dt = Math.min(delta, 0.05)
-    const t = state.clock.elapsedTime
+    // R3F resets its clock when a hidden canvas resumes. Keep the reveal phase continuous.
+    elapsed.current += dt
+    const t = elapsed.current
     const cap = capsuleRef.current
     if (!cap || done.current) return
 

@@ -1,6 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useContext, useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { View } from '@react-three/drei'
 import { Canvas } from '@react-three/fiber'
 import { X, Play, ArrowUpCircle, Share2, Power, Info, Trash2, Monitor, PanelLeft, Cloud, CloudCheck, CloudAlert, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -9,29 +8,11 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { ExportDialog } from './ExportDialog'
 import { ShareDialog } from './ShareDialog'
 import { CapsuleScene } from './Capsule3D'
+import { CapsulePageActive, CapsulePreview, eggColors, iconDataUrl } from './CapsulePreview'
 import { renderEggIconPngs } from '../eggIconRender'
 import { sfx } from '../sound'
 
 const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || '')
-
-/** 扭蛋配色：杯体色 + 内容物色（同色相更亮，形成对比） */
-function eggColors(eggId: string): { cup: string; content: string } {
-  let h = 0
-  for (let i = 0; i < eggId.length; i++) h = ((h << 5) - h + eggId.charCodeAt(i)) | 0
-  // 黄金角散布色相——相邻蛋颜色差异明显
-  const hue = Math.round((Math.abs(h) % 24) * 137.508) % 360
-  const sat = 74 + (Math.abs(h >> 8) % 14)   // 74~88%
-  const lit = 52 + (Math.abs(h >> 16) % 9)   // 52~61%
-  return {
-    cup: `hsl(${hue},${sat}%,${lit}%)`,
-    content: `hsl(${hue},${Math.min(sat + 6, 94)}%,${lit + 21}%)`  // 亮一档，像玩具
-  }
-}
-
-/** SVG 原文 → data URL（img 渲染，沙箱化不执行脚本） */
-function iconDataUrl(svg: string): string {
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`
-}
 
 /** 环形菜单按钮定义 */
 interface MenuAction {
@@ -70,6 +51,7 @@ const springPop = { type: 'spring' as const, stiffness: 380, damping: 18, mass: 
 
 export function EggCard({ egg, selected, dimmed, onSelect, onToast, onChanged, onUpgrade, onRequestLogin, categories, categoryId, onSetCategory, syncStatus, onSyncEgg }: Props) {
   const { t } = useTranslation()
+  const pageActive = useContext(CapsulePageActive)
   const [detailOpen, setDetailOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
@@ -81,13 +63,23 @@ export function EggCard({ egg, selected, dimmed, onSelect, onToast, onChanged, o
   const [hoveredAction, setHoveredAction] = useState<string | null>(null)
   const sphereRef = useRef<HTMLDivElement>(null)
   const { cup: c, content: cc } = eggColors(egg.eggId)
-  const phase = (egg.eggId.charCodeAt(0) + egg.eggId.length * 7) % 6.28  // 浮动去同步
+  const iconUrl = egg.icon ? iconDataUrl(egg.icon) : undefined
   const openEgg = () => shelf.open(egg.eggId).catch(err => onToast(err.message))
 
-  // 云同步禁用状态：始终加载（卡片上的云图标需要）
   useEffect(() => {
+    if (pageActive) return
+    setHovered(false)
+    setDetailOpen(false)
+    setExportOpen(false)
+    setShareOpen(false)
+    setConfirmState(null)
+  }, [pageActive])
+
+  const needsSyncSetting = syncStatus !== undefined || detailOpen
+  useEffect(() => {
+    if (!needsSyncSetting) return
     shelf.getSyncDisabled(egg.eggId).then(setSyncDisabled).catch(() => {})
-  }, [egg.eggId])
+  }, [egg.eggId, needsSyncSetting])
 
   useEffect(() => {
     if (selected) {
@@ -188,7 +180,7 @@ export function EggCard({ egg, selected, dimmed, onSelect, onToast, onChanged, o
           style={{ width: selected ? 64 : 52, height: selected ? 13 : 10 }}
         />
 
-        {/* 3D 扭蛋（真实几何：遮挡/透视/玻璃全自动正确） */}
+        {/* 可见胶囊在共享 Canvas 中实时绘制。 */}
         <div ref={sphereRef} className="group relative">
           <motion.div
             className="relative cursor-pointer"
@@ -196,8 +188,8 @@ export function EggCard({ egg, selected, dimmed, onSelect, onToast, onChanged, o
             animate={selected ? { scale: 1.18, y: -6 } : { scale: 1, y: 0 }}
             whileTap={selected ? undefined : { scale: 0.92 }}
             transition={springPop}
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
+            onHoverStart={() => setHovered(true)}
+            onHoverEnd={() => setHovered(false)}
             onClick={(e) => {
               e.stopPropagation()
               if (selected) { sfx.blip(); onSelect(null) }
@@ -205,16 +197,8 @@ export function EggCard({ egg, selected, dimmed, onSelect, onToast, onChanged, o
             }}
             onDoubleClick={(e) => { e.stopPropagation(); sfx.pop(); openEgg() }}
           >
-            <View className="w-full h-full">
-              <CapsuleScene
-                cupColor={c}
-                contentColor={cc}
-                dimmed={dimmed}
-                hovered={hovered && !selected}
-                phase={phase}
-                iconUrl={egg.icon ? iconDataUrl(egg.icon) : undefined}
-              />
-            </View>
+            <CapsulePreview cup={c} content={cc} iconUrl={iconUrl} dimmed={dimmed}
+              hovered={hovered && !selected} phase={(egg.eggId.charCodeAt(0) + egg.eggId.length * 7) % 6.28} />
           </motion.div>
 
           {/* 云同步状态图标：仅 Pro 用户且未禁用此蛋，hover 时显示，syncing/error 始终可见 */}
@@ -334,8 +318,8 @@ export function EggCard({ egg, selected, dimmed, onSelect, onToast, onChanged, o
 
               {/* 3D 扭蛋预览 */}
               <div className="w-20 h-20 mx-auto mb-3">
-                <Canvas gl={{ antialias: true, alpha: true }} dpr={[1, 2]}>
-                  <CapsuleScene cupColor={c} contentColor={cc} dimmed={false} hovered={false} phase={0} iconUrl={egg.icon ? iconDataUrl(egg.icon) : undefined} />
+                <Canvas frameloop={pageActive ? 'always' : 'never'} gl={{ antialias: true, alpha: true }} dpr={[1, 2]}>
+                  <CapsuleScene cupColor={c} contentColor={cc} iconUrl={iconUrl} />
                 </Canvas>
               </div>
 
