@@ -107,8 +107,9 @@ export class McpDrafts {
   write(owner: string, id: unknown, file: string, content: string, expected: string, oldText?: string) {
     const d = this.get(owner, id, true), dir = this.source(d)
     const target = resolveWorkspacePath(dir, file, true)
+    const relativeTarget = path.relative(fs.realpathSync(dir), target).replace(/\\/g, '/').toLowerCase()
     if (!/\.(?:html|css|js|mjs|json|svg)$/i.test(file)) throw new Error('Only HTML/CSS/JS/JSON/SVG source may be written')
-    if (['build-report.json', 'icons-manifest.json'].includes(path.relative(dir, target).replace(/\\/g, '/').toLowerCase())) throw new Error('Protected host file')
+    if (['build-report.json', 'icons-manifest.json'].includes(relativeTarget)) throw new Error('Protected host file')
     const exists = fs.existsSync(target)
     if (expected === 'new' ? exists : !/^[a-f0-9]{64}$/.test(expected) || !exists || createHash('sha256').update(fs.readFileSync(target)).digest('hex') !== expected) throw new Error('Stale file revision: read again (use expected_hash="new" only for a new file)')
     if (oldText !== undefined) {
@@ -116,7 +117,7 @@ export class McpDrafts {
       if (!oldText || at < 0 || before.indexOf(oldText, at + 1) >= 0) throw new Error('old_text must match exactly once')
       content = before.slice(0, at) + content + before.slice(at + oldText.length)
     }
-    if (path.relative(dir, target).replace(/\\/g, '/').toLowerCase() === 'manifest.json') {
+    if (relativeTarget === 'manifest.json') {
       const proposed = JSON.parse(content), prior = JSON.parse(fs.readFileSync(target, 'utf8'))
       if (!proposed || Array.isArray(proposed) || typeof proposed !== 'object') throw new Error('Invalid manifest')
       for (const key of Object.keys(proposed)) if (!['name', 'permissions', 'window'].includes(key) && JSON.stringify(proposed[key]) !== JSON.stringify(prior[key])) throw new Error('Only manifest name/permissions/window are editable')
@@ -125,7 +126,10 @@ export class McpDrafts {
     }
     // Bound authored content independently of the trusted template/vendor payload.
     const files = analyzeProject(dir).files.filter(f => !f.startsWith('vendor/') && !['base.css', 'icons.svg', 'widget.css', 'widget.js', 'icons-manifest.json'].includes(f))
-    const bytes = files.reduce((n, f) => n + (path.resolve(dir, f) === target ? 0 : fs.statSync(resolveWorkspacePath(dir, f)).size), 0) + Buffer.byteLength(content)
+    const bytes = files.reduce((n, f) => {
+      const file = resolveWorkspacePath(dir, f)
+      return n + (file === target ? 0 : fs.statSync(file).size)
+    }, 0) + Buffer.byteLength(content)
     if (bytes > 5 * 1024 * 1024 || files.length + (exists ? 0 : 1) > 128) throw new Error('Draft source quota exceeded (5MB / 128 files)')
     const result = new WorkspaceTools(dir).write(file, content, exists ? expected : undefined)
     d.name = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')).name

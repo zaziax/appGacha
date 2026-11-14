@@ -1,0 +1,120 @@
+name: Desktop release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/release-ci]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: windows, runner: windows-2025, arch: x64 }
+          - { platform: macos, runner: macos-15, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Check release version and build architecture
+        shell: bash
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: node scripts/check-release.cjs metadata
+      - name: Install dependencies
+        run: npm ci
+      - name: Check types and run unit tests
+        run: |
+          npm run typecheck
+          npm test
+        shell: bash
+      - name: Build and test SQLite under Electron
+        run: |
+          npm run build
+          node test-db.cjs
+        shell: bash
+      - name: Build Windows NSIS installer
+        if: matrix.platform == 'windows'
+        run: npx --no-install electron-builder --win --x64 --publish never
+      - name: Build, sign and notarize macOS
+        if: matrix.platform == 'macos'
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        shell: bash
+        run: |
+          : "${CSC_LINK:?Missing MAC_CSC_LINK}"
+          : "${CSC_KEY_PASSWORD:?Missing MAC_CSC_KEY_PASSWORD}"
+          : "${APPLE_API_KEY_BASE64:?Missing APPLE_API_KEY_BASE64}"
+          : "${APPLE_API_KEY_ID:?Missing APPLE_API_KEY_ID}"
+          : "${APPLE_API_ISSUER:?Missing APPLE_API_ISSUER}"
+          umask 077
+          APPLE_API_KEY=$(mktemp "$RUNNER_TEMP/appgacha-notary.XXXXXX")
+          export APPLE_API_KEY
+          trap 'rm -f "$APPLE_API_KEY"' EXIT
+          printf '%s' "$APPLE_API_KEY_BASE64" | base64 -D > "$APPLE_API_KEY"
+          unset APPLE_API_KEY_BASE64
+          npx --no-install electron-builder --mac --arm64 --publish never -c.forceCodeSigning=true
+      - name: Verify macOS signing and notarization
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          app=release/mac-arm64/AppGacha.app
+          codesign --verify --deep --strict "$app"
+          spctl --assess --type execute --verbose=4 "$app"
+          xcrun stapler validate "$app"
+      - name: Verify and stage release assets
+        run: node scripts/check-release.cjs artifacts ${{ matrix.platform }}
+      - name: Test the packaged desktop app
+        run: node scripts/smoke-packaged.cjs
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: release/assets/
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
+  draft:
+    name: Create GitHub Release draft
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: desktop-*
+          path: release-assets
+          merge-multiple: true
+      - name: Upload verified assets to an unpublished release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release-assets/* \
+            --verify-tag --draft --title "AppGacha $GITHUB_REF_NAME" \
+            --notes-file "docs/releases/$GITHUB_REF_NAME.md"
