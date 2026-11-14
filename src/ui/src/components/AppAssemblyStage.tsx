@@ -7,6 +7,7 @@ import { sfx } from '../sound'
 import { RevealCeremony, ShowcaseBalls } from './GachaShowcase3D'
 
 interface Props {
+  visible: boolean
   stage: GachaProgress['stage'] | null
   running: boolean
   resultReady: boolean
@@ -30,7 +31,7 @@ type RevealStep = 'idle' | 'turning' | 'dropped' | 'ceremony'
 
 /** 温暖纸感的轻拟物应用扭蛋机；旋钮只在最终揭晓时成为操作。 */
 export function AppAssemblyStage({
-  stage, running, resultReady, onReveal, icon,
+  visible, stage, running, resultReady, onReveal, icon,
   journeyProgress = 0, heroActive = false, heroColor = C.yellow,
   palette = [], thinking = false, revealLabel = 'Reveal app capsule',
 }: Props) {
@@ -103,6 +104,7 @@ export function AppAssemblyStage({
           <div className="absolute left-1/2 top-[14px] z-10 -translate-x-1/2">
             <AnimatePresence>{thinking && <ThinkingDots />}</AnimatePresence>
             <SoftGachaMachine
+              visible={visible}
               active={active}
               progress={effectiveProgress}
               palette={palette}
@@ -121,7 +123,7 @@ export function AppAssemblyStage({
 
       <AnimatePresence>
         {revealStep === 'ceremony' && (
-          <RevealCeremony icon={icon} onDone={() => {
+          <RevealCeremony visible={visible} icon={icon} onDone={() => {
             setRevealStep('idle')
             onReveal()
           }} />
@@ -152,7 +154,8 @@ function SoftBackdrop({ active, color }: { active: boolean; color: string }) {
   )
 }
 
-function SoftGachaMachine({ active, progress, palette, heroColor, assembling, agitatedRef, resultReady, revealStep, revealLabel, onReveal }: {
+function SoftGachaMachine({ visible, active, progress, palette, heroColor, assembling, agitatedRef, resultReady, revealStep, revealLabel, onReveal }: {
+  visible: boolean
   active: boolean
   progress: number
   palette: string[]
@@ -188,7 +191,7 @@ function SoftGachaMachine({ active, progress, palette, heroColor, assembling, ag
             boxShadow: 'inset 0 0 16px rgba(15,24,35,0.28), inset 0 3px 0 rgba(255,255,255,0.14)',
           }}>
           <div className="absolute inset-0">
-            <Canvas gl={{ antialias: true, alpha: true }} dpr={[1, 1.5]}>
+            <Canvas frameloop={visible ? 'always' : 'never'} gl={{ antialias: true, alpha: true }} dpr={[1, 1.5]}>
               <ShowcaseBalls agitatedRef={agitatedRef} resultReady={resultReady} count={6} warmCabinet />
             </Canvas>
           </div>

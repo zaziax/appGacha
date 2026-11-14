@@ -12,12 +12,12 @@ vi.mock('electron', () => ({ app: {
 let root: string
 beforeEach(() => {
   vi.resetModules()
-  root = fs.mkdtempSync(path.join(os.tmpdir(), 'appgacha-storage-paths-'))
+  root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'appgacha-storage-paths-'))
   env.profile = path.join(root, 'profile'); env.project = path.join(root, 'project'); env.packaged = false
   fs.mkdirSync(env.profile); fs.mkdirSync(env.project)
 })
 afterEach(() => {
-  if (path.dirname(root) !== os.tmpdir() || !path.basename(root).startsWith('appgacha-storage-paths-')) throw new Error('Unsafe test cleanup')
+  if (path.dirname(root) !== fs.realpathSync(os.tmpdir()) || !path.basename(root).startsWith('appgacha-storage-paths-')) throw new Error('Unsafe test cleanup')
   fs.rmSync(root, { recursive: true, force: true })
 })
 it.each([false, true])('routes all egg paths to the custom library without moving staging/profile (packaged=%s)', async packaged => {

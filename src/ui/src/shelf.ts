@@ -246,7 +246,7 @@ export interface ShelfBridge {
   spaceSetBounds(b: { x: number; y: number; width: number; height: number }): Promise<void>
   spaceSetVisible(v: boolean): Promise<void>
   /** 外部唤起聚焦空间：切到空间视图 */
-  onSpaceFocus(cb: (p: { eggId: string }) => void): void
+  onSpaceFocus(cb: (p: { eggId: string }) => void): () => void
   // ─── Google OAuth ───
   authStatus(): Promise<AuthStatus>
   authLogin(): Promise<{ ok: boolean; error?: string }>
@@ -276,22 +276,22 @@ export interface ShelfBridge {
   onGachaProgress(cb: (p: GachaProgress) => void): void
   onGachaDone(cb: (r: GachaResult) => void): void
   /** 平台通道构建完成后的积分结算通知（本次消耗 + 剩余余额） */
-  onBillingSettled(cb: (p: { spent: number; balance: number }) => void): void
+  onBillingSettled(cb: (p: { spent: number; balance: number }) => void): () => void
   /** 下载进度推送 */
-  onDownloadProgress(cb: (p: DownloadProgress) => void): void
+  onDownloadProgress(cb: (p: DownloadProgress) => void): () => void
   /** 蛋柜变动（双击 .gacha 热导入等）：重拉列表 */
-  onEggsChanged(cb: () => void): void
+  onEggsChanged(cb: () => void): () => void
   /** .gacha 导入冲突：主进程推送后 UI 弹窗询问 */
-  onImportConflict(cb: (p: { file: string; eggId: string; name: string }) => void): void
+  onImportConflict(cb: (p: { file: string; eggId: string; name: string }) => void): () => void
   /** 导入冲突回传选择：open=打开现有，import=导入为新副本 */
   resolveImportConflict(file: string, eggId: string, action: 'open' | 'import'): Promise<void>
-  onClosePrompt(cb: () => void): void
+  onClosePrompt(cb: () => void): () => void
   resolveCloseAction(action: 'tray' | 'quit', remember: boolean): Promise<void>
   minimize(): void
   maximize(): void
   close(): void
   isMaximized(): Promise<boolean>
-  onWindowState(cb: (s: WindowState) => void): void
+  onWindowState(cb: (s: WindowState) => void): () => void
   // ─── 自动更新 ───
   checkUpdate(): Promise<void>
   getUpdateStatus(): Promise<UpdateStatus>

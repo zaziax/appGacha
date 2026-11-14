@@ -7,7 +7,7 @@ import { EggStorage } from '../src/main/eggStorage'
 let root: string, config: string, original: string, destination: string
 const create = () => new EggStorage(config, original, [path.dirname(config)])
 beforeEach(() => {
-  root = fs.mkdtempSync(path.join(os.tmpdir(), 'appgacha-storage-test-'))
+  root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'appgacha-storage-test-'))
   config = path.join(root, 'profile/egg-storage.json')
   original = path.join(root, 'original')
   destination = path.join(root, 'destination')
@@ -15,7 +15,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   vi.restoreAllMocks()
-  if (path.dirname(root) !== os.tmpdir() || !path.basename(root).startsWith('appgacha-storage-test-')) throw new Error('Unsafe test cleanup')
+  if (path.dirname(root) !== fs.realpathSync(os.tmpdir()) || !path.basename(root).startsWith('appgacha-storage-test-')) throw new Error('Unsafe test cleanup')
   fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 })
 })
 function seed() {

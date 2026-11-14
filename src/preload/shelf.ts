@@ -13,6 +13,12 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
   return res.value
 }
 
+function subscribe<T>(channel: string, callback: (payload: T) => void): () => void {
+  const listener = (_event: Electron.IpcRendererEvent, payload: T) => callback(payload)
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
+}
+
 contextBridge.exposeInMainWorld('shelf', {
   eggStorageStatus: () => invoke('shelf:eggStorageStatus'),
   chooseEggDirectory: (copyExisting: boolean) => invoke('shelf:chooseEggDirectory', copyExisting),
@@ -75,7 +81,9 @@ contextBridge.exposeInMainWorld('shelf', {
   spaceSetVisible: (v: boolean) => invoke('space:setVisible', v),
   // 外部唤起聚焦空间：主进程推送，UI 切到空间视图
   onSpaceFocus: (cb: (p: { eggId: string }) => void) => {
-    ipcRenderer.on('space:focusEgg', (_e, p) => cb(p as { eggId: string }))
+    const listener = (_event: Electron.IpcRendererEvent, payload: { eggId: string }) => cb(payload)
+    ipcRenderer.on('space:focusEgg', listener)
+    return () => ipcRenderer.removeListener('space:focusEgg', listener)
   },
   // ─── Google OAuth 登录 ───
   authStatus: () => invoke('shelf:authStatus'),
@@ -113,24 +121,14 @@ contextBridge.exposeInMainWorld('shelf', {
     ipcRenderer.on('gacha:done', (_e, r) => cb(r))
   },
   // 平台通道构建完成后的积分结算通知（本次消耗 + 剩余余额）
-  onBillingSettled: (cb: (p: { spent: number; balance: number }) => void) => {
-    ipcRenderer.on('billing:settled', (_e, p) => cb(p as { spent: number; balance: number }))
-  },
-  onDownloadProgress: (cb: (p: { eggId: string; percent: number; stage: string; error?: string }) => void) => {
-    ipcRenderer.on('sync:downloadProgress', (_e, p) => cb(p as { eggId: string; percent: number; stage: string; error?: string }))
-  },
+  onBillingSettled: (cb: (p: { spent: number; balance: number }) => void) => subscribe('billing:settled', cb),
+  onDownloadProgress: (cb: (p: { eggId: string; percent: number; stage: string; error?: string }) => void) => subscribe('sync:downloadProgress', cb),
   // 蛋柜变动（双击 .gacha 热导入等）：主进程推送，UI 重拉列表
-  onEggsChanged: (cb: () => void) => {
-    ipcRenderer.on('shelf:eggsChanged', () => cb())
-  },
+  onEggsChanged: (cb: () => void) => subscribe('shelf:eggsChanged', () => cb()),
   // 关闭询问：主进程拦截 close 后推送，UI 弹项目风格弹窗，回传用户选择
-  onClosePrompt: (cb: () => void) => {
-    ipcRenderer.on('shelf:closePrompt', () => cb())
-  },
+  onClosePrompt: (cb: () => void) => subscribe('shelf:closePrompt', () => cb()),
   // .gacha 导入冲突：主进程推送后 UI 弹窗询问「打开现有 / 导入为新副本」
-  onImportConflict: (cb: (p: { file: string; eggId: string; name: string }) => void) => {
-    ipcRenderer.on('shelf:importConflict', (_e, p) => cb(p as { file: string; eggId: string; name: string }))
-  },
+  onImportConflict: (cb: (p: { file: string; eggId: string; name: string }) => void) => subscribe('shelf:importConflict', cb),
   resolveImportConflict: (file: string, eggId: string, action: 'open' | 'import') =>
     invoke('shelf:resolveImportConflict', file, eggId, action),
   resolveCloseAction: (action: 'tray' | 'quit', remember: boolean) =>
@@ -139,9 +137,7 @@ contextBridge.exposeInMainWorld('shelf', {
   maximize: () => ipcRenderer.send('win:maximize'),
   close: () => ipcRenderer.send('win:close'),
   isMaximized: () => ipcRenderer.invoke('win:isMaximized'),
-  onWindowState: (cb: (s: { maximized: boolean }) => void) => {
-    ipcRenderer.on('win:stateChanged', (_e, s) => cb(s))
-  },
+  onWindowState: (cb: (s: { maximized: boolean }) => void) => subscribe('win:stateChanged', cb),
   // ─── 自动更新 ───
   productInfo: () => invoke('shelf:productInfo'),
   acknowledgeVersion: () => invoke('shelf:acknowledgeVersion'),

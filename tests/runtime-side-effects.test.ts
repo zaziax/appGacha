@@ -24,11 +24,11 @@ let dir: string
 beforeEach(() => {
   vi.useFakeTimers(); mock.handlers.clear(); mock.notifications = 0; mock.dialog.mockReset(); mock.network.mockReset()
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'appgacha-runtime-effects-'))
-  mock.ctx = { eggId: 'test-side-effects', dir, testMode: true, ephemeral: true, manifest: { permissions: ['schedule', 'notify', 'network'] } }
+  mock.ctx = { eggId: 'test-side-effects', dir, testMode: true, ephemeral: true, manifest: { eggId: 'side-effects', permissions: ['schedule', 'notify', 'network'] } }
   registerCapabilities()
 })
 afterEach(() => { cancelAllForEgg(mock.ctx.eggId); vi.useRealTimers(); fs.rmSync(dir, { recursive: true, force: true }) })
-const call = (channel: string, ...args: unknown[]) => mock.handlers.get(channel)({ sender: { id: 1 } }, ...args)
+const call = (channel: string, ...args: unknown[]) => mock.handlers.get(channel)({ sender: { id: 1 }, senderFrame: { url: 'egg://side-effects/index.html' } }, ...args)
 
 describe('host-owned testMode prevents external effects', () => {
   it('checks and stores schedule data but never arms notifications', async () => {
@@ -57,5 +57,13 @@ describe('host-owned testMode prevents external effects', () => {
     mock.dialog.mockResolvedValue({ canceled: true, filePaths: [] })
     await call('egg:ui:pickFile')
     expect(mock.dialog).toHaveBeenCalledOnce()
+  })
+
+  it('rejects a frame from another origin even when its WebContents is registered', async () => {
+    const notify = mock.handlers.get('egg:notify:send')
+    const sender = { id: 1 }
+    for (const url of ['egg://other/index.html', 'about:blank', 'https://example.com']) {
+      expect(await notify({ sender, senderFrame: { url } }, 'test', 'test')).toMatchObject({ ok: false, error: expect.stringContaining('origin') })
+    }
   })
 })

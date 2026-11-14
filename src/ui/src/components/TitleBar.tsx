@@ -28,7 +28,12 @@ export function TitleBar({ view, onViewChange, gachaRunning, gachaStage, onImpor
 
   useEffect(() => { onUserPanelOpenChange?.(userPanelOpen) }, [userPanelOpen, onUserPanelOpenChange])
 
-  useEffect(() => { shelf.isMaximized().then(setMaximized); shelf.onWindowState(s => setMaximized(s.maximized)) }, [])
+  useEffect(() => {
+    let current = true
+    void shelf.isMaximized().then(value => { if (current) setMaximized(value) }).catch(() => {})
+    const unsubscribe = shelf.onWindowState(s => setMaximized(s.maximized))
+    return () => { current = false; unsubscribe() }
+  }, [])
 
   // 登录状态
   useEffect(() => {
