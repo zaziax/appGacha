@@ -1,5 +1,22 @@
 export const releases = [
   {
+    version: '0.1.3',
+    en: [
+      'Switch between the Machine, Shelf, and Space more smoothly while keeping the animated 3D capsules. Returning to the Machine preserves your wish draft.',
+      'After signing in with an email code or password, the account display and cloud sync eligibility refresh without a restart. First-time email sign-ins can still complete password setup.',
+      'Capsule imports stay inside the library. Concurrent imports use separate staging directories, and failed imports leave no partial capsule in the Shelf.',
+      'Each capsule can load only its own resources. The host checks which page is requesting access to a capsule capability.',
+      'Fixed duplicate Shelf event subscriptions and restored the previous Space selection if a tab change fails to save.',
+    ],
+    zh: [
+      '扭蛋机、收藏柜和扭蛋空间切换更顺滑，保留原有 3D 胶囊动效。切回扭蛋机时会保留许愿草稿。',
+      '使用邮箱验证码或密码登录后，账号显示和云同步资格会自动刷新，无需重启。首次通过邮箱登录时仍可继续设置密码。',
+      '扭蛋只会导入到收藏柜目录。并发导入使用独立暂存目录，失败时不会在收藏柜留下半成品。',
+      '每颗扭蛋只能加载自己的资源。宿主会校验请求使用扭蛋能力的页面来源。',
+      '修复收藏柜事件重复订阅的问题。空间切换保存失败时，侧栏会恢复到实际打开的扭蛋。',
+    ],
+  },
+  {
     version: '0.1.2',
     en: [
       'Experimental local MCP support: connect your own agent to build, check and preview new capsules. Authorized connections can install verified apps directly to the shelf. Enable it in Settings → External agents; it is off by default.',

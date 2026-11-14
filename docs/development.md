@@ -83,6 +83,12 @@ npm run dist:mac       # Local signed + notarized DMG/ZIP (macOS Apple silicon)
 
 `dist:mac` requires a Developer ID Application certificate in the macOS Keychain and the Apple notarization API credentials configured in `.env`. It creates local artifacts in `release/` and does not upload them to GitHub automatically.
 
+### GitHub Actions releases
+
+- Develop on `dev`. Use **Actions → Desktop release → Run workflow** on `dev` for a trial build. Installers and update metadata appear in the run's Artifacts.
+- Update the package version, lockfile, in-app release history, and `docs/releases/vX.Y.Z.md`. Merge the release commit into `main`, then push the matching `vX.Y.Z` tag. When both builds pass, Actions creates a draft with bilingual notes and release assets.
+- Verify installation and updates on both platforms using the [release checklist](release-manual-checklist.md), then publish the draft on GitHub.
+
 ### China Mirror Setup
 
 If npm installs fail on native binaries in mainland China:

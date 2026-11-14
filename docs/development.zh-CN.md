@@ -85,8 +85,8 @@ npm run dist:mac       # 本地签名 + 公证的 DMG/ZIP（Apple 芯片 macOS�
 
 ### GitHub Actions 发版
 
-- **试跑**：在 Actions → Desktop release 点 **Run workflow**。安装包和更新清单出现在这次运行的 Artifacts 中。合并工作流前也可推送到 `codex/release-ci` 触发同样的试跑。
-- **发版**：同步更新 `package.json`、lockfile、`src/shared/releaseNotes.ts` 和 `docs/releases/vX.Y.Z.md`，提交后推送匹配的 `vX.Y.Z` 标签。两个平台检查通过后，工作流自动创建带双语说明和附件的 Release 草稿。按 [验收清单](release-manual-checklist.md) 验证安装与升级后，在 GitHub 公开草稿。
+- **开发与试跑**：日常改动进入 `dev`。在 Actions → Desktop release 点 **Run workflow**，选 `dev` 可试打包，安装包和更新清单出现在这次运行的 Artifacts 中。
+- **发版**：同步更新 `package.json`、lockfile、`src/shared/releaseNotes.ts` 和 `docs/releases/vX.Y.Z.md`。将发版提交合入 `main`，从该提交创建并推送匹配的 `vX.Y.Z` 标签。两个平台检查通过后，工作流自动创建带双语说明和附件的 Release 草稿。按 [验收清单](release-manual-checklist.md) 验证安装与升级后，在 GitHub 公开草稿。
 - **签名**：macOS 使用 Actions Secrets 中的 `MAC_CSC_LINK`、`MAC_CSC_KEY_PASSWORD`、`APPLE_API_KEY_BASE64`、`APPLE_API_KEY_ID`、`APPLE_API_ISSUER`。Windows 沿用未签名的 x64 安装包。
 
 ### 国内网络镜像
